@@ -1,0 +1,204 @@
+/* zylos-recruit · shared styles */
+
+:root {
+  --bg: #0d1117;
+  --bg-alt: #161b22;
+  --bg-card: #161b22;
+  --bg-hover: #21262d;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --text-muted: #8b949e;
+  --link: #58a6ff;
+  --accent: #238636;
+  --accent-hover: #2ea043;
+  --danger: #da3633;
+  --warn: #d29922;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #ffffff;
+    --bg-alt: #f6f8fa;
+    --bg-card: #ffffff;
+    --bg-hover: #f0f3f6;
+    --border: #d0d7de;
+    --text: #1f2328;
+    --text-muted: #656d76;
+    --link: #0969da;
+    --accent: #1f883d;
+    --accent-hover: #1a7f37;
+    --danger: #cf222e;
+    --warn: #9a6700;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Login page */
+.login-body {
+  background: var(--bg-alt);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.login-container {
+  width: 100%;
+  max-width: 360px;
+  padding: 0 24px;
+}
+.login-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 32px 24px;
+}
+.login-card h1 {
+  margin: 0 0 4px 0;
+  font-size: 1.4em;
+  text-align: center;
+}
+.login-sub {
+  margin: 0 0 20px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.login-card label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.login-card input[type="password"] {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  margin-bottom: 16px;
+}
+.login-card input[type="password"]:focus {
+  outline: none;
+  border-color: var(--link);
+}
+.login-card button {
+  width: 100%;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.login-card button:hover { background: var(--accent-hover); }
+.login-error {
+  color: var(--danger);
+  font-size: 13px;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+/* Top bar */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.topbar-left, .topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sep { color: var(--text-muted); }
+
+.btn {
+  padding: 6px 12px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text);
+  cursor: pointer;
+}
+.btn:hover { background: var(--bg-hover); }
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-ghost { background: transparent; }
+.btn-danger {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+select, input[type="text"], input[type="email"], input[type="number"], textarea {
+  padding: 6px 10px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+}
+textarea { resize: vertical; min-height: 80px; width: 100%; }
+
+/* Modal */
+.modal.hidden { display: none; }
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+}
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+}
+.modal-content {
+  position: relative;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: min(900px, 92vw);
+  max-height: 90vh;
+  margin: 5vh auto;
+  padding: 24px;
+  overflow: auto;
+}
+.modal-close {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 24px;
+  cursor: pointer;
+}
+.modal-close:hover { color: var(--text); }

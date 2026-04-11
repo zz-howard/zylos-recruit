@@ -1,0 +1,128 @@
+#!/usr/bin/env node
+/**
+ * zylos-recruit
+ *
+ * Recruitment management (ATS) for zylos — Kanban board + REST API.
+ */
+
+import dotenv from 'dotenv';
+import path from 'node:path';
+import fs from 'node:fs';
+import express from 'express';
+
+dotenv.config({ path: path.join(process.env.HOME, 'zylos/.env') });
+
+import { getConfig, watchConfig, DATA_DIR, LOGS_DIR, RESUMES_DIR } from './lib/config.js';
+import { getDb } from './lib/db.js';
+import { setupAuth } from './security/auth.js';
+import { uiRoute } from './routes/ui.js';
+import { rolesRouter } from './routes/api-roles.js';
+import { candidatesRouter } from './routes/api-candidates.js';
+import { resumesRouter } from './routes/api-resumes.js';
+
+const BASE_URL = '/recruit';
+
+console.log('[recruit] Starting...');
+console.log('[recruit] Data directory:', DATA_DIR);
+
+let config = getConfig();
+console.log('[recruit] Config loaded, enabled:', config.enabled);
+console.log('[recruit] Port:', config.port);
+console.log('[recruit] Auth:', config.auth?.enabled && config.auth?.password ? 'enabled' : 'disabled');
+
+if (!config.enabled) {
+  console.log('[recruit] Component disabled in config, exiting.');
+  process.exit(0);
+}
+
+// Ensure data dirs
+fs.mkdirSync(DATA_DIR, { recursive: true });
+fs.mkdirSync(LOGS_DIR, { recursive: true });
+fs.mkdirSync(RESUMES_DIR, { recursive: true });
+
+// Initialize DB (runs migrations)
+getDb();
+console.log('[recruit] Database initialized');
+
+let server = null;
+
+watchConfig((newConfig) => {
+  console.log('[recruit] Config reloaded');
+  config = newConfig;
+  if (!newConfig.enabled) {
+    console.log('[recruit] Component disabled, stopping...');
+    shutdown();
+  }
+});
+
+async function main() {
+  const app = express();
+
+  // Trust first proxy hop (Caddy on localhost)
+  app.set('trust proxy', 'loopback');
+
+  // Security headers
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Content-Security-Policy', [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data:",
+      "frame-src 'self'",
+      "object-src 'none'",
+      "base-uri 'self'",
+    ].join('; '));
+    next();
+  });
+
+  // Static assets (before auth so login page can load CSS)
+  const assetsDir = path.join(import.meta.dirname, '..', 'assets');
+  app.use('/_assets', express.static(assetsDir, {
+    maxAge: '1h',
+  }));
+
+  // Auth (login/logout + gate)
+  setupAuth(app, config.auth || {}, BASE_URL);
+
+  // Routes (authenticated)
+  app.get('/', uiRoute(BASE_URL));
+  app.use('/api/roles', rolesRouter());
+  app.use('/api/candidates', candidatesRouter());
+  app.use('/api/candidates', resumesRouter(config.upload));
+
+  // Error handler
+  app.use((err, req, res, _next) => {
+    console.error('[recruit] error:', err);
+    if (res.headersSent) return;
+    res.status(500).json({ error: 'internal error' });
+  });
+
+  const port = config.port;
+  server = app.listen(port, '127.0.0.1', () => {
+    console.log(`[recruit] Server listening on 127.0.0.1:${port}`);
+  });
+}
+
+function shutdown() {
+  console.log('[recruit] Shutting down...');
+  if (server) {
+    server.close(() => {
+      console.log('[recruit] Server closed');
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 5000);
+  } else {
+    process.exit(0);
+  }
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+
+main().catch(err => {
+  console.error('[recruit] Fatal error:', err);
+  process.exit(1);
+});
