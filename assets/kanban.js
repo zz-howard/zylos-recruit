@@ -440,6 +440,154 @@
     });
   }
 
+  // ─── Role management ─────────────────────────────────────────
+
+  function openRoleManager() {
+    if (!state.activeCompanyId) {
+      toast('Please select a company first', 'error');
+      return;
+    }
+    var wrap = document.createElement('div');
+    wrap.className = 'form-dialog';
+    wrap.innerHTML = ''
+      + '<h2>Manage Roles</h2>'
+      + '<div id="role-list"></div>'
+      + '<hr>'
+      + '<h3>Add new role</h3>'
+      + '<div class="field"><label>Name</label>'
+      +   '<input type="text" id="f-role-name" placeholder="e.g. LLM 架构师"></div>'
+      + '<div class="field"><label>Description (optional)</label>'
+      +   '<textarea id="f-role-desc" rows="2"></textarea></div>'
+      + '<div class="actions">'
+      +   '<button class="btn" id="f-close">Close</button>'
+      +   '<button class="btn btn-primary" id="f-add">Create role</button>'
+      + '</div>';
+    openModal(wrap);
+
+    function rerender() {
+      var list = wrap.querySelector('#role-list');
+      if (state.roles.length === 0) {
+        list.innerHTML = '<div class="meta">No roles yet.</div>';
+        return;
+      }
+      list.innerHTML = state.roles.map(function (r) {
+        return ''
+          + '<div class="company-row" data-id="' + r.id + '">'
+          +   '<div class="company-row-head">'
+          +     '<strong>' + escapeHtml(r.name) + '</strong>'
+          +     '<span class="meta"> · ' + (r.candidate_count || 0) + ' candidates</span>'
+          +     (r.description
+                   ? '<div class="meta">' + escapeHtml(r.description) + '</div>'
+                   : '')
+          +   '</div>'
+          +   '<div class="company-row-actions">'
+          +     '<button class="btn btn-ghost" data-act="edit">Edit</button>'
+          +     '<button class="btn btn-ghost" data-act="profile">Edit profile</button>'
+          +     '<button class="btn btn-danger btn-ghost" data-act="delete">Delete</button>'
+          +   '</div>'
+          + '</div>';
+      }).join('');
+
+      list.querySelectorAll('.company-row').forEach(function (row) {
+        var id = Number(row.dataset.id);
+        row.querySelector('[data-act="edit"]').addEventListener('click', function () {
+          openRoleEditor(id);
+        });
+        row.querySelector('[data-act="profile"]').addEventListener('click', function () {
+          openRoleProfileEditor(id);
+        });
+        row.querySelector('[data-act="delete"]').addEventListener('click', function () {
+          if (!confirm('Delete this role? Candidates in this role will be unassigned (role set to null). This cannot be undone.')) return;
+          api('DELETE', '/roles/' + id)
+            .then(function () { toast('Deleted', 'success'); return loadRolesAndCandidates().then(rerender); })
+            .catch(function (err) { toast(err.message, 'error'); });
+        });
+      });
+    }
+
+    rerender();
+
+    wrap.querySelector('#f-close').addEventListener('click', closeModal);
+    wrap.querySelector('#f-add').addEventListener('click', function () {
+      var name = wrap.querySelector('#f-role-name').value.trim();
+      var description = wrap.querySelector('#f-role-desc').value.trim();
+      if (!name) { toast('name required', 'error'); return; }
+      api('POST', '/roles', {
+        company_id: Number(state.activeCompanyId),
+        name: name,
+        description: description,
+      })
+        .then(function () {
+          toast('Role created', 'success');
+          wrap.querySelector('#f-role-name').value = '';
+          wrap.querySelector('#f-role-desc').value = '';
+          return loadRolesAndCandidates().then(rerender);
+        })
+        .catch(function (err) { toast(err.message, 'error'); });
+    });
+  }
+
+  function openRoleEditor(roleId) {
+    api('GET', '/roles/' + roleId).then(function (r) {
+      var role = r.role;
+      var wrap = document.createElement('div');
+      wrap.className = 'form-dialog';
+      wrap.innerHTML = ''
+        + '<h2>Edit Role</h2>'
+        + '<div class="field"><label>Name</label>'
+        +   '<input type="text" id="f-name"></div>'
+        + '<div class="field"><label>Description</label>'
+        +   '<textarea id="f-desc" rows="3"></textarea></div>'
+        + '<div class="actions">'
+        +   '<button class="btn" id="f-cancel">Cancel</button>'
+        +   '<button class="btn btn-primary" id="f-save">Save</button>'
+        + '</div>';
+      openModal(wrap);
+      wrap.querySelector('#f-name').value = role.name || '';
+      wrap.querySelector('#f-desc').value = role.description || '';
+      wrap.querySelector('#f-cancel').addEventListener('click', openRoleManager);
+      wrap.querySelector('#f-save').addEventListener('click', function () {
+        var name = wrap.querySelector('#f-name').value.trim();
+        var description = wrap.querySelector('#f-desc').value.trim();
+        if (!name) { toast('name required', 'error'); return; }
+        api('PUT', '/roles/' + roleId, { name: name, description: description })
+          .then(function () {
+            toast('Saved', 'success');
+            return loadRolesAndCandidates().then(openRoleManager);
+          })
+          .catch(function (err) { toast(err.message, 'error'); });
+      });
+    }).catch(function (err) { toast(err.message, 'error'); });
+  }
+
+  function openRoleProfileEditor(roleId) {
+    api('GET', '/roles/' + roleId).then(function (r) {
+      var role = r.role;
+      var wrap = document.createElement('div');
+      wrap.className = 'form-dialog';
+      var currentContent = role.profile ? role.profile.content : '';
+      var currentVersion = role.profile ? role.profile.version : 0;
+      wrap.innerHTML = ''
+        + '<h2>Role Profile — ' + escapeHtml(role.name) + '</h2>'
+        + '<div class="meta">Markdown JD / 岗位画像. Each save creates a new version. Current version: ' + currentVersion + '</div>'
+        + '<div class="field"><textarea id="f-profile" rows="20" placeholder="## 岗位职责\\n\\n## 任职要求\\n\\n## 加分项"></textarea></div>'
+        + '<div class="actions">'
+        +   '<button class="btn" id="f-cancel">Cancel</button>'
+        +   '<button class="btn btn-primary" id="f-save">Save as new version</button>'
+        + '</div>';
+      openModal(wrap);
+      wrap.querySelector('#f-profile').value = currentContent;
+      wrap.querySelector('#f-cancel').addEventListener('click', openRoleManager);
+      wrap.querySelector('#f-save').addEventListener('click', function () {
+        var content = wrap.querySelector('#f-profile').value;
+        if (!content.trim()) { toast('content required', 'error'); return; }
+        api('PUT', '/roles/' + roleId + '/profile', { content: content })
+          .then(function () { toast('Profile saved', 'success'); openRoleManager(); })
+          .catch(function (err) { toast(err.message, 'error'); });
+      });
+    }).catch(function (err) { toast(err.message, 'error'); });
+  }
+
   // ─── Company management ──────────────────────────────────────
 
   function openCompanyManager() {
@@ -574,6 +722,7 @@
   });
 
   document.getElementById('btn-manage-companies').addEventListener('click', openCompanyManager);
+  document.getElementById('btn-manage-roles').addEventListener('click', openRoleManager);
   document.getElementById('btn-new-role').addEventListener('click', openNewRoleForm);
   document.getElementById('btn-new-candidate').addEventListener('click', openNewCandidateForm);
   document.getElementById('role-filter').addEventListener('change', function (e) {

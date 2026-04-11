@@ -1,6 +1,6 @@
 import express from 'express';
 import {
-  listRoles, getRole, createRole, updateRoleProfile,
+  listRoles, getRole, createRole, updateRole, updateRoleProfile, deleteRole,
 } from '../lib/db.js';
 
 export function rolesRouter() {
@@ -47,6 +47,28 @@ export function rolesRouter() {
     res.json({ role });
   });
 
+  router.put('/:id', (req, res) => {
+    const { name, description } = req.body || {};
+    if (name !== undefined && (typeof name !== 'string' || !name.trim())) {
+      return res.status(400).json({ error: 'name must be a non-empty string' });
+    }
+    const id = Number(req.params.id);
+    const existing = getRole(id);
+    if (!existing) return res.status(404).json({ error: 'not found' });
+    try {
+      const role = updateRole(id, {
+        name: name !== undefined ? name.trim() : undefined,
+        description: description !== undefined ? (description || null) : undefined,
+      });
+      res.json({ role });
+    } catch (err) {
+      if (String(err.message).includes('UNIQUE')) {
+        return res.status(409).json({ error: 'role name already exists in this company' });
+      }
+      throw err;
+    }
+  });
+
   router.put('/:id/profile', (req, res) => {
     const { content } = req.body || {};
     if (typeof content !== 'string' || !content.trim()) {
@@ -55,6 +77,14 @@ export function rolesRouter() {
     const role = updateRoleProfile(Number(req.params.id), content);
     if (!role) return res.status(404).json({ error: 'not found' });
     res.json({ role });
+  });
+
+  router.delete('/:id', (req, res) => {
+    const id = Number(req.params.id);
+    const existing = getRole(id);
+    if (!existing) return res.status(404).json({ error: 'not found' });
+    deleteRole(id);
+    res.status(204).end();
   });
 
   return router;

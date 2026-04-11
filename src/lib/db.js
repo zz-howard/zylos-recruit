@@ -204,6 +204,21 @@ export function createRole({ companyId, name, description }) {
   return getRole(info.lastInsertRowid);
 }
 
+export function updateRole(id, { name, description }) {
+  const fields = [];
+  const params = [];
+  if (typeof name === 'string') { fields.push('name = ?'); params.push(name); }
+  if (typeof description === 'string' || description === null) {
+    fields.push('description = ?');
+    params.push(description);
+  }
+  if (fields.length === 0) return getRole(id);
+  fields.push(`updated_at = datetime('now')`);
+  params.push(id);
+  getDb().prepare(`UPDATE roles SET ${fields.join(', ')} WHERE id = ?`).run(...params);
+  return getRole(id);
+}
+
 export function updateRoleProfile(roleId, content) {
   const row = getDb().prepare(`
     SELECT COALESCE(MAX(version), 0) AS v FROM role_profiles WHERE role_id = ?
@@ -214,6 +229,10 @@ export function updateRoleProfile(roleId, content) {
   `).run(roleId, nextVersion, content);
   getDb().prepare(`UPDATE roles SET updated_at = datetime('now') WHERE id = ?`).run(roleId);
   return getRole(roleId);
+}
+
+export function deleteRole(id) {
+  getDb().prepare('DELETE FROM roles WHERE id = ?').run(id);
 }
 
 // ─── Candidates ───────────────────────────────────────────────────────
