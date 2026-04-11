@@ -16,6 +16,7 @@ import { getConfig, watchConfig, DATA_DIR, LOGS_DIR, RESUMES_DIR } from './lib/c
 import { getDb } from './lib/db.js';
 import { setupAuth } from './security/auth.js';
 import { uiRoute } from './routes/ui.js';
+import { companiesRouter } from './routes/api-companies.js';
 import { rolesRouter } from './routes/api-roles.js';
 import { candidatesRouter } from './routes/api-candidates.js';
 import { resumesRouter } from './routes/api-resumes.js';
@@ -89,6 +90,7 @@ async function main() {
 
   // Routes (authenticated)
   app.get('/', uiRoute(BASE_URL));
+  app.use('/api/companies', companiesRouter());
   app.use('/api/roles', rolesRouter());
   app.use('/api/candidates', candidatesRouter());
   app.use('/api/candidates', resumesRouter(config.upload));

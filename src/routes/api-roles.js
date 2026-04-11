@@ -8,20 +8,34 @@ export function rolesRouter() {
   router.use(express.json({ limit: '1mb' }));
 
   router.get('/', (req, res) => {
-    res.json({ roles: listRoles() });
+    const companyId = req.query.company_id ? Number(req.query.company_id) : undefined;
+    if (!companyId) {
+      return res.status(400).json({ error: 'company_id required' });
+    }
+    res.json({ roles: listRoles({ companyId }) });
   });
 
   router.post('/', (req, res) => {
-    const { name, description } = req.body || {};
+    const { company_id, name, description } = req.body || {};
+    if (!company_id) {
+      return res.status(400).json({ error: 'company_id required' });
+    }
     if (!name || typeof name !== 'string') {
       return res.status(400).json({ error: 'name required' });
     }
     try {
-      const role = createRole({ name: name.trim(), description });
+      const role = createRole({
+        companyId: Number(company_id),
+        name: name.trim(),
+        description,
+      });
       res.status(201).json({ role });
     } catch (err) {
       if (String(err.message).includes('UNIQUE')) {
-        return res.status(409).json({ error: 'role name already exists' });
+        return res.status(409).json({ error: 'role name already exists in this company' });
+      }
+      if (String(err.message).includes('FOREIGN KEY')) {
+        return res.status(400).json({ error: 'company not found' });
       }
       throw err;
     }

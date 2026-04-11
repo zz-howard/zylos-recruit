@@ -163,9 +163,37 @@
 }
 
 .form-dialog {
-  max-width: 480px;
+  max-width: 600px;
   margin: 0 auto;
 }
+.form-dialog h2 { margin-top: 0; }
+.form-dialog h3 { margin-top: 16px; font-size: 14px; color: var(--text-muted); }
+.form-dialog hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+.company-row {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.company-row-head { flex: 1; min-width: 200px; }
+.company-row-actions { display: flex; gap: 6px; }
+
+#company-switcher {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 13px;
+  max-width: 200px;
+}
+
 .form-dialog .field { margin-bottom: 12px; }
 .form-dialog .field input,
 .form-dialog .field select,

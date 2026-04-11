@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-04-11
+
+### Added
+- **Multi-company support.** Companies are now the first-level entity; roles and candidates are scoped to a company.
+- `companies` table + `company_profiles` table (versioned markdown company background).
+- `company_id` foreign key added to `roles` and `candidates` (cascading delete).
+- New REST API: `/api/companies` (list / get / create / rename / update profile / delete).
+- `/api/roles` and `/api/candidates` now require a `company_id` query param (GET) or body field (POST).
+- Top-bar **company switcher** dropdown. Active selection cached in `localStorage` under `zylos_recruit_active_company` — on reopen, the last-selected company loads automatically.
+- **Company manager** modal (⚙ button): list / rename / edit profile / delete companies; add new companies.
+- **Company profile editor**: markdown editor backed by versioned `company_profiles` storage.
+- Cross-company isolation: a role created in company A cannot be assigned to a candidate in company B; server rejects such writes with `400 different company`.
+
+### Changed
+- `roles` table now has a compound uniqueness constraint `(company_id, name)` instead of global `name` uniqueness — two companies can have a role of the same name.
+- Role dropdown and candidate list always filtered to the active company.
+
+### Breaking
+- **v0.1.0 → v0.2.0 requires a DB wipe.** The new schema adds NOT NULL `company_id` columns to `roles` and `candidates`. Since v0.1.0 was freshly shipped and had no production data, the upgrade path is: stop service → delete `~/zylos/components/recruit/recruit.db` (+ `-wal`/`-shm`) → restart service. The new schema will be created on first boot.
+
+### Upgrade
+
+```bash
+pm2 stop zylos-recruit
+rm ~/zylos/components/recruit/recruit.db{,-wal,-shm}
+zylos upgrade recruit   # or re-install from GitHub
+pm2 start zylos-recruit
+```
+
+After restart, open `/recruit/`, click ⚙ to create your first company, then create roles and candidates inside it.
+
 ## [0.1.0] - 2026-04-11
 
 ### Added

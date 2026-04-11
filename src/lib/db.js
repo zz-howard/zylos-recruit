@@ -2,9 +2,11 @@
  * SQLite database layer for zylos-recruit.
  *
  * Tables:
- *   roles              — job roles being recruited for
+ *   companies          — companies being recruited for (first-level entity)
+ *   company_profiles   — versioned markdown company background
+ *   roles              — job roles, scoped to a company
  *   role_profiles      — versioned markdown profiles per role
- *   candidates         — individuals applying / sourced
+ *   candidates         — individuals (scoped to a company via role.company_id)
  *   interview_stages   — per-candidate interview rounds
  *   evaluations        — interview feedback notes
  *
@@ -14,7 +16,6 @@
 
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
-import path from 'node:path';
 import { DB_PATH, DATA_DIR } from './config.js';
 
 export const STATES = ['pending', 'scheduled', 'interviewed', 'passed', 'rejected'];
@@ -33,13 +34,33 @@ export function getDb() {
 
 function migrate(db) {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS roles (
+    CREATE TABLE IF NOT EXISTS companies (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       name        TEXT NOT NULL UNIQUE,
-      description TEXT,
       created_at  TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS company_profiles (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      company_id  INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      version     INTEGER NOT NULL,
+      content     TEXT NOT NULL,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(company_id, version)
+    );
+
+    CREATE TABLE IF NOT EXISTS roles (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      company_id  INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      name        TEXT NOT NULL,
+      description TEXT,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(company_id, name)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_roles_company ON roles(company_id);
 
     CREATE TABLE IF NOT EXISTS role_profiles (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,6 +73,7 @@ function migrate(db) {
 
     CREATE TABLE IF NOT EXISTS candidates (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      company_id     INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
       name           TEXT NOT NULL,
       role_id        INTEGER REFERENCES roles(id) ON DELETE SET NULL,
       email          TEXT,
@@ -66,8 +88,9 @@ function migrate(db) {
       updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
-    CREATE INDEX IF NOT EXISTS idx_candidates_role  ON candidates(role_id);
-    CREATE INDEX IF NOT EXISTS idx_candidates_state ON candidates(state);
+    CREATE INDEX IF NOT EXISTS idx_candidates_company ON candidates(company_id);
+    CREATE INDEX IF NOT EXISTS idx_candidates_role    ON candidates(role_id);
+    CREATE INDEX IF NOT EXISTS idx_candidates_state   ON candidates(state);
 
     CREATE TABLE IF NOT EXISTS interview_stages (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,16 +118,74 @@ function migrate(db) {
   `);
 }
 
+// ─── Companies ────────────────────────────────────────────────────────
+
+export function listCompanies() {
+  return getDb().prepare(`
+    SELECT c.*, (
+      SELECT COUNT(*) FROM roles r WHERE r.company_id = c.id
+    ) AS role_count, (
+      SELECT COUNT(*) FROM candidates cd WHERE cd.company_id = c.id
+    ) AS candidate_count
+    FROM companies c
+    ORDER BY c.created_at ASC
+  `).all();
+}
+
+export function getCompany(id) {
+  const company = getDb().prepare('SELECT * FROM companies WHERE id = ?').get(id);
+  if (!company) return null;
+  company.profile = getDb().prepare(`
+    SELECT * FROM company_profiles WHERE company_id = ? ORDER BY version DESC LIMIT 1
+  `).get(id) || null;
+  return company;
+}
+
+export function createCompany({ name }) {
+  const info = getDb().prepare(`
+    INSERT INTO companies (name) VALUES (?)
+  `).run(name);
+  return getCompany(info.lastInsertRowid);
+}
+
+export function updateCompany(id, { name }) {
+  getDb().prepare(`
+    UPDATE companies SET name = ?, updated_at = datetime('now') WHERE id = ?
+  `).run(name, id);
+  return getCompany(id);
+}
+
+export function updateCompanyProfile(companyId, content) {
+  const row = getDb().prepare(`
+    SELECT COALESCE(MAX(version), 0) AS v FROM company_profiles WHERE company_id = ?
+  `).get(companyId);
+  const nextVersion = (row?.v || 0) + 1;
+  getDb().prepare(`
+    INSERT INTO company_profiles (company_id, version, content) VALUES (?, ?, ?)
+  `).run(companyId, nextVersion, content);
+  getDb().prepare(`UPDATE companies SET updated_at = datetime('now') WHERE id = ?`).run(companyId);
+  return getCompany(companyId);
+}
+
+export function deleteCompany(id) {
+  getDb().prepare('DELETE FROM companies WHERE id = ?').run(id);
+}
+
 // ─── Roles ────────────────────────────────────────────────────────────
 
-export function listRoles() {
+export function listRoles({ companyId } = {}) {
+  const where = [];
+  const params = [];
+  if (companyId) { where.push('r.company_id = ?'); params.push(companyId); }
+  const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
   return getDb().prepare(`
     SELECT r.*, (
       SELECT COUNT(*) FROM candidates c WHERE c.role_id = r.id
     ) AS candidate_count
     FROM roles r
+    ${whereClause}
     ORDER BY r.created_at DESC
-  `).all();
+  `).all(...params);
 }
 
 export function getRole(id) {
@@ -116,10 +197,10 @@ export function getRole(id) {
   return role;
 }
 
-export function createRole({ name, description }) {
+export function createRole({ companyId, name, description }) {
   const info = getDb().prepare(`
-    INSERT INTO roles (name, description) VALUES (?, ?)
-  `).run(name, description || null);
+    INSERT INTO roles (company_id, name, description) VALUES (?, ?, ?)
+  `).run(companyId, name, description || null);
   return getRole(info.lastInsertRowid);
 }
 
@@ -137,11 +218,12 @@ export function updateRoleProfile(roleId, content) {
 
 // ─── Candidates ───────────────────────────────────────────────────────
 
-export function listCandidates({ roleId, state } = {}) {
+export function listCandidates({ companyId, roleId, state } = {}) {
   const where = [];
   const params = [];
-  if (roleId) { where.push('c.role_id = ?'); params.push(roleId); }
-  if (state)  { where.push('c.state = ?');   params.push(state); }
+  if (companyId) { where.push('c.company_id = ?'); params.push(companyId); }
+  if (roleId)    { where.push('c.role_id = ?');    params.push(roleId); }
+  if (state)     { where.push('c.state = ?');      params.push(state); }
   const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
   return getDb().prepare(`
     SELECT c.*, r.name AS role_name
@@ -170,11 +252,17 @@ export function getCandidate(id) {
 }
 
 export function createCandidate(data) {
-  const { name, role_id, email, phone, source, brief } = data;
+  const { companyId, name, role_id, email, phone, source, brief } = data;
+  // If role_id supplied, verify it belongs to the same company
+  if (role_id) {
+    const role = getDb().prepare('SELECT company_id FROM roles WHERE id = ?').get(role_id);
+    if (!role) throw new Error('role not found');
+    if (role.company_id !== companyId) throw new Error('role belongs to a different company');
+  }
   const info = getDb().prepare(`
-    INSERT INTO candidates (name, role_id, email, phone, source, brief)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(name, role_id || null, email || null, phone || null, source || null, brief || null);
+    INSERT INTO candidates (company_id, name, role_id, email, phone, source, brief)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(companyId, name, role_id || null, email || null, phone || null, source || null, brief || null);
   return getCandidate(info.lastInsertRowid);
 }
 
@@ -183,6 +271,14 @@ const UPDATABLE = new Set(['name', 'role_id', 'email', 'phone', 'source', 'brief
 export function updateCandidate(id, updates) {
   const keys = Object.keys(updates).filter(k => UPDATABLE.has(k));
   if (keys.length === 0) return getCandidate(id);
+  // If role_id is being updated, verify it belongs to the candidate's company
+  if (updates.role_id) {
+    const cand = getDb().prepare('SELECT company_id FROM candidates WHERE id = ?').get(id);
+    if (!cand) return null;
+    const role = getDb().prepare('SELECT company_id FROM roles WHERE id = ?').get(updates.role_id);
+    if (!role) throw new Error('role not found');
+    if (role.company_id !== cand.company_id) throw new Error('role belongs to a different company');
+  }
   const setClause = keys.map(k => `${k} = ?`).join(', ');
   const values = keys.map(k => updates[k]);
   getDb().prepare(`

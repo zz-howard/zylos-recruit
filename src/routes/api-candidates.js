@@ -9,22 +9,41 @@ export function candidatesRouter() {
   router.use(express.json({ limit: '1mb' }));
 
   router.get('/', (req, res) => {
+    const companyId = req.query.company_id ? Number(req.query.company_id) : undefined;
+    if (!companyId) {
+      return res.status(400).json({ error: 'company_id required' });
+    }
     const roleId = req.query.role_id ? Number(req.query.role_id) : undefined;
     const state = req.query.state || undefined;
-    res.json({ candidates: listCandidates({ roleId, state }) });
+    res.json({ candidates: listCandidates({ companyId, roleId, state }) });
   });
 
   router.post('/', (req, res) => {
-    const { name, role_id, email, phone, source, brief } = req.body || {};
+    const { company_id, name, role_id, email, phone, source, brief } = req.body || {};
+    if (!company_id) {
+      return res.status(400).json({ error: 'company_id required' });
+    }
     if (!name || typeof name !== 'string') {
       return res.status(400).json({ error: 'name required' });
     }
-    const cand = createCandidate({
-      name: name.trim(),
-      role_id: role_id ? Number(role_id) : null,
-      email, phone, source, brief,
-    });
-    res.status(201).json({ candidate: cand });
+    try {
+      const cand = createCandidate({
+        companyId: Number(company_id),
+        name: name.trim(),
+        role_id: role_id ? Number(role_id) : null,
+        email, phone, source, brief,
+      });
+      res.status(201).json({ candidate: cand });
+    } catch (err) {
+      const msg = String(err.message || '');
+      if (msg.includes('different company') || msg.includes('role not found')) {
+        return res.status(400).json({ error: err.message });
+      }
+      if (msg.includes('FOREIGN KEY')) {
+        return res.status(400).json({ error: 'company not found' });
+      }
+      throw err;
+    }
   });
 
   router.get('/:id', (req, res) => {
@@ -34,9 +53,17 @@ export function candidatesRouter() {
   });
 
   router.put('/:id', (req, res) => {
-    const cand = updateCandidate(Number(req.params.id), req.body || {});
-    if (!cand) return res.status(404).json({ error: 'not found' });
-    res.json({ candidate: cand });
+    try {
+      const cand = updateCandidate(Number(req.params.id), req.body || {});
+      if (!cand) return res.status(404).json({ error: 'not found' });
+      res.json({ candidate: cand });
+    } catch (err) {
+      const msg = String(err.message || '');
+      if (msg.includes('different company') || msg.includes('role not found')) {
+        return res.status(400).json({ error: err.message });
+      }
+      throw err;
+    }
   });
 
   router.delete('/:id', (req, res) => {

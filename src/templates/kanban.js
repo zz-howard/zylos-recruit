@@ -17,6 +17,11 @@ export function kanbanPageHtml(baseUrl) {
     <div class="topbar-left">
       <strong>Zylos Recruit</strong>
       <span class="sep">·</span>
+      <select id="company-switcher" title="Active company">
+        <option value="">(no company)</option>
+      </select>
+      <button id="btn-manage-companies" class="btn btn-ghost" title="Manage companies">⚙</button>
+      <span class="sep">·</span>
       <span id="role-label">All roles</span>
     </div>
     <div class="topbar-right">

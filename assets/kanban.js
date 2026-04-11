@@ -8,6 +8,8 @@
   var BASE = board.dataset.baseUrl || '';
   var API = BASE + '/api';
 
+  var LS_KEY = 'zylos_recruit_active_company';
+
   var STATE_LABELS = {
     pending: '待处理',
     scheduled: '已预约',
@@ -17,6 +19,8 @@
   };
 
   var state = {
+    companies: [],
+    activeCompanyId: '',
     roles: [],
     candidates: [],
     filterRoleId: '',
@@ -63,18 +67,88 @@
     setTimeout(function () { el.remove(); }, 3000);
   }
 
-  // ─── Data loading ─────────────────────────────────────────────
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];
+    });
+  }
 
-  function loadAll() {
+  // ─── localStorage ─────────────────────────────────────────────
+
+  function loadActiveCompanyFromStorage() {
+    try { return localStorage.getItem(LS_KEY) || ''; } catch (e) { return ''; }
+  }
+  function saveActiveCompanyToStorage(id) {
+    try { localStorage.setItem(LS_KEY, id ? String(id) : ''); } catch (e) {}
+  }
+
+  // ─── Companies ────────────────────────────────────────────────
+
+  function loadCompanies() {
+    return api('GET', '/companies').then(function (r) {
+      state.companies = r.companies;
+      renderCompanySwitcher();
+
+      // Decide active company
+      var stored = loadActiveCompanyFromStorage();
+      var storedValid = stored && state.companies.some(function (c) {
+        return String(c.id) === stored;
+      });
+      if (storedValid) {
+        state.activeCompanyId = stored;
+      } else if (state.companies.length > 0) {
+        state.activeCompanyId = String(state.companies[0].id);
+        saveActiveCompanyToStorage(state.activeCompanyId);
+      } else {
+        state.activeCompanyId = '';
+      }
+      var sel = document.getElementById('company-switcher');
+      sel.value = state.activeCompanyId;
+    });
+  }
+
+  function renderCompanySwitcher() {
+    var sel = document.getElementById('company-switcher');
+    sel.innerHTML = '';
+    if (state.companies.length === 0) {
+      var opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '(no companies — click ⚙ to add)';
+      sel.appendChild(opt);
+      return;
+    }
+    state.companies.forEach(function (c) {
+      var opt = document.createElement('option');
+      opt.value = String(c.id);
+      opt.textContent = c.name;
+      sel.appendChild(opt);
+    });
+  }
+
+  // ─── Roles + Candidates load ──────────────────────────────────
+
+  function loadRolesAndCandidates() {
+    if (!state.activeCompanyId) {
+      state.roles = [];
+      state.candidates = [];
+      renderRoleFilter();
+      renderBoard();
+      return Promise.resolve();
+    }
+    var cid = '?company_id=' + encodeURIComponent(state.activeCompanyId);
     return Promise.all([
-      api('GET', '/roles'),
-      api('GET', '/candidates'),
+      api('GET', '/roles' + cid),
+      api('GET', '/candidates' + cid),
     ]).then(function (results) {
       state.roles = results[0].roles;
       state.candidates = results[1].candidates;
       renderRoleFilter();
       renderBoard();
     }).catch(function (err) { toast(err.message, 'error'); });
+  }
+
+  function loadAll() {
+    return loadCompanies().then(loadRolesAndCandidates);
   }
 
   function renderRoleFilter() {
@@ -87,6 +161,12 @@
       opt.textContent = r.name + ' (' + r.candidate_count + ')';
       sel.appendChild(opt);
     });
+    // Reset filter if the previously filtered role is no longer present
+    if (cur && !state.roles.some(function (r) { return String(r.id) === cur; })) {
+      state.filterRoleId = '';
+      cur = '';
+      document.getElementById('role-label').textContent = 'All roles';
+    }
     sel.value = cur;
   }
 
@@ -150,12 +230,6 @@
       state.selectedCandidate = r.candidate;
       renderCandidateModal(r.candidate);
     }).catch(function (err) { toast(err.message, 'error'); });
-  }
-
-  function escapeHtml(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-      return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];
-    });
   }
 
   function renderCandidateModal(c) {
@@ -238,7 +312,7 @@
         api('POST', '/candidates/' + c.id + '/move', { state: s })
           .then(function () {
             toast('Moved to ' + STATE_LABELS[s], 'success');
-            return loadAll().then(function () { openCandidate(c.id); });
+            return loadRolesAndCandidates().then(function () { openCandidate(c.id); });
           })
           .catch(function (err) { toast(err.message, 'error'); });
       });
@@ -250,14 +324,14 @@
         updates[el.dataset.k] = el.value;
       });
       api('PUT', '/candidates/' + c.id, updates)
-        .then(function () { toast('Saved', 'success'); return loadAll(); })
+        .then(function () { toast('Saved', 'success'); return loadRolesAndCandidates(); })
         .catch(function (err) { toast(err.message, 'error'); });
     });
 
     wrap.querySelector('#btn-delete-cand').addEventListener('click', function () {
       if (!confirm('Delete this candidate? This cannot be undone.')) return;
       api('DELETE', '/candidates/' + c.id)
-        .then(function () { toast('Deleted'); closeModal(); return loadAll(); })
+        .then(function () { toast('Deleted'); closeModal(); return loadRolesAndCandidates(); })
         .catch(function (err) { toast(err.message, 'error'); });
     });
 
@@ -272,7 +346,7 @@
       api('POST', '/candidates/' + c.id + '/evaluate', body)
         .then(function () {
           toast('Evaluation added', 'success');
-          return loadAll().then(function () { openCandidate(c.id); });
+          return loadRolesAndCandidates().then(function () { openCandidate(c.id); });
         })
         .catch(function (err) { toast(err.message, 'error'); });
     });
@@ -283,7 +357,7 @@
       upload('/candidates/' + c.id + '/resume', fileInput.files[0])
         .then(function () {
           toast('Resume uploaded', 'success');
-          return loadAll().then(function () { openCandidate(c.id); });
+          return loadRolesAndCandidates().then(function () { openCandidate(c.id); });
         })
         .catch(function (err) { toast(err.message, 'error'); });
     });
@@ -292,6 +366,10 @@
   // ─── New role / candidate forms ───────────────────────────────
 
   function openNewRoleForm() {
+    if (!state.activeCompanyId) {
+      toast('Please create/select a company first', 'error');
+      return;
+    }
     var wrap = document.createElement('div');
     wrap.className = 'form-dialog';
     wrap.innerHTML = ''
@@ -310,13 +388,21 @@
       var name = wrap.querySelector('#f-name').value.trim();
       var description = wrap.querySelector('#f-desc').value.trim();
       if (!name) { toast('name required', 'error'); return; }
-      api('POST', '/roles', { name: name, description: description })
-        .then(function () { toast('Role created', 'success'); closeModal(); return loadAll(); })
+      api('POST', '/roles', {
+        company_id: Number(state.activeCompanyId),
+        name: name,
+        description: description,
+      })
+        .then(function () { toast('Role created', 'success'); closeModal(); return loadRolesAndCandidates(); })
         .catch(function (err) { toast(err.message, 'error'); });
     });
   }
 
   function openNewCandidateForm() {
+    if (!state.activeCompanyId) {
+      toast('Please create/select a company first', 'error');
+      return;
+    }
     var wrap = document.createElement('div');
     wrap.className = 'form-dialog';
     var roleOptions = '<option value="">(no role)</option>' + state.roles.map(function (r) {
@@ -340,6 +426,7 @@
       var name = wrap.querySelector('#f-name').value.trim();
       if (!name) { toast('name required', 'error'); return; }
       var payload = {
+        company_id: Number(state.activeCompanyId),
         name: name,
         role_id: wrap.querySelector('#f-role').value || null,
         email: wrap.querySelector('#f-email').value,
@@ -348,13 +435,145 @@
         brief: wrap.querySelector('#f-brief').value,
       };
       api('POST', '/candidates', payload)
-        .then(function () { toast('Candidate created', 'success'); closeModal(); return loadAll(); })
+        .then(function () { toast('Candidate created', 'success'); closeModal(); return loadRolesAndCandidates(); })
         .catch(function (err) { toast(err.message, 'error'); });
     });
   }
 
+  // ─── Company management ──────────────────────────────────────
+
+  function openCompanyManager() {
+    var wrap = document.createElement('div');
+    wrap.className = 'form-dialog';
+    wrap.innerHTML = ''
+      + '<h2>Manage Companies</h2>'
+      + '<div id="company-list"></div>'
+      + '<hr>'
+      + '<h3>Add new company</h3>'
+      + '<div class="field"><label>Name</label>'
+      +   '<input type="text" id="f-company-name" placeholder="e.g. COCO"></div>'
+      + '<div class="actions">'
+      +   '<button class="btn" id="f-close">Close</button>'
+      +   '<button class="btn btn-primary" id="f-add">Create company</button>'
+      + '</div>';
+    openModal(wrap);
+
+    function rerender() {
+      var list = wrap.querySelector('#company-list');
+      if (state.companies.length === 0) {
+        list.innerHTML = '<div class="meta">No companies yet.</div>';
+        return;
+      }
+      list.innerHTML = state.companies.map(function (c) {
+        return ''
+          + '<div class="company-row" data-id="' + c.id + '">'
+          +   '<div class="company-row-head">'
+          +     '<strong>' + escapeHtml(c.name) + '</strong>'
+          +     '<span class="meta"> · ' + c.role_count + ' roles · ' + c.candidate_count + ' candidates</span>'
+          +   '</div>'
+          +   '<div class="company-row-actions">'
+          +     '<button class="btn btn-ghost" data-act="rename">Rename</button>'
+          +     '<button class="btn btn-ghost" data-act="profile">Edit profile</button>'
+          +     '<button class="btn btn-danger btn-ghost" data-act="delete">Delete</button>'
+          +   '</div>'
+          + '</div>';
+      }).join('');
+
+      list.querySelectorAll('.company-row').forEach(function (row) {
+        var id = Number(row.dataset.id);
+        row.querySelector('[data-act="rename"]').addEventListener('click', function () {
+          var cur = state.companies.find(function (x) { return x.id === id; });
+          var name = prompt('New company name:', cur ? cur.name : '');
+          if (!name || !name.trim()) return;
+          api('PUT', '/companies/' + id, { name: name.trim() })
+            .then(function () { toast('Renamed', 'success'); return loadAll().then(rerender); })
+            .catch(function (err) { toast(err.message, 'error'); });
+        });
+        row.querySelector('[data-act="profile"]').addEventListener('click', function () {
+          openCompanyProfileEditor(id);
+        });
+        row.querySelector('[data-act="delete"]').addEventListener('click', function () {
+          if (!confirm('Delete this company? All its roles and candidates will be deleted too. This cannot be undone.')) return;
+          api('DELETE', '/companies/' + id)
+            .then(function () {
+              toast('Deleted', 'success');
+              // If the active company was deleted, clear storage
+              if (String(id) === state.activeCompanyId) {
+                state.activeCompanyId = '';
+                saveActiveCompanyToStorage('');
+              }
+              return loadAll().then(rerender);
+            })
+            .catch(function (err) { toast(err.message, 'error'); });
+        });
+      });
+    }
+
+    rerender();
+
+    wrap.querySelector('#f-close').addEventListener('click', closeModal);
+    wrap.querySelector('#f-add').addEventListener('click', function () {
+      var name = wrap.querySelector('#f-company-name').value.trim();
+      if (!name) { toast('name required', 'error'); return; }
+      api('POST', '/companies', { name: name })
+        .then(function (r) {
+          toast('Company created', 'success');
+          wrap.querySelector('#f-company-name').value = '';
+          // Auto-switch to the new company if none was active
+          if (!state.activeCompanyId && r && r.company) {
+            state.activeCompanyId = String(r.company.id);
+            saveActiveCompanyToStorage(state.activeCompanyId);
+          }
+          return loadAll().then(function () {
+            document.getElementById('company-switcher').value = state.activeCompanyId;
+            rerender();
+          });
+        })
+        .catch(function (err) { toast(err.message, 'error'); });
+    });
+  }
+
+  function openCompanyProfileEditor(companyId) {
+    api('GET', '/companies/' + companyId).then(function (r) {
+      var company = r.company;
+      var wrap = document.createElement('div');
+      wrap.className = 'form-dialog';
+      var currentContent = company.profile ? company.profile.content : '';
+      var currentVersion = company.profile ? company.profile.version : 0;
+      wrap.innerHTML = ''
+        + '<h2>Company Profile — ' + escapeHtml(company.name) + '</h2>'
+        + '<div class="meta">Markdown. Each save creates a new version. Current version: ' + currentVersion + '</div>'
+        + '<div class="field"><textarea id="f-profile" rows="20" placeholder="## 公司背景\\n\\n规模、业务、阶段、价值观、招聘关键方向..."></textarea></div>'
+        + '<div class="actions">'
+        +   '<button class="btn" id="f-cancel">Cancel</button>'
+        +   '<button class="btn btn-primary" id="f-save">Save as new version</button>'
+        + '</div>';
+      openModal(wrap);
+      wrap.querySelector('#f-profile').value = currentContent;
+      wrap.querySelector('#f-cancel').addEventListener('click', function () {
+        openCompanyManager();
+      });
+      wrap.querySelector('#f-save').addEventListener('click', function () {
+        var content = wrap.querySelector('#f-profile').value;
+        if (!content.trim()) { toast('content required', 'error'); return; }
+        api('PUT', '/companies/' + companyId + '/profile', { content: content })
+          .then(function () { toast('Profile saved', 'success'); openCompanyManager(); })
+          .catch(function (err) { toast(err.message, 'error'); });
+      });
+    }).catch(function (err) { toast(err.message, 'error'); });
+  }
+
   // ─── Top bar wiring ──────────────────────────────────────────
 
+  document.getElementById('company-switcher').addEventListener('change', function (e) {
+    state.activeCompanyId = e.target.value;
+    state.filterRoleId = '';
+    saveActiveCompanyToStorage(state.activeCompanyId);
+    document.getElementById('role-label').textContent = 'All roles';
+    loadRolesAndCandidates();
+  });
+
+  document.getElementById('btn-manage-companies').addEventListener('click', openCompanyManager);
   document.getElementById('btn-new-role').addEventListener('click', openNewRoleForm);
   document.getElementById('btn-new-candidate').addEventListener('click', openNewCandidateForm);
   document.getElementById('role-filter').addEventListener('change', function (e) {
@@ -366,5 +585,10 @@
 
   // ─── Go ──────────────────────────────────────────────────────
 
-  loadAll();
+  loadAll().then(function () {
+    // If there are no companies at all, nudge the user
+    if (state.companies.length === 0) {
+      toast('No companies yet — click ⚙ to create one', 'info');
+    }
+  });
 })();
