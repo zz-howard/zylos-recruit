@@ -15,7 +15,7 @@
   <a href="https://discord.gg/GS2J39EGff"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://x.com/ZylosAI"><img src="https://img.shields.io/badge/X-follow-000000?logo=x&logoColor=white" alt="X"></a>
   <a href="https://zylos.ai"><img src="https://img.shields.io/badge/website-zylos.ai-blue" alt="Website"></a>
-  <a href="https://coco.xyz"><img src="https://img.shields.io/badge/Built%20by-Coco-orange" alt="Built by Coco"></a>
+  <a href="https://zylos.ai"><img src="https://img.shields.io/badge/Built%20by-Zylos-orange" alt="Built by Zylos"></a>
 </p>
 
 ---
@@ -93,9 +93,9 @@ pending → scheduled → interviewed → passed
                                   ↘ rejected (talent pool)
 ```
 
-## Built by Coco
+## Built by Zylos
 
-Zylos is the open-source core of [Coco](https://coco.xyz/) — the AI employee platform.
+Part of the [Zylos](https://zylos.ai) ecosystem — autonomous AI agents with persistent memory.
 
 ## License
 
