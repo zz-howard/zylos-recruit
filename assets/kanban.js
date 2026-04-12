@@ -14,7 +14,7 @@
     pending: '待处理',
     scheduled: '已预约',
     interviewed: '已面试',
-    passed: '可推进',
+    passed: '推进中',
     rejected: '人才库',
   };
 
