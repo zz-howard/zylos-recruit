@@ -18,9 +18,32 @@ import { RESUMES_DIR } from './config.js';
 const execFileAsync = promisify(execFile);
 
 const PROMPT_PATH = path.join(import.meta.dirname, '..', 'prompts', 'resume-eval.md');
+const CLAUDE_CREDENTIALS_PATH = path.join(process.env.HOME, '.claude', '.credentials.json');
 
 function getRuntime() {
   return (process.env.ZYLOS_RUNTIME || 'claude').toLowerCase();
+}
+
+/**
+ * Read the Claude OAuth token from ~/.claude/.credentials.json.
+ * Returns the access token string or null if unavailable/expired.
+ */
+function getClaudeApiKey() {
+  // Prefer explicit env var
+  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
+  try {
+    const creds = JSON.parse(fs.readFileSync(CLAUDE_CREDENTIALS_PATH, 'utf8'));
+    const oauth = creds?.claudeAiOauth;
+    if (!oauth?.accessToken) return null;
+    // Check expiry (ms timestamp)
+    if (oauth.expiresAt && Date.now() > oauth.expiresAt) {
+      console.warn('[recruit] Claude OAuth token expired');
+      return null;
+    }
+    return oauth.accessToken;
+  } catch {
+    return null;
+  }
 }
 
 function loadPromptTemplate() {
@@ -57,11 +80,17 @@ async function runCli(prompt) {
     ];
   }
 
+  const childEnv = { ...process.env, NO_COLOR: '1' };
+  if (runtime !== 'codex') {
+    const apiKey = getClaudeApiKey();
+    if (apiKey) childEnv.ANTHROPIC_API_KEY = apiKey;
+  }
+
   const { stdout } = await execFileAsync(cmd, args, {
     encoding: 'utf8',
     timeout: 120_000,
     maxBuffer: 1024 * 1024,
-    env: { ...process.env, NO_COLOR: '1' },
+    env: childEnv,
   });
 
   return { text: stdout, runtime };
