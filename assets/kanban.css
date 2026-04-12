@@ -255,7 +255,6 @@
   font-weight: 600;
 }
 .verdict-yes { background: rgba(34,197,94,0.15); color: #22c55e; }
-.verdict-maybe { background: rgba(245,158,11,0.15); color: #f59e0b; }
 .verdict-no { background: rgba(239,68,68,0.15); color: #ef4444; }
 .verdict-pass { background: rgba(34,197,94,0.15); color: #22c55e; }
 .verdict-hold { background: rgba(245,158,11,0.15); color: #f59e0b; }

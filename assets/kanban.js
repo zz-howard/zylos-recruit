@@ -20,7 +20,6 @@
 
   var VERDICT_LABELS = {
     yes: '✅ 建议面试',
-    maybe: '⚠️ 待定',
     no: '❌ 不建议',
     pass: '✅ 通过',
     hold: '⏸ 保留',

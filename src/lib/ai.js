@@ -211,7 +211,7 @@ function parseAiResponse(text) {
 }
 
 const JSON_SCHEMA = `{
-  "verdict": "yes|maybe|no",
+  "verdict": "yes|no",
   "score": 0-100,
   "summary": "一句话总结",
   "brief": "候选人一句话简介",
@@ -333,7 +333,7 @@ export async function evaluateResume(candidateId) {
     console.log(`[recruit] AI evaluation: auto-filled fields: ${Object.keys(contactUpdate).join(', ')}`);
   }
 
-  const verdict = parsed.verdict || 'maybe';
+  const verdict = parsed.verdict === 'yes' ? 'yes' : 'no';
   const content = [
     parsed.summary || '',
     '',
