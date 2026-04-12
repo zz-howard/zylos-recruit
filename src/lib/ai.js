@@ -110,12 +110,23 @@ function parseAiResponse(text) {
   throw new Error('Failed to parse AI response as JSON');
 }
 
+// In-flight evaluation lock: prevents duplicate evaluations for the same candidate
+const evaluatingSet = new Set();
+
+export function isEvaluating(candidateId) {
+  return evaluatingSet.has(candidateId);
+}
+
 /**
  * Run AI resume evaluation for a candidate.
  * @param {number} candidateId
  * @returns {object} The updated candidate with new evaluation
  */
 export async function evaluateResume(candidateId) {
+  if (evaluatingSet.has(candidateId)) {
+    throw new Error('evaluation already in progress');
+  }
+  evaluatingSet.add(candidateId);
   const t0 = Date.now();
   console.log(`[recruit] AI evaluation started: candidate #${candidateId}`);
 
@@ -187,6 +198,7 @@ export async function evaluateResume(candidateId) {
   });
 
   console.log(`[recruit] AI evaluation complete: candidate #${candidateId} "${candidate.name}" → ${verdict} (${((Date.now() - t0) / 1000).toFixed(1)}s total)`);
+  evaluatingSet.delete(candidateId);
   return result;
 }
 
@@ -196,6 +208,7 @@ export async function evaluateResume(candidateId) {
  */
 export function evaluateResumeAsync(candidateId) {
   evaluateResume(candidateId).catch(err => {
+    evaluatingSet.delete(candidateId);
     console.error(`[recruit] AI evaluation failed for candidate #${candidateId}:`, err.message);
   });
 }

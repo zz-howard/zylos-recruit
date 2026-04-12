@@ -3,7 +3,7 @@ import {
   listCandidates, getCandidate, createCandidate, updateCandidate,
   moveCandidate, addEvaluation, deleteCandidate, STATES,
 } from '../lib/db.js';
-import { evaluateResumeAsync } from '../lib/ai.js';
+import { evaluateResumeAsync, isEvaluating } from '../lib/ai.js';
 
 export function candidatesRouter() {
   const router = express.Router();
@@ -105,6 +105,7 @@ export function candidatesRouter() {
     if (!cand) return res.status(404).json({ error: 'not found' });
     if (!cand.resume_path) return res.status(400).json({ error: 'no resume uploaded — upload a PDF first' });
     if (!cand.role_id) return res.status(400).json({ error: 'candidate has no assigned role' });
+    if (isEvaluating(candidateId)) return res.status(409).json({ error: '该候选人正在评估中，请稍候' });
 
     evaluateResumeAsync(candidateId);
     res.status(202).json({ message: 'AI evaluation started', candidate_id: candidateId });
