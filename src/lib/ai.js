@@ -293,7 +293,7 @@ export async function evaluateResume(candidateId) {
 
   const result = addEvaluation(candidateId, {
     kind: 'resume_ai',
-    author: runtime === 'codex' ? 'codex' : 'claude',
+    author: runtime,
     verdict,
     content,
     meta,
