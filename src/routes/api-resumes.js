@@ -74,8 +74,9 @@ export function resumesRouter(uploadConfig) {
       return res.status(404).json({ error: 'file missing' });
     }
     res.setHeader('Content-Type', 'application/pdf');
-    const disposition = req.query.dl === '1' ? 'attachment' : 'inline';
-    res.setHeader('Content-Disposition', `${disposition}; filename="${cand.name}-resume.pdf"`);
+    if (req.query.dl === '1') {
+      res.setHeader('Content-Disposition', `attachment; filename="${cand.name}-resume.pdf"`);
+    }
     fs.createReadStream(resolvedFile).pipe(res);
   });
 

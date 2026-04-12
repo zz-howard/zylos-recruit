@@ -61,6 +61,8 @@ export function kanbanPageHtml(baseUrl) {
     </div>
   </template>
 
+  <script src="${baseUrl}/_assets/pdf.min.js"></script>
+  <script>if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='${baseUrl}/_assets/pdf.worker.min.js';}</script>
   <script src="${baseUrl}/_assets/kanban.js?v=${ASSET_VERSION}"></script>
 </body>
 </html>`;

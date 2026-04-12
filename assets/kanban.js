@@ -370,13 +370,69 @@
       + '</span>'
       + '</div>'
       + (c.resume_path
-          ? '<iframe src="' + resumeUrl + '#toolbar=0"></iframe>'
+          ? '<div class="pdf-viewer" data-url="' + resumeUrl + '">'
+            + '<div class="pdf-controls">'
+            + '<button class="btn pdf-nav" data-dir="-1">‹</button>'
+            + '<span class="pdf-page-info">Loading…</span>'
+            + '<button class="btn pdf-nav" data-dir="1">›</button>'
+            + '</div>'
+            + '<div class="pdf-canvas-wrap"><canvas></canvas></div>'
+            + '</div>'
           : '<div class="no-resume">No resume uploaded</div>');
     right.appendChild(resumePane);
 
     wrap.appendChild(left);
     wrap.appendChild(right);
     openModal(wrap);
+
+    // Render PDF with pdf.js
+    var pdfViewer = wrap.querySelector('.pdf-viewer');
+    if (pdfViewer) {
+      var pdfUrl = pdfViewer.dataset.url;
+      var canvas = pdfViewer.querySelector('canvas');
+      var pageInfo = pdfViewer.querySelector('.pdf-page-info');
+      var pdfState = { doc: null, page: 1, total: 0, rendering: false };
+
+      function renderPage(num) {
+        if (!pdfState.doc || pdfState.rendering) return;
+        pdfState.rendering = true;
+        pdfState.doc.getPage(num).then(function (page) {
+          var wrap = pdfViewer.querySelector('.pdf-canvas-wrap');
+          var dpr = window.devicePixelRatio || 1;
+          var cssWidth = wrap.clientWidth || 400;
+          var scale = cssWidth / page.getViewport({ scale: 1 }).width;
+          var viewport = page.getViewport({ scale: scale * dpr });
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          canvas.style.width = cssWidth + 'px';
+          canvas.style.height = (viewport.height / dpr) + 'px';
+          page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise.then(function () {
+            pdfState.rendering = false;
+            pageInfo.textContent = num + ' / ' + pdfState.total;
+          });
+        });
+      }
+
+      if (typeof pdfjsLib === 'undefined') { pageInfo.textContent = 'PDF viewer unavailable'; pdfState.rendering = false; return; }
+      pdfjsLib.getDocument(pdfUrl).promise.then(function (doc) {
+        pdfState.doc = doc;
+        pdfState.total = doc.numPages;
+        renderPage(1);
+      }).catch(function () {
+        pageInfo.textContent = 'Failed to load PDF';
+      });
+
+      pdfViewer.querySelectorAll('.pdf-nav').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var dir = Number(btn.dataset.dir);
+          var next = pdfState.page + dir;
+          if (next >= 1 && next <= pdfState.total) {
+            pdfState.page = next;
+            renderPage(next);
+          }
+        });
+      });
+    }
 
     // Wire state buttons
     wrap.querySelectorAll('.state-row button').forEach(function (btn) {
