@@ -30,7 +30,7 @@ let envRuntime = (process.env.ZYLOS_RUNTIME || 'claude').toLowerCase();
  */
 export function detectRuntimes() {
   availableRuntimes = [];
-  for (const rt of ['claude', 'codex']) {
+  for (const rt of ['claude', 'codex', 'gemini']) {
     try {
       execFileSync('which', [rt], { encoding: 'utf8', timeout: 5000 });
       availableRuntimes.push(rt);
@@ -119,15 +119,17 @@ function buildPrompt(resumeAbsPath, role, companyProfile, roleJd, expectedPortra
 }
 
 // Default models per runtime
-const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-5.4' };
+const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-5.4', gemini: 'gemini-2.5-flash' };
 // Valid model choices per runtime
 const VALID_MODELS = {
   claude: ['opus', 'sonnet', 'haiku'],
   codex: ['gpt-5.4', 'gpt-5.3-codex'],
+  gemini: ['gemini-2.5-pro', 'gemini-2.5-flash'],
 };
 const VALID_EFFORTS = {
   claude: ['low', 'medium', 'high', 'max'],
   codex: ['none', 'low', 'medium', 'high', 'xhigh'],
+  gemini: [],
 };
 
 export { VALID_MODELS, VALID_EFFORTS };
@@ -158,6 +160,14 @@ async function runCli(prompt) {
       '-c', `model="${model}"`,
       '-c', `model_reasoning_effort=${effort}`,
       prompt,
+    ];
+  } else if (runtime === 'gemini') {
+    cmd = 'gemini';
+    args = [
+      '-p', prompt,
+      '--model', model,
+      '-y',
+      '-o', 'text',
     ];
   } else {
     cmd = 'claude';

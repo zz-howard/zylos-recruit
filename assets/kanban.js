@@ -1080,7 +1080,7 @@
 
       // Runtime options
       var runtimeOptions = [{ value: 'auto', label: 'Auto (' + ai.envRuntime + ')' }];
-      ['claude', 'codex'].forEach(function (rt) {
+      ['claude', 'codex', 'gemini'].forEach(function (rt) {
         var installed = ai.availableRuntimes.indexOf(rt) !== -1;
         runtimeOptions.push({
           value: rt,
@@ -1097,7 +1097,8 @@
 
       // Model options — show models for the effective runtime
       var effectiveRt = ai.runtime === 'auto' ? ai.envRuntime : ai.runtime;
-      var defaultModel = effectiveRt === 'codex' ? 'gpt-5.4' : 'sonnet';
+      var defaultModelMap = { claude: 'sonnet', codex: 'gpt-5.4', gemini: 'gemini-2.5-flash' };
+      var defaultModel = defaultModelMap[effectiveRt] || 'sonnet';
       var modelOptions = '<option value="auto"' + (ai.model === 'auto' ? ' selected' : '') + '>Auto (' + defaultModel + ')</option>';
       var models = ai.validModels[effectiveRt] || [];
       models.forEach(function (m) {
@@ -1130,7 +1131,8 @@
       wrap.querySelector('#f-runtime').addEventListener('change', function () {
         var rt = this.value;
         var ert = rt === 'auto' ? ai.envRuntime : rt;
-        var dm = ert === 'codex' ? 'gpt-5.4' : 'sonnet';
+        var dmMap = { claude: 'sonnet', codex: 'gpt-5.4', gemini: 'gemini-2.5-flash' };
+        var dm = dmMap[ert] || 'sonnet';
         var ms = ai.validModels[ert] || [];
         var sel = wrap.querySelector('#f-model');
         sel.innerHTML = '<option value="auto">Auto (' + dm + ')</option>'
