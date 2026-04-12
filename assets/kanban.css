@@ -200,6 +200,30 @@
   display: flex;
   gap: 4px;
   margin-bottom: 10px;
+  align-items: center;
+}
+.eval-tabs-inner {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.eval-page-btn {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-muted);
+  transition: all var(--transition);
+  flex-shrink: 0;
+}
+.eval-page-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text);
 }
 .eval-tab {
   padding: 5px 14px;

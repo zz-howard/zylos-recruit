@@ -295,16 +295,21 @@
               // Show tabs if multiple evaluations, newest first
               var sorted = aiEvals.slice();
               var tabs = '';
+              var PAGE_SIZE = 4;
               if (sorted.length > 1) {
+                var tabButtons = sorted.map(function (e, i) {
+                    var meta = null;
+                    try { meta = JSON.parse(e.meta); } catch (x) {}
+                    var label = '#' + (sorted.length - i)
+                      + (meta && meta.score != null ? ' (' + meta.score + '分)' : '');
+                    return '<button class="eval-tab' + (i === 0 ? ' active' : '') + '" data-idx="' + i + '">'
+                      + label + '</button>';
+                  }).join('');
+                var needsPaging = sorted.length > PAGE_SIZE;
                 tabs = '<div class="eval-tabs">'
-                  + sorted.map(function (e, i) {
-                      var meta = null;
-                      try { meta = JSON.parse(e.meta); } catch (x) {}
-                      var label = '#' + (sorted.length - i)
-                        + (meta && meta.score != null ? ' (' + meta.score + '分)' : '');
-                      return '<button class="eval-tab' + (i === 0 ? ' active' : '') + '" data-idx="' + i + '">'
-                        + label + '</button>';
-                    }).join('')
+                  + (needsPaging ? '<button class="eval-page-btn eval-page-prev" style="display:none">&lsaquo;</button>' : '')
+                  + '<div class="eval-tabs-inner">' + tabButtons + '</div>'
+                  + (needsPaging ? '<button class="eval-page-btn eval-page-next">&rsaquo;</button>' : '')
                   + '</div>';
               }
               var panels = sorted.map(function (e, i) {
@@ -449,17 +454,55 @@
       });
     });
 
-    // Eval tabs switching
-    wrap.querySelectorAll('.eval-tab').forEach(function (tab) {
-      tab.addEventListener('click', function () {
-        var idx = tab.dataset.idx;
-        wrap.querySelectorAll('.eval-tab').forEach(function (t) { t.classList.remove('active'); });
-        tab.classList.add('active');
-        wrap.querySelectorAll('.eval-panel').forEach(function (p) {
-          p.style.display = p.dataset.idx === idx ? '' : 'none';
+    // Eval tabs switching + pagination
+    var tabsContainer = wrap.querySelector('.eval-tabs-inner');
+    if (tabsContainer) {
+      var allTabs = Array.from(tabsContainer.querySelectorAll('.eval-tab'));
+      var pageSize = 4;
+      var currentPage = 0;
+      var totalPages = Math.ceil(allTabs.length / pageSize);
+      var prevBtn = wrap.querySelector('.eval-page-prev');
+      var nextBtn = wrap.querySelector('.eval-page-next');
+
+      function showTabPage(page) {
+        currentPage = page;
+        var start = page * pageSize;
+        var end = start + pageSize;
+        allTabs.forEach(function (t, i) {
+          t.style.display = (i >= start && i < end) ? '' : 'none';
+        });
+        if (prevBtn) prevBtn.style.display = page > 0 ? '' : 'none';
+        if (nextBtn) nextBtn.style.display = page < totalPages - 1 ? '' : 'none';
+      }
+
+      showTabPage(0);
+
+      if (prevBtn) prevBtn.addEventListener('click', function () { showTabPage(currentPage - 1); });
+      if (nextBtn) nextBtn.addEventListener('click', function () { showTabPage(currentPage + 1); });
+
+      allTabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          var idx = tab.dataset.idx;
+          allTabs.forEach(function (t) { t.classList.remove('active'); });
+          tab.classList.add('active');
+          wrap.querySelectorAll('.eval-panel').forEach(function (p) {
+            p.style.display = p.dataset.idx === idx ? '' : 'none';
+          });
         });
       });
-    });
+    } else {
+      // Single eval, no tabs container
+      wrap.querySelectorAll('.eval-tab').forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          var idx = tab.dataset.idx;
+          wrap.querySelectorAll('.eval-tab').forEach(function (t) { t.classList.remove('active'); });
+          tab.classList.add('active');
+          wrap.querySelectorAll('.eval-panel').forEach(function (p) {
+            p.style.display = p.dataset.idx === idx ? '' : 'none';
+          });
+        });
+      });
+    }
 
     // Save candidate
     wrap.querySelector('#btn-save-cand').addEventListener('click', function () {
