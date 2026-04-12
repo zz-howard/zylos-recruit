@@ -289,20 +289,39 @@
           : '<div class="meta">请先上传简历 PDF</div>')
       + '<div id="ai-eval-status"></div>'
       + (aiEvals.length > 0
-          ? aiEvals.map(function (e) {
-              var verdictLabel = VERDICT_LABELS[e.verdict] || e.verdict || '';
-              var meta = null;
-              try { meta = JSON.parse(e.meta); } catch (x) {}
-              return '<div class="eval ai-eval">'
-                + '<div class="eval-head">'
-                +   '<span class="verdict-badge verdict-' + escapeHtml(e.verdict) + '">'
-                +     escapeHtml(verdictLabel) + '</span>'
-                +   (meta && meta.score != null ? ' <span class="meta">Score: ' + meta.score + '/100</span>' : '')
-                +   '<span class="meta">' + escapeHtml(e.author || '') + ' · ' + escapeHtml(e.created_at) + '</span>'
-                + '</div>'
-                + '<div class="eval-body">' + formatEvalContent(e.content || '') + '</div>'
-                + '</div>';
-            }).join('')
+          ? (function () {
+              // Show tabs if multiple evaluations, newest first
+              var sorted = aiEvals.slice().reverse();
+              var tabs = '';
+              if (sorted.length > 1) {
+                tabs = '<div class="eval-tabs">'
+                  + sorted.map(function (e, i) {
+                      var meta = null;
+                      try { meta = JSON.parse(e.meta); } catch (x) {}
+                      var label = '#' + (sorted.length - i)
+                        + (meta && meta.score != null ? ' (' + meta.score + '分)' : '');
+                      return '<button class="eval-tab' + (i === 0 ? ' active' : '') + '" data-idx="' + i + '">'
+                        + label + '</button>';
+                    }).join('')
+                  + '</div>';
+              }
+              var panels = sorted.map(function (e, i) {
+                var verdictLabel = VERDICT_LABELS[e.verdict] || e.verdict || '';
+                var meta = null;
+                try { meta = JSON.parse(e.meta); } catch (x) {}
+                return '<div class="eval ai-eval eval-panel" data-idx="' + i + '"'
+                  + (i > 0 ? ' style="display:none"' : '') + '>'
+                  + '<div class="eval-head">'
+                  +   '<span class="verdict-badge verdict-' + escapeHtml(e.verdict) + '">'
+                  +     escapeHtml(verdictLabel) + '</span>'
+                  +   (meta && meta.score != null ? ' <span class="meta">Score: ' + meta.score + '/100</span>' : '')
+                  +   '<span class="meta">' + escapeHtml(e.author || '') + ' · ' + escapeHtml(e.created_at) + '</span>'
+                  + '</div>'
+                  + '<div class="eval-body">' + formatEvalContent(e.content || '') + '</div>'
+                  + '</div>';
+              }).join('');
+              return tabs + panels;
+            })()
           : '<div class="meta">尚未进行 AI 评估</div>')
       + '</div>'
 
@@ -362,6 +381,18 @@
             return loadRolesAndCandidates().then(function () { openCandidate(c.id); });
           })
           .catch(function (err) { toast(err.message, 'error'); });
+      });
+    });
+
+    // Eval tabs switching
+    wrap.querySelectorAll('.eval-tab').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        var idx = tab.dataset.idx;
+        wrap.querySelectorAll('.eval-tab').forEach(function (t) { t.classList.remove('active'); });
+        tab.classList.add('active');
+        wrap.querySelectorAll('.eval-panel').forEach(function (p) {
+          p.style.display = p.dataset.idx === idx ? '' : 'none';
+        });
       });
     });
 
