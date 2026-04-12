@@ -676,7 +676,7 @@
           +   '</div>'
           +   '<div class="company-row-actions">'
           +     '<button class="btn btn-ghost" data-act="edit">Edit</button>'
-          +     '<button class="btn btn-ghost" data-act="profile">Edit profile</button>'
+          +     '<button class="btn btn-ghost" data-act="portrait">Portrait</button>'
           +     '<button class="btn btn-ghost" data-act="eval-prompt">Eval prompt</button>'
           +     '<button class="btn btn-danger btn-ghost" data-act="delete">Delete</button>'
           +   '</div>'
@@ -688,7 +688,7 @@
         row.querySelector('[data-act="edit"]').addEventListener('click', function () {
           openRoleEditor(id);
         });
-        row.querySelector('[data-act="profile"]').addEventListener('click', function () {
+        row.querySelector('[data-act="portrait"]').addEventListener('click', function () {
           openRoleProfileEditor(id);
         });
         row.querySelector('[data-act="eval-prompt"]').addEventListener('click', function () {
@@ -763,12 +763,12 @@
       var role = r.role;
       var wrap = document.createElement('div');
       wrap.className = 'form-dialog';
-      var currentContent = role.profile ? role.profile.content : '';
+      var currentContent = role.expected_portrait || (role.profile ? role.profile.content : '') || '';
       var currentVersion = role.profile ? role.profile.version : 0;
       wrap.innerHTML = ''
-        + '<h2>Role Profile — ' + escapeHtml(role.name) + '</h2>'
-        + '<div class="meta">Markdown JD / 岗位画像. Each save creates a new version. Current version: ' + currentVersion + '</div>'
-        + '<div class="field"><textarea id="f-profile" rows="20" placeholder="## 岗位职责\\n\\n## 任职要求\\n\\n## 加分项"></textarea></div>'
+        + '<h2>Expected Portrait — ' + escapeHtml(role.name) + '</h2>'
+        + '<div class="meta">Internal candidate portrait (期望画像). Primary basis for AI evaluation. Each save creates a new version. Current version: ' + currentVersion + '</div>'
+        + '<div class="field"><textarea id="f-profile" rows="20" placeholder="## 核心要求\\n\\n## 加分项\\n\\n## 红线"></textarea></div>'
         + '<div class="actions">'
         +   '<button class="btn" id="f-cancel">Cancel</button>'
         +   '<button class="btn btn-primary" id="f-save">Save as new version</button>'
@@ -780,7 +780,7 @@
         var content = wrap.querySelector('#f-profile').value;
         if (!content.trim()) { toast('content required', 'error'); return; }
         api('PUT', '/roles/' + roleId + '/profile', { content: content })
-          .then(function () { toast('Profile saved', 'success'); openRoleManager(); })
+          .then(function () { toast('Portrait saved', 'success'); openRoleManager(); })
           .catch(function (err) { toast(err.message, 'error'); });
       });
     }).catch(function (err) { toast(err.message, 'error'); });

@@ -4,8 +4,8 @@
  * Tables:
  *   companies          — companies being recruited for (first-level entity)
  *   company_profiles   — versioned markdown company background
- *   roles              — job roles, scoped to a company
- *   role_profiles      — versioned markdown profiles per role
+ *   roles              — job roles, scoped to a company (description=JD, expected_portrait=internal hiring criteria)
+ *   role_profiles      — versioned expected_portrait history per role
  *   candidates         — individuals (scoped to a company via role.company_id)
  *   evaluations        — AI resume screening + human interview feedback
  *
@@ -52,13 +52,14 @@ function initSchema(db) {
     );
 
     CREATE TABLE IF NOT EXISTS roles (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      company_id  INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-      name        TEXT NOT NULL,
-      description TEXT,
-      eval_prompt TEXT,
-      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      company_id         INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      name               TEXT NOT NULL,
+      description        TEXT,
+      expected_portrait  TEXT,
+      eval_prompt        TEXT,
+      created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(company_id, name)
     );
 
@@ -167,6 +168,13 @@ function migrateFromV021(db) {
   if (!columnExists('roles', 'eval_prompt')) {
     db.exec('ALTER TABLE roles ADD COLUMN eval_prompt TEXT');
   }
+
+  // Add expected_portrait to roles, migrate eval_prompt content → expected_portrait (v0.2.4)
+  if (!columnExists('roles', 'expected_portrait')) {
+    db.exec('ALTER TABLE roles ADD COLUMN expected_portrait TEXT');
+    // eval_prompt was previously used to store portrait content — migrate it
+    db.exec(`UPDATE roles SET expected_portrait = eval_prompt, eval_prompt = NULL WHERE eval_prompt IS NOT NULL`);
+  }
 }
 
 // ─── Companies ────────────────────────────────────────────────────────
@@ -253,14 +261,14 @@ export function getRole(id) {
   return role;
 }
 
-export function createRole({ companyId, name, description }) {
+export function createRole({ companyId, name, description, expected_portrait }) {
   const info = getDb().prepare(`
-    INSERT INTO roles (company_id, name, description) VALUES (?, ?, ?)
-  `).run(companyId, name, description || null);
+    INSERT INTO roles (company_id, name, description, expected_portrait) VALUES (?, ?, ?, ?)
+  `).run(companyId, name, description || null, expected_portrait || null);
   return getRole(info.lastInsertRowid);
 }
 
-export function updateRole(id, { name, description, eval_prompt }) {
+export function updateRole(id, { name, description, expected_portrait, eval_prompt }) {
   const fields = [];
   const params = [];
   if (typeof name === 'string') { fields.push('name = ?'); params.push(name); }
@@ -268,6 +276,7 @@ export function updateRole(id, { name, description, eval_prompt }) {
     fields.push('description = ?');
     params.push(description);
   }
+  if (expected_portrait !== undefined) { fields.push('expected_portrait = ?'); params.push(expected_portrait || null); }
   if (eval_prompt !== undefined) { fields.push('eval_prompt = ?'); params.push(eval_prompt || null); }
   if (fields.length === 0) return getRole(id);
   fields.push(`updated_at = datetime('now')`);
@@ -284,7 +293,8 @@ export function updateRoleProfile(roleId, content) {
   getDb().prepare(`
     INSERT INTO role_profiles (role_id, version, content) VALUES (?, ?, ?)
   `).run(roleId, nextVersion, content);
-  getDb().prepare(`UPDATE roles SET updated_at = datetime('now') WHERE id = ?`).run(roleId);
+  // Sync live expected_portrait on the roles row
+  getDb().prepare(`UPDATE roles SET expected_portrait = ?, updated_at = datetime('now') WHERE id = ?`).run(content, roleId);
   return getRole(roleId);
 }
 

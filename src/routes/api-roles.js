@@ -16,7 +16,7 @@ export function rolesRouter() {
   });
 
   router.post('/', (req, res) => {
-    const { company_id, name, description } = req.body || {};
+    const { company_id, name, description, expected_portrait } = req.body || {};
     if (!company_id) {
       return res.status(400).json({ error: 'company_id required' });
     }
@@ -28,6 +28,7 @@ export function rolesRouter() {
         companyId: Number(company_id),
         name: name.trim(),
         description,
+        expected_portrait,
       });
       res.status(201).json({ role });
     } catch (err) {
@@ -48,19 +49,19 @@ export function rolesRouter() {
   });
 
   router.put('/:id', (req, res) => {
-    const { name, description } = req.body || {};
+    const { name, description, expected_portrait, eval_prompt } = req.body || {};
     if (name !== undefined && (typeof name !== 'string' || !name.trim())) {
       return res.status(400).json({ error: 'name must be a non-empty string' });
     }
     const id = Number(req.params.id);
     const existing = getRole(id);
     if (!existing) return res.status(404).json({ error: 'not found' });
-    const { eval_prompt } = req.body || {};
     try {
       const role = updateRole(id, {
         name: name !== undefined ? name.trim() : undefined,
         description: description !== undefined ? (description || null) : undefined,
-        eval_prompt: eval_prompt,
+        expected_portrait,
+        eval_prompt,
       });
       res.json({ role });
     } catch (err) {

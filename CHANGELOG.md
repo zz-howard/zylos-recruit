@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-04-12
+
+### Changed
+- **Data model: `expected_portrait` field on roles.** Roles now have three distinct text fields:
+  - `description` — public JD (job description)
+  - `expected_portrait` — internal candidate portrait (期望画像), the primary basis for AI resume evaluation
+  - `eval_prompt` — special evaluation instructions (usually empty, for edge cases only)
+- **`role_profiles` table** now stores versioned `expected_portrait` history (each save creates a new version and syncs to the live `expected_portrait` field on the role).
+- **AI evaluation prompt** updated: `expected_portrait` is the primary matching criteria; JD serves as supplementary context.
+- **Migration:** existing `eval_prompt` content is automatically migrated to `expected_portrait` on first startup.
+
+### Upgrade
+
+```bash
+zylos upgrade recruit
+```
+
+Auto-migrates schema (adds `expected_portrait` column, moves existing `eval_prompt` data).
+
 ## [0.2.1] - 2026-04-11
 
 ### Added
