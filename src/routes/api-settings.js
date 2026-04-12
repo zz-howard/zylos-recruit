@@ -7,27 +7,35 @@
 
 import express, { Router } from 'express';
 import { getConfig, saveConfig } from '../lib/config.js';
-import { getAvailableRuntimes, getEnvRuntime } from '../lib/ai.js';
+import { getAvailableRuntimes, getEnvRuntime, VALID_MODELS, VALID_EFFORTS } from '../lib/ai.js';
+
+function buildResponse() {
+  const config = getConfig();
+  const available = getAvailableRuntimes();
+  const envRt = getEnvRuntime();
+  const runtimeSetting = config.ai?.runtime || 'auto';
+  const effectiveRuntime = runtimeSetting === 'auto' ? envRt : runtimeSetting;
+
+  return {
+    ai: {
+      runtime: runtimeSetting,
+      effective: effectiveRuntime,
+      envRuntime: envRt,
+      availableRuntimes: available,
+      model: config.ai?.model || 'auto',
+      validModels: VALID_MODELS,
+      effort: config.ai?.effort || 'medium',
+      validEfforts: VALID_EFFORTS,
+    },
+  };
+}
 
 export function settingsRouter() {
   const router = Router();
   router.use(express.json({ limit: '1mb' }));
 
   router.get('/', (req, res) => {
-    const config = getConfig();
-    const available = getAvailableRuntimes();
-    const envRt = getEnvRuntime();
-    const setting = config.ai?.runtime || 'auto';
-    const effective = setting === 'auto' ? envRt : setting;
-
-    res.json({
-      ai: {
-        runtime: setting,
-        effective,
-        envRuntime: envRt,
-        availableRuntimes: available,
-      },
-    });
+    res.json(buildResponse());
   });
 
   router.put('/', (req, res) => {
@@ -41,7 +49,6 @@ export function settingsRouter() {
       if (!valid.includes(ai.runtime)) {
         return res.status(400).json({ error: `invalid runtime: ${ai.runtime}. Must be one of: ${valid.join(', ')}` });
       }
-      // If not 'auto', check the runtime is actually available
       if (ai.runtime !== 'auto') {
         const available = getAvailableRuntimes();
         if (!available.includes(ai.runtime)) {
@@ -50,22 +57,23 @@ export function settingsRouter() {
       }
     }
 
+    if (ai.model !== undefined) {
+      if (ai.model !== 'auto') {
+        const allModels = [...VALID_MODELS.claude, ...VALID_MODELS.codex];
+        if (!allModels.includes(ai.model)) {
+          return res.status(400).json({ error: `invalid model: ${ai.model}` });
+        }
+      }
+    }
+
+    if (ai.effort !== undefined) {
+      if (!VALID_EFFORTS.includes(ai.effort)) {
+        return res.status(400).json({ error: `invalid effort: ${ai.effort}. Must be one of: ${VALID_EFFORTS.join(', ')}` });
+      }
+    }
+
     saveConfig({ ai });
-
-    const config = getConfig();
-    const available = getAvailableRuntimes();
-    const envRt = getEnvRuntime();
-    const setting = config.ai?.runtime || 'auto';
-    const effective = setting === 'auto' ? envRt : setting;
-
-    res.json({
-      ai: {
-        runtime: setting,
-        effective,
-        envRuntime: envRt,
-        availableRuntimes: available,
-      },
-    });
+    res.json(buildResponse());
   });
 
   return router;

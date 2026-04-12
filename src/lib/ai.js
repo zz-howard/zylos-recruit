@@ -115,8 +115,33 @@ function buildPrompt(resumeAbsPath, role, companyProfile, roleJd, expectedPortra
   return tpl;
 }
 
+// Default models per runtime
+const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-5.4' };
+// Valid model choices per runtime
+const VALID_MODELS = {
+  claude: ['opus', 'sonnet', 'haiku'],
+  codex: ['gpt-5.4', 'gpt-5.3-codex'],
+};
+const VALID_EFFORTS = ['low', 'medium', 'high', 'max'];
+
+export { VALID_MODELS, VALID_EFFORTS };
+
+function resolveModel(runtime) {
+  const config = getConfig();
+  const setting = config.ai?.model || 'auto';
+  if (setting === 'auto') return DEFAULT_MODELS[runtime] || DEFAULT_MODELS.claude;
+  return setting;
+}
+
+function resolveEffort() {
+  const config = getConfig();
+  return config.ai?.effort || 'medium';
+}
+
 async function runCli(prompt) {
   const runtime = getRuntime();
+  const model = resolveModel(runtime);
+  const effort = resolveEffort();
   let cmd, args;
 
   if (runtime === 'codex') {
@@ -124,13 +149,16 @@ async function runCli(prompt) {
     args = [
       'exec',
       '--sandbox', 'read-only',
+      '-c', `model="${model}"`,
+      '-c', `model_reasoning_effort=${effort}`,
       prompt,
     ];
   } else {
     cmd = 'claude';
     args = [
       '-p', prompt,
-      '--model', 'claude-sonnet-4-6',
+      '--model', model,
+      '--effort', effort,
       '--allowedTools', 'Read',
       '--bare',
     ];

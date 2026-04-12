@@ -32,6 +32,8 @@ export const DEFAULT_CONFIG = {
   },
   ai: {
     runtime: 'auto', // 'auto' | 'claude' | 'codex'
+    model: 'auto',   // 'auto' or specific model name
+    effort: 'medium', // 'low' | 'medium' | 'high' | 'max'
   },
 };
 

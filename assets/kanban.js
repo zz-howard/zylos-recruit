@@ -1027,29 +1027,47 @@
 
     api('GET', '/settings').then(function (r) {
       var ai = r.ai;
-      var options = [{ value: 'auto', label: 'Auto (' + ai.envRuntime + ')' }];
+
+      // Runtime options
+      var runtimeOptions = [{ value: 'auto', label: 'Auto (' + ai.envRuntime + ')' }];
       ['claude', 'codex'].forEach(function (rt) {
         var installed = ai.availableRuntimes.indexOf(rt) !== -1;
-        options.push({
+        runtimeOptions.push({
           value: rt,
           label: rt.charAt(0).toUpperCase() + rt.slice(1) + (installed ? '' : ' (not installed)'),
           disabled: !installed,
         });
       });
-
-      var selectHtml = options.map(function (o) {
+      var runtimeHtml = runtimeOptions.map(function (o) {
         return '<option value="' + o.value + '"'
           + (o.disabled ? ' disabled' : '')
           + (o.value === ai.runtime ? ' selected' : '')
           + '>' + escapeHtml(o.label) + '</option>';
       }).join('');
 
+      // Model options — show models for the effective runtime
+      var effectiveRt = ai.runtime === 'auto' ? ai.envRuntime : ai.runtime;
+      var defaultModel = effectiveRt === 'codex' ? 'gpt-5.4' : 'sonnet';
+      var modelOptions = '<option value="auto"' + (ai.model === 'auto' ? ' selected' : '') + '>Auto (' + defaultModel + ')</option>';
+      var models = ai.validModels[effectiveRt] || [];
+      models.forEach(function (m) {
+        modelOptions += '<option value="' + m + '"' + (ai.model === m ? ' selected' : '') + '>' + escapeHtml(m) + '</option>';
+      });
+
+      // Effort options
+      var effortHtml = ai.validEfforts.map(function (e) {
+        return '<option value="' + e + '"' + (ai.effort === e ? ' selected' : '') + '>' + e + '</option>';
+      }).join('');
+
       wrap.innerHTML = ''
         + '<h2>Settings</h2>'
-        + '<div class="field"><label>AI Evaluation Runtime</label>'
-        +   '<select id="f-runtime">' + selectHtml + '</select></div>'
-        + '<div class="meta">Current: <strong>' + escapeHtml(ai.effective) + '</strong>'
-        +   ' · Env (ZYLOS_RUNTIME): ' + escapeHtml(ai.envRuntime)
+        + '<div class="field"><label>Runtime</label>'
+        +   '<select id="f-runtime">' + runtimeHtml + '</select></div>'
+        + '<div class="field"><label>Model</label>'
+        +   '<select id="f-model">' + modelOptions + '</select></div>'
+        + '<div class="field"><label>Thinking Effort</label>'
+        +   '<select id="f-effort">' + effortHtml + '</select></div>'
+        + '<div class="meta">Effective: <strong>' + escapeHtml(ai.effective) + '</strong>'
         +   ' · Installed: ' + (ai.availableRuntimes.length > 0 ? escapeHtml(ai.availableRuntimes.join(', ')) : 'none')
         + '</div>'
         + '<div class="actions">'
@@ -1057,10 +1075,25 @@
         +   '<button class="btn btn-primary" id="f-save">Save</button>'
         + '</div>';
 
+      // Update model dropdown when runtime changes
+      wrap.querySelector('#f-runtime').addEventListener('change', function () {
+        var rt = this.value;
+        var ert = rt === 'auto' ? ai.envRuntime : rt;
+        var dm = ert === 'codex' ? 'gpt-5.4' : 'sonnet';
+        var ms = ai.validModels[ert] || [];
+        var sel = wrap.querySelector('#f-model');
+        sel.innerHTML = '<option value="auto">Auto (' + dm + ')</option>'
+          + ms.map(function (m) { return '<option value="' + m + '">' + escapeHtml(m) + '</option>'; }).join('');
+      });
+
       wrap.querySelector('#f-close').addEventListener('click', closeModal);
       wrap.querySelector('#f-save').addEventListener('click', function () {
-        var runtime = wrap.querySelector('#f-runtime').value;
-        api('PUT', '/settings', { ai: { runtime: runtime } })
+        var payload = {
+          runtime: wrap.querySelector('#f-runtime').value,
+          model: wrap.querySelector('#f-model').value,
+          effort: wrap.querySelector('#f-effort').value,
+        };
+        api('PUT', '/settings', { ai: payload })
           .then(function () {
             toast('Settings saved', 'success');
             closeModal();
