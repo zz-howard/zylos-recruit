@@ -55,10 +55,12 @@ export function rolesRouter() {
     const id = Number(req.params.id);
     const existing = getRole(id);
     if (!existing) return res.status(404).json({ error: 'not found' });
+    const { eval_prompt } = req.body || {};
     try {
       const role = updateRole(id, {
         name: name !== undefined ? name.trim() : undefined,
         description: description !== undefined ? (description || null) : undefined,
+        eval_prompt: eval_prompt,
       });
       res.json({ role });
     } catch (err) {

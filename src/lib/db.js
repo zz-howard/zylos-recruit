@@ -37,6 +37,7 @@ function initSchema(db) {
     CREATE TABLE IF NOT EXISTS companies (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       name        TEXT NOT NULL UNIQUE,
+      eval_prompt TEXT,
       created_at  TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -55,6 +56,7 @@ function initSchema(db) {
       company_id  INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
       name        TEXT NOT NULL,
       description TEXT,
+      eval_prompt TEXT,
       created_at  TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(company_id, name)
@@ -157,6 +159,14 @@ function migrateFromV021(db) {
   if (!columnExists('evaluations', 'meta')) {
     db.exec('ALTER TABLE evaluations ADD COLUMN meta TEXT');
   }
+
+  // Add eval_prompt to companies and roles (v0.2.3)
+  if (!columnExists('companies', 'eval_prompt')) {
+    db.exec('ALTER TABLE companies ADD COLUMN eval_prompt TEXT');
+  }
+  if (!columnExists('roles', 'eval_prompt')) {
+    db.exec('ALTER TABLE roles ADD COLUMN eval_prompt TEXT');
+  }
 }
 
 // ─── Companies ────────────────────────────────────────────────────────
@@ -189,10 +199,15 @@ export function createCompany({ name }) {
   return getCompany(info.lastInsertRowid);
 }
 
-export function updateCompany(id, { name }) {
-  getDb().prepare(`
-    UPDATE companies SET name = ?, updated_at = datetime('now') WHERE id = ?
-  `).run(name, id);
+export function updateCompany(id, updates) {
+  const fields = [];
+  const params = [];
+  if (typeof updates.name === 'string') { fields.push('name = ?'); params.push(updates.name); }
+  if (updates.eval_prompt !== undefined) { fields.push('eval_prompt = ?'); params.push(updates.eval_prompt || null); }
+  if (fields.length === 0) return getCompany(id);
+  fields.push(`updated_at = datetime('now')`);
+  params.push(id);
+  getDb().prepare(`UPDATE companies SET ${fields.join(', ')} WHERE id = ?`).run(...params);
   return getCompany(id);
 }
 
@@ -245,7 +260,7 @@ export function createRole({ companyId, name, description }) {
   return getRole(info.lastInsertRowid);
 }
 
-export function updateRole(id, { name, description }) {
+export function updateRole(id, { name, description, eval_prompt }) {
   const fields = [];
   const params = [];
   if (typeof name === 'string') { fields.push('name = ?'); params.push(name); }
@@ -253,6 +268,7 @@ export function updateRole(id, { name, description }) {
     fields.push('description = ?');
     params.push(description);
   }
+  if (eval_prompt !== undefined) { fields.push('eval_prompt = ?'); params.push(eval_prompt || null); }
   if (fields.length === 0) return getRole(id);
   fields.push(`updated_at = datetime('now')`);
   params.push(id);

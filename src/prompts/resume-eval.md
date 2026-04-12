@@ -14,6 +14,8 @@
 
 请先阅读这个 PDF 文件获取简历内容：{{resume_file}}
 
+{{custom_instructions}}
+
 ## 评估要求
 
 请从以下维度进行分析：

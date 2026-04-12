@@ -50,12 +50,22 @@ function loadPromptTemplate() {
   return fs.readFileSync(PROMPT_PATH, 'utf8');
 }
 
-function buildPrompt(resumeAbsPath, role, companyProfile, roleProfile) {
+function buildPrompt(resumeAbsPath, role, companyProfile, roleProfile, companyEvalPrompt, roleEvalPrompt) {
   let tpl = loadPromptTemplate();
   tpl = tpl.replace('{{company_profile}}', companyProfile || '（未提供公司背景）');
   tpl = tpl.replace('{{role_name}}', role?.name || '未知岗位');
   tpl = tpl.replace('{{role_profile}}', roleProfile || '（未提供岗位描述）');
   tpl = tpl.replace('{{resume_file}}', resumeAbsPath);
+
+  // Build custom instructions section
+  const parts = [];
+  if (companyEvalPrompt) parts.push('### 公司评估要求\n\n' + companyEvalPrompt);
+  if (roleEvalPrompt) parts.push('### 岗位评估要求\n\n' + roleEvalPrompt);
+  const customBlock = parts.length > 0
+    ? '## 自定义评估指令\n\n' + parts.join('\n\n')
+    : '';
+  tpl = tpl.replace('{{custom_instructions}}', customBlock);
+
   return tpl;
 }
 
@@ -149,7 +159,7 @@ export async function evaluateResume(candidateId) {
   const companyProfile = company?.profile?.content || null;
   const roleProfile = role?.profile?.content || null;
 
-  const prompt = buildPrompt(resumeAbsPath, role, companyProfile, roleProfile);
+  const prompt = buildPrompt(resumeAbsPath, role, companyProfile, roleProfile, company?.eval_prompt, role?.eval_prompt);
   console.log(`[recruit] AI evaluation: spawning CLI (runtime: ${getRuntime()})...`);
   const { text, runtime } = await runCli(prompt);
   console.log(`[recruit] AI evaluation: CLI returned (${((Date.now() - t0) / 1000).toFixed(1)}s), parsing response...`);

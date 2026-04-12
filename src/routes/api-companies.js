@@ -35,12 +35,15 @@ export function companiesRouter() {
   });
 
   router.put('/:id', (req, res) => {
-    const { name } = req.body || {};
-    if (!name || typeof name !== 'string' || !name.trim()) {
-      return res.status(400).json({ error: 'name required' });
+    const { name, eval_prompt } = req.body || {};
+    if (name !== undefined && (!name || typeof name !== 'string' || !name.trim())) {
+      return res.status(400).json({ error: 'name must be a non-empty string' });
     }
     try {
-      const company = updateCompany(Number(req.params.id), { name: name.trim() });
+      const updates = {};
+      if (name !== undefined) updates.name = name.trim();
+      if (eval_prompt !== undefined) updates.eval_prompt = eval_prompt;
+      const company = updateCompany(Number(req.params.id), updates);
       if (!company) return res.status(404).json({ error: 'not found' });
       res.json({ company });
     } catch (err) {

@@ -621,6 +621,7 @@
           +   '<div class="company-row-actions">'
           +     '<button class="btn btn-ghost" data-act="edit">Edit</button>'
           +     '<button class="btn btn-ghost" data-act="profile">Edit profile</button>'
+          +     '<button class="btn btn-ghost" data-act="eval-prompt">Eval prompt</button>'
           +     '<button class="btn btn-danger btn-ghost" data-act="delete">Delete</button>'
           +   '</div>'
           + '</div>';
@@ -633,6 +634,9 @@
         });
         row.querySelector('[data-act="profile"]').addEventListener('click', function () {
           openRoleProfileEditor(id);
+        });
+        row.querySelector('[data-act="eval-prompt"]').addEventListener('click', function () {
+          openEvalPromptEditor('role', id);
         });
         row.querySelector('[data-act="delete"]').addEventListener('click', function () {
           if (!confirm('Delete this role? Candidates in this role will be unassigned (role set to null). This cannot be undone.')) return;
@@ -726,6 +730,46 @@
     }).catch(function (err) { toast(err.message, 'error'); });
   }
 
+  // ─── Eval prompt editor (shared for company & role) ──────────
+
+  function openEvalPromptEditor(type, id) {
+    var endpoint = type === 'company' ? '/companies/' + id : '/roles/' + id;
+    var backFn = type === 'company' ? openCompanyManager : openRoleManager;
+    api('GET', endpoint).then(function (r) {
+      var entity = type === 'company' ? r.company : r.role;
+      var wrap = document.createElement('div');
+      wrap.className = 'form-dialog';
+      var label = type === 'company' ? 'Company' : 'Role';
+      wrap.innerHTML = ''
+        + '<h2>AI Eval Prompt — ' + escapeHtml(entity.name) + '</h2>'
+        + '<div class="meta">' + label + '-level custom instructions for AI resume evaluation. '
+        + (type === 'company'
+            ? 'Applies to all roles in this company.'
+            : 'Applies only to this role (in addition to company-level prompt).')
+        + '</div>'
+        + '<div class="field"><textarea id="f-eval-prompt" rows="12" placeholder="e.g. 我们偏好有创业经历的候选人，技术深度优先于广度"></textarea></div>'
+        + '<div class="actions">'
+        +   '<button class="btn" id="f-cancel">Cancel</button>'
+        +   '<button class="btn btn-danger btn-ghost" id="f-clear" style="margin-right:auto">Clear</button>'
+        +   '<button class="btn btn-primary" id="f-save">Save</button>'
+        + '</div>';
+      openModal(wrap);
+      wrap.querySelector('#f-eval-prompt').value = entity.eval_prompt || '';
+      wrap.querySelector('#f-cancel').addEventListener('click', backFn);
+      wrap.querySelector('#f-clear').addEventListener('click', function () {
+        wrap.querySelector('#f-eval-prompt').value = '';
+      });
+      wrap.querySelector('#f-save').addEventListener('click', function () {
+        var val = wrap.querySelector('#f-eval-prompt').value.trim();
+        var body = { eval_prompt: val || '' };
+        if (type === 'company') body.name = entity.name;
+        api('PUT', endpoint, body)
+          .then(function () { toast('Eval prompt saved', 'success'); backFn(); })
+          .catch(function (err) { toast(err.message, 'error'); });
+      });
+    }).catch(function (err) { toast(err.message, 'error'); });
+  }
+
   // ─── Company management ──────────────────────────────────────
 
   function openCompanyManager() {
@@ -760,6 +804,7 @@
           +   '<div class="company-row-actions">'
           +     '<button class="btn btn-ghost" data-act="rename">Rename</button>'
           +     '<button class="btn btn-ghost" data-act="profile">Edit profile</button>'
+          +     '<button class="btn btn-ghost" data-act="eval-prompt">Eval prompt</button>'
           +     '<button class="btn btn-danger btn-ghost" data-act="delete">Delete</button>'
           +   '</div>'
           + '</div>';
@@ -777,6 +822,9 @@
         });
         row.querySelector('[data-act="profile"]').addEventListener('click', function () {
           openCompanyProfileEditor(id);
+        });
+        row.querySelector('[data-act="eval-prompt"]').addEventListener('click', function () {
+          openEvalPromptEditor('company', id);
         });
         row.querySelector('[data-act="delete"]').addEventListener('click', function () {
           if (!confirm('Delete this company? All its roles and candidates will be deleted too. This cannot be undone.')) return;
