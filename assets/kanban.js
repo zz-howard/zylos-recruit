@@ -277,6 +277,8 @@
       +   '<input type="text" data-k="source" value="' + escapeHtml(c.source) + '"></div>'
       + '<div class="field"><label>Brief</label>'
       +   '<textarea data-k="brief">' + escapeHtml(c.brief) + '</textarea></div>'
+      + '<div class="field"><label>Extra Info</label>'
+      +   '<textarea data-k="extra_info" placeholder="额外信息（如推荐理由、背景补充等）">' + escapeHtml(c.extra_info || '') + '</textarea></div>'
       + '<div class="field"><button class="btn btn-primary" id="btn-save-cand">Save changes</button> '
       +   '<button class="btn btn-danger" id="btn-delete-cand">Delete</button></div>'
 
@@ -679,6 +681,8 @@
       + '<div class="field"><label>Role *</label><select id="f-role">' + roleOptions + '</select></div>'
       + '<div class="field"><label>Resume PDF *</label>'
       +   '<input type="file" id="f-resume" accept="application/pdf"></div>'
+      + '<div class="field"><label>Extra Info</label>'
+      +   '<textarea id="f-extra-info" placeholder="额外信息（如推荐理由、背景补充等）" rows="3"></textarea></div>'
       + '<div id="f-status"></div>'
       + '<div class="actions">'
       +   '<button class="btn" id="f-cancel">Cancel</button>'
@@ -689,6 +693,7 @@
     wrap.querySelector('#f-save').addEventListener('click', function () {
       var roleId = wrap.querySelector('#f-role').value;
       var file = wrap.querySelector('#f-resume').files[0];
+      var extraInfo = wrap.querySelector('#f-extra-info').value.trim();
       if (!roleId) { toast('Please select a role', 'error'); return; }
       if (!file) { toast('Please upload a resume PDF', 'error'); return; }
       var btn = wrap.querySelector('#f-save');
@@ -697,10 +702,12 @@
       btn.textContent = 'Submitting...';
       statusEl.textContent = '';
       // 1) Create candidate (name auto-filled by AI later)
-      api('POST', '/candidates', {
+      var body = {
         company_id: Number(state.activeCompanyId),
         role_id: Number(roleId),
-      })
+      };
+      if (extraInfo) body.extra_info = extraInfo;
+      api('POST', '/candidates', body)
         .then(function (r) {
           var candId = r.candidate.id;
           statusEl.textContent = 'Uploading resume...';

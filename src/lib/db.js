@@ -169,6 +169,11 @@ function migrateFromV021(db) {
     db.exec('ALTER TABLE roles ADD COLUMN eval_prompt TEXT');
   }
 
+  // Add extra_info to candidates (v0.2.5)
+  if (!columnExists('candidates', 'extra_info')) {
+    db.exec('ALTER TABLE candidates ADD COLUMN extra_info TEXT');
+  }
+
   // Add expected_portrait to roles, migrate eval_prompt content → expected_portrait (v0.2.4)
   if (!columnExists('roles', 'expected_portrait')) {
     db.exec('ALTER TABLE roles ADD COLUMN expected_portrait TEXT');
@@ -343,20 +348,20 @@ export function getCandidate(id) {
 }
 
 export function createCandidate(data) {
-  const { companyId, name, role_id, email, phone, source, brief } = data;
+  const { companyId, name, role_id, email, phone, source, brief, extra_info } = data;
   if (role_id) {
     const role = getDb().prepare('SELECT company_id FROM roles WHERE id = ?').get(role_id);
     if (!role) throw new Error('role not found');
     if (role.company_id !== companyId) throw new Error('role belongs to a different company');
   }
   const info = getDb().prepare(`
-    INSERT INTO candidates (company_id, name, role_id, email, phone, source, brief)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(companyId, name, role_id || null, email || null, phone || null, source || null, brief || null);
+    INSERT INTO candidates (company_id, name, role_id, email, phone, source, brief, extra_info)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(companyId, name, role_id || null, email || null, phone || null, source || null, brief || null, extra_info || null);
   return getCandidate(info.lastInsertRowid);
 }
 
-const UPDATABLE = new Set(['name', 'role_id', 'email', 'phone', 'source', 'brief', 'resume_path']);
+const UPDATABLE = new Set(['name', 'role_id', 'email', 'phone', 'source', 'brief', 'extra_info', 'resume_path']);
 
 export function updateCandidate(id, updates) {
   const keys = Object.keys(updates).filter(k => UPDATABLE.has(k));

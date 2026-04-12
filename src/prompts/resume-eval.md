@@ -20,6 +20,8 @@
 
 请先阅读这个 PDF 文件获取简历内容：{{resume_file}}
 
+{{extra_info_section}}
+
 {{custom_instructions}}
 
 ## 评估要求

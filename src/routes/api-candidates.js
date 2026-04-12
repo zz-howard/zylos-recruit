@@ -24,7 +24,7 @@ export function candidatesRouter() {
   });
 
   router.post('/', (req, res) => {
-    const { company_id, name, role_id, email, phone, source, brief } = req.body || {};
+    const { company_id, name, role_id, email, phone, source, brief, extra_info } = req.body || {};
     if (!company_id) {
       return res.status(400).json({ error: 'company_id required' });
     }
@@ -33,7 +33,7 @@ export function candidatesRouter() {
         companyId: Number(company_id),
         name: (name && typeof name === 'string') ? name.trim() : '待识别',
         role_id: role_id ? Number(role_id) : null,
-        email, phone, source, brief,
+        email, phone, source, brief, extra_info,
       });
       res.status(201).json({ candidate: cand });
     } catch (err) {
