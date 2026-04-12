@@ -180,6 +180,9 @@ async function runCli(prompt) {
     ];
   }
 
+  const effortStr = effort && VALID_EFFORTS[runtime]?.length ? `, effort: ${effort}` : '';
+  console.log(`[recruit] AI evaluation: spawning CLI (runtime: ${runtime}, model: ${model}${effortStr})...`);
+
   const childEnv = { ...process.env, NO_COLOR: '1' };
   if (runtime !== 'codex') {
     const apiKey = getClaudeApiKey();
@@ -193,7 +196,7 @@ async function runCli(prompt) {
     env: childEnv,
   });
 
-  return { text: stdout, runtime };
+  return { text: stdout, runtime, model, effort };
 }
 
 function parseAiResponse(text) {
@@ -294,8 +297,7 @@ export async function evaluateResume(candidateId) {
   const expectedPortrait = role?.expected_portrait || null;
 
   const prompt = buildPrompt(resumeAbsPath, role, companyProfile, roleJd, expectedPortrait, company?.eval_prompt, role?.eval_prompt, candidate.extra_info);
-  console.log(`[recruit] AI evaluation: spawning CLI (runtime: ${getRuntime()})...`);
-  const { text, runtime } = await runCli(prompt);
+  const { text, runtime, model, effort } = await runCli(prompt);
   console.log(`[recruit] AI evaluation: CLI returned (${((Date.now() - t0) / 1000).toFixed(1)}s), parsing response...`);
 
   let parsed;
