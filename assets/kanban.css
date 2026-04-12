@@ -129,6 +129,41 @@
 }
 .detail .eval-body { white-space: pre-wrap; }
 
+/* AI & interview evaluation sections */
+.eval-section {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.eval-section h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.ai-eval {
+  background: var(--bg-alt);
+}
+.verdict-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.verdict-yes { background: #16a34a22; color: #16a34a; }
+.verdict-maybe { background: #d9780022; color: #d97800; }
+.verdict-no { background: #dc262622; color: #dc2626; }
+.verdict-pass { background: #16a34a22; color: #16a34a; }
+.verdict-hold { background: #d9780022; color: #d97800; }
+.verdict-reject { background: #dc262622; color: #dc2626; }
+#ai-eval-status {
+  margin: 6px 0;
+  font-size: 13px;
+}
+#ai-eval-status.error {
+  color: var(--danger);
+}
+
 .resume-pane {
   border: 1px solid var(--border);
   border-radius: 6px;

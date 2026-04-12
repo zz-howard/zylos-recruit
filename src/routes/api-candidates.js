@@ -3,6 +3,7 @@ import {
   listCandidates, getCandidate, createCandidate, updateCandidate,
   moveCandidate, addEvaluation, deleteCandidate, STATES,
 } from '../lib/db.js';
+import { evaluateResume } from '../lib/ai.js';
 
 export function candidatesRouter() {
   const router = express.Router();
@@ -81,17 +82,38 @@ export function candidatesRouter() {
     res.json({ candidate: cand });
   });
 
+  // Add human evaluation (interview feedback)
   router.post('/:id/evaluate', (req, res) => {
-    const { stage, author, verdict, content } = req.body || {};
+    const { kind, author, verdict, content } = req.body || {};
     if (!content || typeof content !== 'string') {
       return res.status(400).json({ error: 'content required' });
     }
     const cand = addEvaluation(Number(req.params.id), {
-      stage: stage ? Number(stage) : null,
-      author, verdict, content,
+      kind: kind || 'interview',
+      author,
+      verdict,
+      content,
     });
     if (!cand) return res.status(404).json({ error: 'not found' });
     res.json({ candidate: cand });
+  });
+
+  // AI resume evaluation
+  router.post('/:id/ai-evaluate', async (req, res) => {
+    try {
+      const cand = await evaluateResume(Number(req.params.id));
+      res.json({ candidate: cand });
+    } catch (err) {
+      const msg = String(err.message || '');
+      if (msg.includes('not found') || msg.includes('no resume') || msg.includes('no assigned role')) {
+        return res.status(400).json({ error: msg });
+      }
+      if (msg.includes('API_KEY') || msg.includes('API error')) {
+        return res.status(502).json({ error: msg });
+      }
+      console.error('[recruit] AI evaluation error:', err);
+      res.status(500).json({ error: 'AI evaluation failed' });
+    }
   });
 
   return router;

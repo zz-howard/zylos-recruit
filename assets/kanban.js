@@ -18,6 +18,15 @@
     rejected: '人才库',
   };
 
+  var VERDICT_LABELS = {
+    yes: '✅ 建议面试',
+    maybe: '⚠️ 待定',
+    no: '❌ 不建议',
+    pass: '✅ 通过',
+    hold: '⏸ 保留',
+    reject: '❌ 淘汰',
+  };
+
   var state = {
     companies: [],
     activeCompanyId: '',
@@ -89,7 +98,6 @@
       state.companies = r.companies;
       renderCompanySwitcher();
 
-      // Decide active company
       var stored = loadActiveCompanyFromStorage();
       var storedValid = stored && state.companies.some(function (c) {
         return String(c.id) === stored;
@@ -161,7 +169,6 @@
       opt.textContent = r.name + ' (' + r.candidate_count + ')';
       sel.appendChild(opt);
     });
-    // Reset filter if the previously filtered role is no longer present
     if (cur && !state.roles.some(function (r) { return String(r.id) === cur; })) {
       state.filterRoleId = '';
       cur = '';
@@ -194,7 +201,15 @@
     node.dataset.id = c.id;
     node.querySelector('.card-name').textContent = c.name;
     node.querySelector('.card-role').textContent = c.role_name || '(no role)';
-    node.querySelector('.card-brief').textContent = c.brief || '';
+    // Show AI verdict badge if available
+    var aiEval = (c.evaluations || []).find(function (e) { return e.kind === 'resume_ai'; });
+    var briefText = '';
+    if (aiEval && aiEval.verdict) {
+      briefText = (VERDICT_LABELS[aiEval.verdict] || aiEval.verdict);
+    } else {
+      briefText = c.brief || '';
+    }
+    node.querySelector('.card-brief').textContent = briefText;
     node.addEventListener('click', function () { openCandidate(c.id); });
     return node;
   }
@@ -236,6 +251,9 @@
     var wrap = document.createElement('div');
     wrap.className = 'detail';
 
+    var aiEvals = c.evaluations.filter(function (e) { return e.kind === 'resume_ai'; });
+    var interviewEvals = c.evaluations.filter(function (e) { return e.kind !== 'resume_ai'; });
+
     var left = document.createElement('div');
     left.innerHTML = ''
       + '<h2>' + escapeHtml(c.name) + '</h2>'
@@ -260,32 +278,61 @@
       +   '<textarea data-k="brief">' + escapeHtml(c.brief) + '</textarea></div>'
       + '<div class="field"><button class="btn btn-primary" id="btn-save-cand">Save changes</button> '
       +   '<button class="btn btn-danger" id="btn-delete-cand">Delete</button></div>'
-      + '<h3 style="margin-top:20px">Add evaluation</h3>'
-      + '<div class="field"><label>Stage (number)</label>'
-      +   '<input type="number" id="eval-stage" min="1" value="1"></div>'
-      + '<div class="field"><label>Author</label>'
-      +   '<input type="text" id="eval-author" placeholder="Howard"></div>'
+
+      // ─── AI Resume Evaluation section ───
+      + '<div class="eval-section">'
+      + '<h3>AI 简历评估</h3>'
+      + (c.resume_text
+          ? '<button class="btn btn-primary" id="btn-ai-eval">'
+            + (aiEvals.length > 0 ? '🤖 重新评估' : '🤖 AI 评估')
+            + '</button>'
+          : '<div class="meta">请先上传简历 PDF</div>')
+      + '<div id="ai-eval-status"></div>'
+      + (aiEvals.length > 0
+          ? aiEvals.map(function (e) {
+              var verdictLabel = VERDICT_LABELS[e.verdict] || e.verdict || '';
+              var meta = null;
+              try { meta = JSON.parse(e.meta); } catch (x) {}
+              return '<div class="eval ai-eval">'
+                + '<div class="eval-head">'
+                +   '<span class="verdict-badge verdict-' + escapeHtml(e.verdict) + '">'
+                +     escapeHtml(verdictLabel) + '</span>'
+                +   (meta && meta.score != null ? ' <span class="meta">Score: ' + meta.score + '/100</span>' : '')
+                +   '<span class="meta">' + escapeHtml(e.author || '') + ' · ' + escapeHtml(e.created_at) + '</span>'
+                + '</div>'
+                + '<div class="eval-body">' + formatEvalContent(e.content || '') + '</div>'
+                + '</div>';
+            }).join('')
+          : '<div class="meta">尚未进行 AI 评估</div>')
+      + '</div>'
+
+      // ─── Interview Feedback section ───
+      + '<div class="eval-section">'
+      + '<h3>面试记录</h3>'
       + '<div class="field"><label>Verdict</label>'
       +   '<select id="eval-verdict">'
       +     '<option value="">—</option>'
-      +     '<option value="strong_yes">Strong Yes</option>'
-      +     '<option value="yes">Yes</option>'
-      +     '<option value="lean_yes">Lean Yes</option>'
-      +     '<option value="lean_no">Lean No</option>'
-      +     '<option value="no">No</option>'
+      +     '<option value="pass">✅ 通过</option>'
+      +     '<option value="hold">⏸ 保留</option>'
+      +     '<option value="reject">❌ 淘汰</option>'
       +   '</select></div>'
       + '<div class="field"><label>Notes</label>'
-      +   '<textarea id="eval-content" placeholder="Interview feedback..."></textarea></div>'
-      + '<button class="btn btn-primary" id="btn-add-eval">Add evaluation</button>'
-      + '<div class="evals"><h3>History</h3>'
-      +   (c.evaluations.length === 0 ? '<div class="meta">No evaluations yet.</div>' :
-          c.evaluations.map(function (e) {
-            return '<div class="eval"><div class="eval-head">'
-              + '<span>' + escapeHtml(e.author || 'anon')
-              + (e.verdict ? ' · ' + escapeHtml(e.verdict) : '')
-              + '</span><span>' + escapeHtml(e.created_at) + '</span></div>'
-              + '<div class="eval-body">' + escapeHtml(e.content || '') + '</div></div>';
-          }).join(''))
+      +   '<textarea id="eval-content" placeholder="面试反馈..."></textarea></div>'
+      + '<button class="btn btn-primary" id="btn-add-eval">添加面试记录</button>'
+      + (interviewEvals.length > 0
+          ? interviewEvals.map(function (e) {
+              var verdictLabel = VERDICT_LABELS[e.verdict] || e.verdict || '';
+              return '<div class="eval">'
+                + '<div class="eval-head">'
+                +   (e.verdict ? '<span class="verdict-badge verdict-' + escapeHtml(e.verdict) + '">'
+                    + escapeHtml(verdictLabel) + '</span> ' : '')
+                +   '<span>' + escapeHtml(e.author || 'anon') + '</span>'
+                +   '<span class="meta">' + escapeHtml(e.created_at) + '</span>'
+                + '</div>'
+                + '<div class="eval-body">' + escapeHtml(e.content || '') + '</div>'
+                + '</div>';
+            }).join('')
+          : '<div class="meta">暂无面试记录</div>')
       + '</div>';
 
     var right = document.createElement('div');
@@ -298,14 +345,17 @@
       + '</div>'
       + (c.resume_path
           ? '<iframe src="' + API + '/candidates/' + c.id + '/resume#toolbar=0"></iframe>'
-          : '<div class="no-resume">No resume uploaded</div>');
+          : '<div class="no-resume">No resume uploaded</div>')
+      + (c.resume_text
+          ? '<div class="meta" style="padding:8px">✅ 文本已提取 (' + c.resume_text.length + ' chars)</div>'
+          : '');
     right.appendChild(resumePane);
 
     wrap.appendChild(left);
     wrap.appendChild(right);
     openModal(wrap);
 
-    // Wire handlers
+    // Wire state buttons
     wrap.querySelectorAll('.state-row button').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var s = btn.dataset.state;
@@ -318,6 +368,7 @@
       });
     });
 
+    // Save candidate
     wrap.querySelector('#btn-save-cand').addEventListener('click', function () {
       var updates = {};
       wrap.querySelectorAll('[data-k]').forEach(function (el) {
@@ -328,6 +379,7 @@
         .catch(function (err) { toast(err.message, 'error'); });
     });
 
+    // Delete candidate
     wrap.querySelector('#btn-delete-cand').addEventListener('click', function () {
       if (!confirm('Delete this candidate? This cannot be undone.')) return;
       api('DELETE', '/candidates/' + c.id)
@@ -335,22 +387,47 @@
         .catch(function (err) { toast(err.message, 'error'); });
     });
 
+    // AI evaluate button
+    var aiBtn = wrap.querySelector('#btn-ai-eval');
+    if (aiBtn) {
+      aiBtn.addEventListener('click', function () {
+        var statusEl = wrap.querySelector('#ai-eval-status');
+        aiBtn.disabled = true;
+        aiBtn.textContent = '⏳ 评估中...';
+        statusEl.textContent = '';
+        api('POST', '/candidates/' + c.id + '/ai-evaluate')
+          .then(function () {
+            toast('AI 评估完成', 'success');
+            return loadRolesAndCandidates().then(function () { openCandidate(c.id); });
+          })
+          .catch(function (err) {
+            aiBtn.disabled = false;
+            aiBtn.textContent = '🤖 AI 评估';
+            statusEl.textContent = '❌ ' + err.message;
+            statusEl.className = 'meta error';
+            toast(err.message, 'error');
+          });
+      });
+    }
+
+    // Add interview evaluation
     wrap.querySelector('#btn-add-eval').addEventListener('click', function () {
       var body = {
-        stage: Number(wrap.querySelector('#eval-stage').value) || null,
-        author: wrap.querySelector('#eval-author').value || null,
+        kind: 'interview',
+        author: 'howard',
         verdict: wrap.querySelector('#eval-verdict').value || null,
         content: wrap.querySelector('#eval-content').value || '',
       };
-      if (!body.content.trim()) { toast('content required', 'error'); return; }
+      if (!body.content.trim()) { toast('请填写面试反馈', 'error'); return; }
       api('POST', '/candidates/' + c.id + '/evaluate', body)
         .then(function () {
-          toast('Evaluation added', 'success');
+          toast('面试记录已添加', 'success');
           return loadRolesAndCandidates().then(function () { openCandidate(c.id); });
         })
         .catch(function (err) { toast(err.message, 'error'); });
     });
 
+    // Resume upload
     var fileInput = wrap.querySelector('#resume-file');
     fileInput.addEventListener('change', function () {
       if (!fileInput.files[0]) return;
@@ -361,6 +438,13 @@
         })
         .catch(function (err) { toast(err.message, 'error'); });
     });
+  }
+
+  function formatEvalContent(content) {
+    // Simple markdown-ish formatting for AI eval content
+    return escapeHtml(content)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>');
   }
 
   // ─── New role / candidate forms ───────────────────────────────
@@ -645,7 +729,6 @@
           api('DELETE', '/companies/' + id)
             .then(function () {
               toast('Deleted', 'success');
-              // If the active company was deleted, clear storage
               if (String(id) === state.activeCompanyId) {
                 state.activeCompanyId = '';
                 saveActiveCompanyToStorage('');
@@ -667,7 +750,6 @@
         .then(function (r) {
           toast('Company created', 'success');
           wrap.querySelector('#f-company-name').value = '';
-          // Auto-switch to the new company if none was active
           if (!state.activeCompanyId && r && r.company) {
             state.activeCompanyId = String(r.company.id);
             saveActiveCompanyToStorage(state.activeCompanyId);
@@ -735,7 +817,6 @@
   // ─── Go ──────────────────────────────────────────────────────
 
   loadAll().then(function () {
-    // If there are no companies at all, nudge the user
     if (state.companies.length === 0) {
       toast('No companies yet — click ⚙ to create one', 'info');
     }

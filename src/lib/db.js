@@ -7,8 +7,7 @@
  *   roles              — job roles, scoped to a company
  *   role_profiles      — versioned markdown profiles per role
  *   candidates         — individuals (scoped to a company via role.company_id)
- *   interview_stages   — per-candidate interview rounds
- *   evaluations        — interview feedback notes
+ *   evaluations        — AI resume screening + human interview feedback
  *
  * Candidate state machine:
  *   pending → scheduled → interviewed → passed | rejected
@@ -28,11 +27,12 @@ export function getDb() {
   db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  migrate(db);
+  initSchema(db);
+  migrateFromV021(db);
   return db;
 }
 
-function migrate(db) {
+function initSchema(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS companies (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,9 +81,9 @@ function migrate(db) {
       source         TEXT,
       brief          TEXT,
       resume_path    TEXT,
+      resume_text    TEXT,
       state          TEXT NOT NULL DEFAULT 'pending'
                      CHECK (state IN ('pending','scheduled','interviewed','passed','rejected')),
-      screen_verdict TEXT,
       created_at     TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -92,30 +92,72 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_candidates_role    ON candidates(role_id);
     CREATE INDEX IF NOT EXISTS idx_candidates_state   ON candidates(state);
 
-    CREATE TABLE IF NOT EXISTS interview_stages (
-      id            INTEGER PRIMARY KEY AUTOINCREMENT,
-      candidate_id  INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
-      stage_num     INTEGER NOT NULL,
-      scheduled_at  TEXT,
-      completed_at  TEXT,
-      notes         TEXT,
-      created_at    TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_stages_candidate ON interview_stages(candidate_id);
-
     CREATE TABLE IF NOT EXISTS evaluations (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       candidate_id  INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
-      stage_id      INTEGER REFERENCES interview_stages(id) ON DELETE SET NULL,
+      kind          TEXT,
       author        TEXT,
       verdict       TEXT,
       content       TEXT,
+      meta          TEXT,
       created_at    TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE INDEX IF NOT EXISTS idx_evals_candidate ON evaluations(candidate_id);
   `);
+}
+
+/** Upgrade from v0.2.1 schema if needed */
+function migrateFromV021(db) {
+  const tableExists = (name) =>
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
+  const columnExists = (table, col) =>
+    db.prepare(`PRAGMA table_info(${table})`).all().some(c => c.name === col);
+
+  // Drop interview_stages table (unused in v0.2.1)
+  if (tableExists('interview_stages')) {
+    db.exec('DROP TABLE interview_stages');
+  }
+
+  // Drop screen_verdict from candidates
+  if (columnExists('candidates', 'screen_verdict')) {
+    db.exec('ALTER TABLE candidates DROP COLUMN screen_verdict');
+  }
+
+  // Add resume_text to candidates (if upgrading)
+  if (!columnExists('candidates', 'resume_text')) {
+    db.exec('ALTER TABLE candidates ADD COLUMN resume_text TEXT');
+  }
+
+  // Migrate evaluations: drop stage_id, add kind + meta
+  if (columnExists('evaluations', 'stage_id')) {
+    db.exec(`
+      CREATE TABLE evaluations_new (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        candidate_id  INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        kind          TEXT,
+        author        TEXT,
+        verdict       TEXT,
+        content       TEXT,
+        meta          TEXT,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO evaluations_new (id, candidate_id, kind, author, verdict, content, created_at)
+        SELECT id, candidate_id, 'interview', author, verdict, content, created_at
+        FROM evaluations;
+      DROP TABLE evaluations;
+      ALTER TABLE evaluations_new RENAME TO evaluations;
+      CREATE INDEX IF NOT EXISTS idx_evals_candidate ON evaluations(candidate_id);
+    `);
+  }
+
+  // Add kind column if somehow missing (fresh install already has it)
+  if (!columnExists('evaluations', 'kind')) {
+    db.exec('ALTER TABLE evaluations ADD COLUMN kind TEXT');
+  }
+  if (!columnExists('evaluations', 'meta')) {
+    db.exec('ALTER TABLE evaluations ADD COLUMN meta TEXT');
+  }
 }
 
 // ─── Companies ────────────────────────────────────────────────────────
@@ -261,9 +303,6 @@ export function getCandidate(id) {
     WHERE c.id = ?
   `).get(id);
   if (!cand) return null;
-  cand.stages = getDb().prepare(`
-    SELECT * FROM interview_stages WHERE candidate_id = ? ORDER BY stage_num ASC
-  `).all(id);
   cand.evaluations = getDb().prepare(`
     SELECT * FROM evaluations WHERE candidate_id = ? ORDER BY created_at DESC
   `).all(id);
@@ -272,7 +311,6 @@ export function getCandidate(id) {
 
 export function createCandidate(data) {
   const { companyId, name, role_id, email, phone, source, brief } = data;
-  // If role_id supplied, verify it belongs to the same company
   if (role_id) {
     const role = getDb().prepare('SELECT company_id FROM roles WHERE id = ?').get(role_id);
     if (!role) throw new Error('role not found');
@@ -285,12 +323,11 @@ export function createCandidate(data) {
   return getCandidate(info.lastInsertRowid);
 }
 
-const UPDATABLE = new Set(['name', 'role_id', 'email', 'phone', 'source', 'brief', 'screen_verdict', 'resume_path']);
+const UPDATABLE = new Set(['name', 'role_id', 'email', 'phone', 'source', 'brief', 'resume_path', 'resume_text']);
 
 export function updateCandidate(id, updates) {
   const keys = Object.keys(updates).filter(k => UPDATABLE.has(k));
   if (keys.length === 0) return getCandidate(id);
-  // If role_id is being updated, verify it belongs to the candidate's company
   if (updates.role_id) {
     const cand = getDb().prepare('SELECT company_id FROM candidates WHERE id = ?').get(id);
     if (!cand) return null;
@@ -314,30 +351,12 @@ export function moveCandidate(id, state) {
   return getCandidate(id);
 }
 
-export function addEvaluation(candidateId, { stage, author, verdict, content }) {
+export function addEvaluation(candidateId, { kind, author, verdict, content, meta }) {
   const db = getDb();
-  let stageId = null;
-  if (stage) {
-    const existing = db.prepare(`
-      SELECT id FROM interview_stages WHERE candidate_id = ? AND stage_num = ?
-    `).get(candidateId, stage);
-    if (existing) {
-      stageId = existing.id;
-      db.prepare(`
-        UPDATE interview_stages SET completed_at = datetime('now') WHERE id = ?
-      `).run(stageId);
-    } else {
-      const info = db.prepare(`
-        INSERT INTO interview_stages (candidate_id, stage_num, completed_at)
-        VALUES (?, ?, datetime('now'))
-      `).run(candidateId, stage);
-      stageId = info.lastInsertRowid;
-    }
-  }
   db.prepare(`
-    INSERT INTO evaluations (candidate_id, stage_id, author, verdict, content)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(candidateId, stageId, author || null, verdict || null, content || null);
+    INSERT INTO evaluations (candidate_id, kind, author, verdict, content, meta)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(candidateId, kind || null, author || null, verdict || null, content || null, meta || null);
   db.prepare(`UPDATE candidates SET updated_at = datetime('now') WHERE id = ?`).run(candidateId);
   return getCandidate(candidateId);
 }
