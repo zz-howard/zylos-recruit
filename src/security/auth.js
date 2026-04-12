@@ -278,6 +278,7 @@ export function setupAuth(app, authConfig, baseUrl) {
   });
 
   app.post('/logout', (req, res) => {
+    console.log(`[recruit] Logout: host=${req.headers.host}, x-fwd-host=${req.headers['x-forwarded-host']}, origin=${req.headers.origin}, referer=${req.headers.referer}`);
     const expectedHost = req.headers['x-forwarded-host'] || req.headers.host;
     const origin = req.headers.origin;
     const referer = req.headers.referer;
@@ -286,11 +287,14 @@ export function setupAuth(app, authConfig, baseUrl) {
       try { return new URL(urlOrOrigin).host; } catch { return null; }
     }
 
-    if (origin) {
-      if (extractHost(origin) !== expectedHost) return res.status(403).send('Forbidden');
-    } else if (referer) {
-      if (extractHost(referer) !== expectedHost) return res.status(403).send('Forbidden');
-    } else {
+    // Validate origin/referer when present; allow null/missing since logout
+    // is non-destructive (only destroys the caller's own session cookie)
+    if (origin && origin !== 'null' && extractHost(origin) !== expectedHost) {
+      console.log(`[recruit] Logout CSRF fail: origin host=${extractHost(origin)} != expected=${expectedHost}`);
+      return res.status(403).send('Forbidden');
+    }
+    if (!origin && referer && extractHost(referer) !== expectedHost) {
+      console.log(`[recruit] Logout CSRF fail: referer host=${extractHost(referer)} != expected=${expectedHost}`);
       return res.status(403).send('Forbidden');
     }
 
