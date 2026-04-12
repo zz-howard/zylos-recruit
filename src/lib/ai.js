@@ -210,6 +210,49 @@ function parseAiResponse(text) {
   throw new Error('Failed to parse AI response as JSON');
 }
 
+const JSON_SCHEMA = `{
+  "verdict": "yes|maybe|no",
+  "score": 0-100,
+  "summary": "一句话总结",
+  "brief": "候选人一句话简介",
+  "contact": { "name": "姓名或null", "email": "邮箱或null", "phone": "电话或null" },
+  "analysis": { "tech_match": "...", "experience": "...", "potential": "...", "risks": "..." },
+  "recommendation": "给面试官的建议"
+}`;
+
+/**
+ * Repair malformed AI response using a lightweight model.
+ * Uses haiku (claude runtime) or gpt-5.3-codex-spark (codex runtime).
+ */
+async function repairAiResponse(rawText) {
+  const repairPrompt = `You are a JSON formatter. The following is an AI evaluation output that failed to parse as JSON. Extract the information and return ONLY a valid JSON object matching this schema:\n\n${JSON_SCHEMA}\n\nRaw AI output:\n\n${rawText}\n\nReturn ONLY the JSON object, no markdown, no explanation.`;
+
+  let cmd, args;
+  if (envRuntime === 'codex') {
+    cmd = 'codex';
+    args = ['exec', '--sandbox', 'read-only', '-c', 'model="gpt-5.3-codex-spark"', repairPrompt];
+  } else {
+    cmd = 'claude';
+    args = ['-p', repairPrompt, '--model', 'haiku', '--effort', 'low', '--bare'];
+  }
+
+  const childEnv = { ...process.env, NO_COLOR: '1' };
+  if (envRuntime !== 'codex') {
+    const apiKey = getClaudeApiKey();
+    if (apiKey) childEnv.ANTHROPIC_API_KEY = apiKey;
+  }
+
+  console.log(`[recruit] AI response repair: using ${envRuntime === 'codex' ? 'gpt-5.3-codex-spark' : 'haiku'} to extract JSON...`);
+  const { stdout } = await execFileAsync(cmd, args, {
+    encoding: 'utf8',
+    timeout: 30_000,
+    maxBuffer: 512 * 1024,
+    env: childEnv,
+  });
+
+  return parseAiResponse(stdout);
+}
+
 // In-flight evaluation lock: prevents duplicate evaluations for the same candidate
 const evaluatingSet = new Set();
 
@@ -255,7 +298,14 @@ export async function evaluateResume(candidateId) {
   const { text, runtime } = await runCli(prompt);
   console.log(`[recruit] AI evaluation: CLI returned (${((Date.now() - t0) / 1000).toFixed(1)}s), parsing response...`);
 
-  const parsed = parseAiResponse(text);
+  let parsed;
+  try {
+    parsed = parseAiResponse(text);
+  } catch (parseErr) {
+    console.warn(`[recruit] AI evaluation: JSON parse failed (${parseErr.message}), attempting repair...`);
+    parsed = await repairAiResponse(text);
+    console.log(`[recruit] AI evaluation: repair successful`);
+  }
   console.log(`[recruit] AI evaluation result: verdict=${parsed.verdict}, score=${parsed.score}`);
 
   const meta = JSON.stringify({
