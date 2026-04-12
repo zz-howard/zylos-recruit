@@ -210,6 +210,23 @@
       briefText = c.brief || '';
     }
     node.querySelector('.card-brief').textContent = briefText;
+
+    // Show verdict badges
+    var verdictsEl = node.querySelector('.card-verdicts');
+    var badges = [];
+    if (c.is_evaluating) {
+      badges.push('<span class="card-badge badge-evaluating">⏳ 评估中</span>');
+    } else if (c.last_ai_verdict != null) {
+      var aiLabel = c.last_ai_verdict === 'yes' ? '✅' : '❌';
+      var scoreText = c.last_ai_score != null ? c.last_ai_score + '分' : '';
+      badges.push('<span class="card-badge badge-ai verdict-' + c.last_ai_verdict + '">AI ' + aiLabel + (scoreText ? ' ' + scoreText : '') + '</span>');
+    }
+    if (c.last_interview_verdict != null) {
+      var ivLabel = VERDICT_LABELS[c.last_interview_verdict] || c.last_interview_verdict;
+      badges.push('<span class="card-badge badge-interview verdict-' + c.last_interview_verdict + '">面试 ' + ivLabel + '</span>');
+    }
+    if (badges.length) verdictsEl.innerHTML = badges.join(' ');
+
     node.addEventListener('click', function () { openCandidate(c.id); });
     return node;
   }

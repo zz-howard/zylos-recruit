@@ -57,6 +57,7 @@ export function kanbanPageHtml(baseUrl) {
       <div class="card-name"></div>
       <div class="card-role"></div>
       <div class="card-brief"></div>
+      <div class="card-verdicts"></div>
     </div>
   </template>
 

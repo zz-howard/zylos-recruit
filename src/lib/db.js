@@ -324,13 +324,35 @@ export function listCandidates({ companyId, roleId, state } = {}) {
   if (roleId)    { where.push('c.role_id = ?');    params.push(roleId); }
   if (state)     { where.push('c.state = ?');      params.push(state); }
   const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
-  return getDb().prepare(`
+  const rows = getDb().prepare(`
     SELECT c.*, r.name AS role_name
     FROM candidates c
     LEFT JOIN roles r ON r.id = c.role_id
     ${whereClause}
     ORDER BY c.updated_at DESC
   `).all(...params);
+
+  // Attach latest AI eval + latest interview eval per candidate
+  const stmtAi = getDb().prepare(`
+    SELECT verdict, meta FROM evaluations
+    WHERE candidate_id = ? AND kind = 'resume_ai'
+    ORDER BY created_at DESC LIMIT 1
+  `);
+  const stmtInterview = getDb().prepare(`
+    SELECT verdict FROM evaluations
+    WHERE candidate_id = ? AND kind = 'interview'
+    ORDER BY created_at DESC LIMIT 1
+  `);
+  for (const row of rows) {
+    const ai = stmtAi.get(row.id);
+    if (ai) {
+      row.last_ai_verdict = ai.verdict;
+      try { row.last_ai_score = JSON.parse(ai.meta)?.score ?? null; } catch { row.last_ai_score = null; }
+    }
+    const iv = stmtInterview.get(row.id);
+    if (iv) row.last_interview_verdict = iv.verdict;
+  }
+  return rows;
 }
 
 export function getCandidate(id) {
