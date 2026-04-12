@@ -13,7 +13,7 @@
   var STATE_LABELS = {
     pending: '待处理',
     scheduled: '已预约',
-    interviewed: '已完成',
+    interviewed: '已面试',
     passed: '可推进',
     rejected: '人才库',
   };
