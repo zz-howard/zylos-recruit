@@ -293,7 +293,7 @@
       + (aiEvals.length > 0
           ? (function () {
               // Show tabs if multiple evaluations, newest first
-              var sorted = aiEvals.slice().reverse();
+              var sorted = aiEvals.slice();
               var tabs = '';
               if (sorted.length > 1) {
                 tabs = '<div class="eval-tabs">'
