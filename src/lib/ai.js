@@ -149,6 +149,7 @@ export async function evaluateResume(candidateId) {
   // Write back extracted contact info (only fill empty fields)
   const contact = parsed.contact || {};
   const contactUpdate = {};
+  if (parsed.brief && !candidate.brief) contactUpdate.brief = parsed.brief;
   if (contact.email && !candidate.email) contactUpdate.email = contact.email;
   if (contact.phone && !candidate.phone) contactUpdate.phone = contact.phone;
   if (Object.keys(contactUpdate).length > 0) {
