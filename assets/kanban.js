@@ -172,7 +172,6 @@
     if (cur && !state.roles.some(function (r) { return String(r.id) === cur; })) {
       state.filterRoleId = '';
       cur = '';
-      document.getElementById('role-label').textContent = 'All roles';
     }
     sel.value = cur;
   }
@@ -974,7 +973,6 @@
     state.activeCompanyId = e.target.value;
     state.filterRoleId = '';
     saveActiveCompanyToStorage(state.activeCompanyId);
-    document.getElementById('role-label').textContent = 'All roles';
     loadRolesAndCandidates();
   });
 
@@ -984,8 +982,6 @@
   document.getElementById('btn-new-candidate').addEventListener('click', openNewCandidateForm);
   document.getElementById('role-filter').addEventListener('change', function (e) {
     state.filterRoleId = e.target.value;
-    var r = state.roles.find(function (x) { return String(x.id) === state.filterRoleId; });
-    document.getElementById('role-label').textContent = r ? r.name : 'All roles';
     renderBoard();
   });
 

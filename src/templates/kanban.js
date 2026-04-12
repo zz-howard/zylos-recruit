@@ -21,8 +21,6 @@ export function kanbanPageHtml(baseUrl) {
         <option value="">(no company)</option>
       </select>
       <button id="btn-manage-companies" class="btn btn-ghost" title="Manage companies">⚙</button>
-      <span class="sep">·</span>
-      <span id="role-label">All roles</span>
     </div>
     <div class="topbar-right">
       <select id="role-filter">

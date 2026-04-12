@@ -365,7 +365,7 @@
   background: var(--bg-card);
   color: var(--text);
   font-size: 13px;
-  max-width: 200px;
+  min-width: 140px;
   transition: border-color var(--transition);
 }
 #company-switcher:focus {
