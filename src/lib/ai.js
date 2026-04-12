@@ -188,7 +188,7 @@ async function runCli(prompt) {
 
   const { stdout } = await execFileAsync(cmd, args, {
     encoding: 'utf8',
-    timeout: 180_000,
+    timeout: 600_000,
     maxBuffer: 1024 * 1024,
     env: childEnv,
   });
