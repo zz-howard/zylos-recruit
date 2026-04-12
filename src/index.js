@@ -81,19 +81,29 @@ async function main() {
 
   // Static assets (before auth so login page can load CSS)
   const assetsDir = path.join(import.meta.dirname, '..', 'assets');
-  app.use('/_assets', express.static(assetsDir, {
-    maxAge: '1h',
-  }));
+  const staticOpts = { maxAge: '1h' };
+  app.use('/_assets', express.static(assetsDir, staticOpts));
+  // Also mount at BASE_URL/_assets so it works without a reverse proxy
+  app.use(BASE_URL + '/_assets', express.static(assetsDir, staticOpts));
 
   // Auth (login/logout + gate)
   setupAuth(app, config.auth || {}, BASE_URL);
 
   // Routes (authenticated)
   app.get('/', uiRoute(BASE_URL));
-  app.use('/api/companies', companiesRouter());
-  app.use('/api/roles', rolesRouter());
-  app.use('/api/candidates', candidatesRouter());
-  app.use('/api/candidates', resumesRouter(config.upload));
+  const companies = companiesRouter();
+  const roles = rolesRouter();
+  const candidates = candidatesRouter();
+  const resumes = resumesRouter(config.upload);
+  app.use('/api/companies', companies);
+  app.use('/api/roles', roles);
+  app.use('/api/candidates', candidates);
+  app.use('/api/candidates', resumes);
+  // Also mount at BASE_URL/api/* so it works without a reverse proxy
+  app.use(BASE_URL + '/api/companies', companies);
+  app.use(BASE_URL + '/api/roles', roles);
+  app.use(BASE_URL + '/api/candidates', candidates);
+  app.use(BASE_URL + '/api/candidates', resumes);
 
   // Error handler
   app.use((err, req, res, _next) => {
