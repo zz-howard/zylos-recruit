@@ -1,77 +1,84 @@
 /**
  * AI evaluation module for zylos-recruit.
  *
- * Calls the Anthropic Messages API to evaluate a candidate's resume
- * against a target role profile.
+ * Shells out to the local CLI (claude or codex) to evaluate resumes.
+ * The CLI can natively read PDFs, so no text extraction needed.
+ *
+ * Runtime detection: reads ZYLOS_RUNTIME env var ('claude' | 'codex').
+ * Defaults to 'claude'.
  */
 
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getCandidate, getRole, getCompany, addEvaluation } from './db.js';
+import { RESUMES_DIR } from './config.js';
+
+const execFileAsync = promisify(execFile);
 
 const PROMPT_PATH = path.join(import.meta.dirname, '..', 'prompts', 'resume-eval.md');
-const MODEL = 'claude-sonnet-4-6';
 
-function getApiKey() {
-  return process.env.ANTHROPIC_API_KEY || '';
+function getRuntime() {
+  return (process.env.ZYLOS_RUNTIME || 'claude').toLowerCase();
 }
 
 function loadPromptTemplate() {
   return fs.readFileSync(PROMPT_PATH, 'utf8');
 }
 
-function buildPrompt(candidate, role, companyProfile, roleProfile) {
+function buildPrompt(resumeAbsPath, role, companyProfile, roleProfile) {
   let tpl = loadPromptTemplate();
   tpl = tpl.replace('{{company_profile}}', companyProfile || '（未提供公司背景）');
   tpl = tpl.replace('{{role_name}}', role?.name || '未知岗位');
   tpl = tpl.replace('{{role_profile}}', roleProfile || '（未提供岗位描述）');
-  tpl = tpl.replace('{{resume_text}}', candidate.resume_text || '（简历内容为空）');
+  tpl = tpl.replace('{{resume_file}}', resumeAbsPath);
   return tpl;
 }
 
-async function callClaude(prompt) {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY not configured. Add it to ~/zylos/.env');
+async function runCli(prompt) {
+  const runtime = getRuntime();
+  let cmd, args;
+
+  if (runtime === 'codex') {
+    cmd = 'codex';
+    args = [
+      'exec',
+      '--sandbox', 'read-only',
+      prompt,
+    ];
+  } else {
+    cmd = 'claude';
+    args = [
+      '-p', prompt,
+      '--model', 'claude-sonnet-4-6',
+      '--allowedTools', 'Read',
+      '--bare',
+    ];
   }
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 1024,
-      messages: [{ role: 'user', content: prompt }],
-    }),
+  const { stdout } = await execFileAsync(cmd, args, {
+    encoding: 'utf8',
+    timeout: 120_000,
+    maxBuffer: 1024 * 1024,
+    env: { ...process.env, NO_COLOR: '1' },
   });
 
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Anthropic API error ${res.status}: ${body}`);
-  }
-
-  const data = await res.json();
-  const text = data.content?.[0]?.text || '';
-  const usage = data.usage || {};
-  return { text, model: data.model || MODEL, usage };
+  return { text: stdout, runtime };
 }
 
 function parseAiResponse(text) {
-  // Extract JSON from response (handle markdown code blocks)
-  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, text];
-  const jsonStr = jsonMatch[1].trim();
-  try {
-    return JSON.parse(jsonStr);
-  } catch {
-    // Fallback: try to find any JSON object
-    const braceMatch = text.match(/\{[\s\S]*\}/);
-    if (braceMatch) return JSON.parse(braceMatch[0]);
-    throw new Error('Failed to parse AI response as JSON');
+  // Extract JSON from CLI output (may contain markdown code blocks or other text)
+  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (jsonMatch) {
+    return JSON.parse(jsonMatch[1].trim());
   }
+  // Try to find a raw JSON object
+  const braceMatch = text.match(/\{[\s\S]*\}/);
+  if (braceMatch) {
+    return JSON.parse(braceMatch[0]);
+  }
+  throw new Error('Failed to parse AI response as JSON');
 }
 
 /**
@@ -82,8 +89,13 @@ function parseAiResponse(text) {
 export async function evaluateResume(candidateId) {
   const candidate = getCandidate(candidateId);
   if (!candidate) throw new Error('candidate not found');
-  if (!candidate.resume_text) throw new Error('no resume text — upload a PDF first');
+  if (!candidate.resume_path) throw new Error('no resume uploaded — upload a PDF first');
   if (!candidate.role_id) throw new Error('candidate has no assigned role');
+
+  const resumeAbsPath = path.resolve(RESUMES_DIR, candidate.resume_path);
+  if (!fs.existsSync(resumeAbsPath)) {
+    throw new Error('resume file missing on disk');
+  }
 
   const role = getRole(candidate.role_id);
   if (!role) throw new Error('role not found');
@@ -92,13 +104,12 @@ export async function evaluateResume(candidateId) {
   const companyProfile = company?.profile?.content || null;
   const roleProfile = role?.profile?.content || null;
 
-  const prompt = buildPrompt(candidate, role, companyProfile, roleProfile);
-  const { text, model, usage } = await callClaude(prompt);
+  const prompt = buildPrompt(resumeAbsPath, role, companyProfile, roleProfile);
+  const { text, runtime } = await runCli(prompt);
   const parsed = parseAiResponse(text);
 
   const meta = JSON.stringify({
-    model,
-    usage,
+    runtime,
     role_profile_version: role?.profile?.version || null,
     company_profile_version: company?.profile?.version || null,
     score: parsed.score,
@@ -106,9 +117,7 @@ export async function evaluateResume(candidateId) {
     recommendation: parsed.recommendation,
   });
 
-  // verdict from AI: yes / maybe / no
   const verdict = parsed.verdict || 'maybe';
-  // content: summary + recommendation for quick reading
   const content = [
     parsed.summary || '',
     '',
@@ -122,7 +131,7 @@ export async function evaluateResume(candidateId) {
 
   return addEvaluation(candidateId, {
     kind: 'resume_ai',
-    author: model,
+    author: runtime === 'codex' ? 'codex' : 'claude',
     verdict,
     content,
     meta,

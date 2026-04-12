@@ -81,7 +81,6 @@ function initSchema(db) {
       source         TEXT,
       brief          TEXT,
       resume_path    TEXT,
-      resume_text    TEXT,
       state          TEXT NOT NULL DEFAULT 'pending'
                      CHECK (state IN ('pending','scheduled','interviewed','passed','rejected')),
       created_at     TEXT NOT NULL DEFAULT (datetime('now')),
@@ -124,9 +123,9 @@ function migrateFromV021(db) {
     db.exec('ALTER TABLE candidates DROP COLUMN screen_verdict');
   }
 
-  // Add resume_text to candidates (if upgrading)
-  if (!columnExists('candidates', 'resume_text')) {
-    db.exec('ALTER TABLE candidates ADD COLUMN resume_text TEXT');
+  // Drop resume_text from candidates (no longer needed in v0.2.2)
+  if (columnExists('candidates', 'resume_text')) {
+    db.exec('ALTER TABLE candidates DROP COLUMN resume_text');
   }
 
   // Migrate evaluations: drop stage_id, add kind + meta
@@ -323,7 +322,7 @@ export function createCandidate(data) {
   return getCandidate(info.lastInsertRowid);
 }
 
-const UPDATABLE = new Set(['name', 'role_id', 'email', 'phone', 'source', 'brief', 'resume_path', 'resume_text']);
+const UPDATABLE = new Set(['name', 'role_id', 'email', 'phone', 'source', 'brief', 'resume_path']);
 
 export function updateCandidate(id, updates) {
   const keys = Object.keys(updates).filter(k => UPDATABLE.has(k));

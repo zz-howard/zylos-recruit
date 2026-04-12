@@ -105,7 +105,7 @@ export function candidatesRouter() {
       res.json({ candidate: cand });
     } catch (err) {
       const msg = String(err.message || '');
-      if (msg.includes('not found') || msg.includes('no resume') || msg.includes('no assigned role')) {
+      if (msg.includes('not found') || msg.includes('no resume') || msg.includes('no assigned role') || msg.includes('file missing')) {
         return res.status(400).json({ error: msg });
       }
       if (msg.includes('API_KEY') || msg.includes('API error')) {

@@ -6,27 +6,6 @@ import crypto from 'node:crypto';
 import { RESUMES_DIR } from '../lib/config.js';
 import { getCandidate, updateCandidate } from '../lib/db.js';
 
-let pdfParse = null;
-async function getPdfParse() {
-  if (!pdfParse) {
-    const mod = await import('pdf-parse/lib/pdf-parse.js');
-    pdfParse = mod.default || mod;
-  }
-  return pdfParse;
-}
-
-async function extractPdfText(filePath) {
-  try {
-    const parse = await getPdfParse();
-    const buf = fs.readFileSync(filePath);
-    const data = await parse(buf);
-    return (data.text || '').trim();
-  } catch (err) {
-    console.error('[recruit] PDF text extraction failed:', err.message);
-    return null;
-  }
-}
-
 function ensureDir() {
   fs.mkdirSync(RESUMES_DIR, { recursive: true });
 }
@@ -63,7 +42,7 @@ export function resumesRouter(uploadConfig) {
     const cand = getCandidate(Number(req.params.id));
     if (!cand) return res.status(404).json({ error: 'candidate not found' });
 
-    upload.single('file')(req, res, async (err) => {
+    upload.single('file')(req, res, (err) => {
       if (err) return res.status(400).json({ error: err.message });
       if (!req.file) return res.status(400).json({ error: 'no file' });
 
@@ -74,15 +53,7 @@ export function resumesRouter(uploadConfig) {
           try { fs.unlinkSync(old); } catch { /* ignore */ }
         }
       }
-
-      // Extract text from PDF
-      const filePath = path.join(RESUMES_DIR, req.file.filename);
-      const resumeText = await extractPdfText(filePath);
-
-      const updates = { resume_path: req.file.filename };
-      if (resumeText) updates.resume_text = resumeText;
-
-      const updated = updateCandidate(Number(req.params.id), updates);
+      const updated = updateCandidate(Number(req.params.id), { resume_path: req.file.filename });
       res.json({ candidate: updated });
     });
   });

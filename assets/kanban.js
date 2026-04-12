@@ -282,7 +282,7 @@
       // ─── AI Resume Evaluation section ───
       + '<div class="eval-section">'
       + '<h3>AI 简历评估</h3>'
-      + (c.resume_text
+      + (c.resume_path
           ? '<button class="btn btn-primary" id="btn-ai-eval">'
             + (aiEvals.length > 0 ? '🤖 重新评估' : '🤖 AI 评估')
             + '</button>'
@@ -345,10 +345,7 @@
       + '</div>'
       + (c.resume_path
           ? '<iframe src="' + API + '/candidates/' + c.id + '/resume#toolbar=0"></iframe>'
-          : '<div class="no-resume">No resume uploaded</div>')
-      + (c.resume_text
-          ? '<div class="meta" style="padding:8px">✅ 文本已提取 (' + c.resume_text.length + ' chars)</div>'
-          : '');
+          : '<div class="no-resume">No resume uploaded</div>');
     right.appendChild(resumePane);
 
     wrap.appendChild(left);
