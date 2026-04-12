@@ -45,7 +45,7 @@ export function settingsRouter() {
     }
 
     if (ai.runtime !== undefined) {
-      const valid = ['auto', 'claude', 'codex'];
+      const valid = ['auto', 'claude', 'codex', 'gemini'];
       if (!valid.includes(ai.runtime)) {
         return res.status(400).json({ error: `invalid runtime: ${ai.runtime}. Must be one of: ${valid.join(', ')}` });
       }

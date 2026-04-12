@@ -31,9 +31,9 @@ export const DEFAULT_CONFIG = {
     max: 120,
   },
   ai: {
-    runtime: 'auto', // 'auto' | 'claude' | 'codex'
+    runtime: 'auto', // 'auto' | 'claude' | 'codex' | 'gemini'
     model: 'auto',   // 'auto' or specific model name
-    effort: 'high', // claude: low|medium|high|max, codex: none|low|medium|high|xhigh
+    effort: 'high', // claude: low|medium|high|max, codex: none|low|medium|high|xhigh, gemini: N/A
   },
 };
 
