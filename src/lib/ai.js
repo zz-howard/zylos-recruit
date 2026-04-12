@@ -188,7 +188,7 @@ async function runCli(prompt) {
 
   const { stdout } = await execFileAsync(cmd, args, {
     encoding: 'utf8',
-    timeout: 120_000,
+    timeout: 180_000,
     maxBuffer: 1024 * 1024,
     env: childEnv,
   });
@@ -303,6 +303,10 @@ export async function evaluateResume(candidateId) {
     parsed = parseAiResponse(text);
   } catch (parseErr) {
     console.warn(`[recruit] AI evaluation: JSON parse failed (${parseErr.message}), attempting repair...`);
+    console.warn(`[recruit] AI evaluation: raw output (first 500 chars): ${text.slice(0, 500)}`);
+    if (!text || text.trim().length < 20) {
+      throw new Error(`AI returned empty/unusable output (${text.length} chars)`);
+    }
     parsed = await repairAiResponse(text);
     console.log(`[recruit] AI evaluation: repair successful`);
   }
