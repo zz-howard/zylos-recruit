@@ -174,6 +174,14 @@ function migrateFromV021(db) {
     db.exec('ALTER TABLE roles ADD COLUMN expected_portrait TEXT');
     // eval_prompt was previously used to store portrait content — migrate it
     db.exec(`UPDATE roles SET expected_portrait = eval_prompt, eval_prompt = NULL WHERE eval_prompt IS NOT NULL`);
+    // role_profiles previously stored JD content — copy latest version to description
+    db.exec(`UPDATE roles SET description = (
+      SELECT rp.content FROM role_profiles rp
+      WHERE rp.role_id = roles.id
+      ORDER BY rp.version DESC LIMIT 1
+    ) WHERE EXISTS (
+      SELECT 1 FROM role_profiles rp WHERE rp.role_id = roles.id
+    )`);
   }
 }
 

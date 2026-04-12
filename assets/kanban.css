@@ -356,7 +356,7 @@
   border-color: var(--border-hover);
 }
 .company-row-head { flex: 1; min-width: 200px; }
-.company-row-actions { display: flex; gap: 6px; }
+.company-row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 #company-switcher {
   padding: 5px 10px;

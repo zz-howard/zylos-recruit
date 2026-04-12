@@ -650,8 +650,6 @@
       + '<h3>Add new role</h3>'
       + '<div class="field"><label>Name</label>'
       +   '<input type="text" id="f-role-name" placeholder="e.g. LLM 架构师"></div>'
-      + '<div class="field"><label>Description (optional)</label>'
-      +   '<textarea id="f-role-desc" rows="2"></textarea></div>'
       + '<div class="actions">'
       +   '<button class="btn" id="f-close">Close</button>'
       +   '<button class="btn btn-primary" id="f-add">Create role</button>'
@@ -670,12 +668,10 @@
           +   '<div class="company-row-head">'
           +     '<strong>' + escapeHtml(r.name) + '</strong>'
           +     '<span class="meta"> · ' + (r.candidate_count || 0) + ' candidates</span>'
-          +     (r.description
-                   ? '<div class="meta">' + escapeHtml(r.description) + '</div>'
-                   : '')
           +   '</div>'
           +   '<div class="company-row-actions">'
           +     '<button class="btn btn-ghost" data-act="edit">Edit</button>'
+          +     '<button class="btn btn-ghost" data-act="jd">JD</button>'
           +     '<button class="btn btn-ghost" data-act="portrait">Portrait</button>'
           +     '<button class="btn btn-ghost" data-act="eval-prompt">Eval prompt</button>'
           +     '<button class="btn btn-danger btn-ghost" data-act="delete">Delete</button>'
@@ -687,6 +683,9 @@
         var id = Number(row.dataset.id);
         row.querySelector('[data-act="edit"]').addEventListener('click', function () {
           openRoleEditor(id);
+        });
+        row.querySelector('[data-act="jd"]').addEventListener('click', function () {
+          openRoleJdEditor(id);
         });
         row.querySelector('[data-act="portrait"]').addEventListener('click', function () {
           openRoleProfileEditor(id);
@@ -708,17 +707,14 @@
     wrap.querySelector('#f-close').addEventListener('click', closeModal);
     wrap.querySelector('#f-add').addEventListener('click', function () {
       var name = wrap.querySelector('#f-role-name').value.trim();
-      var description = wrap.querySelector('#f-role-desc').value.trim();
       if (!name) { toast('name required', 'error'); return; }
       api('POST', '/roles', {
         company_id: Number(state.activeCompanyId),
         name: name,
-        description: description,
       })
         .then(function () {
           toast('Role created', 'success');
           wrap.querySelector('#f-role-name').value = '';
-          wrap.querySelector('#f-role-desc').value = '';
           return loadRolesAndCandidates().then(rerender);
         })
         .catch(function (err) { toast(err.message, 'error'); });
@@ -734,25 +730,46 @@
         + '<h2>Edit Role</h2>'
         + '<div class="field"><label>Name</label>'
         +   '<input type="text" id="f-name"></div>'
-        + '<div class="field"><label>Description</label>'
-        +   '<textarea id="f-desc" rows="3"></textarea></div>'
         + '<div class="actions">'
         +   '<button class="btn" id="f-cancel">Cancel</button>'
         +   '<button class="btn btn-primary" id="f-save">Save</button>'
         + '</div>';
       openModal(wrap);
       wrap.querySelector('#f-name').value = role.name || '';
-      wrap.querySelector('#f-desc').value = role.description || '';
       wrap.querySelector('#f-cancel').addEventListener('click', openRoleManager);
       wrap.querySelector('#f-save').addEventListener('click', function () {
         var name = wrap.querySelector('#f-name').value.trim();
-        var description = wrap.querySelector('#f-desc').value.trim();
         if (!name) { toast('name required', 'error'); return; }
-        api('PUT', '/roles/' + roleId, { name: name, description: description })
+        api('PUT', '/roles/' + roleId, { name: name })
           .then(function () {
             toast('Saved', 'success');
             return loadRolesAndCandidates().then(openRoleManager);
           })
+          .catch(function (err) { toast(err.message, 'error'); });
+      });
+    }).catch(function (err) { toast(err.message, 'error'); });
+  }
+
+  function openRoleJdEditor(roleId) {
+    api('GET', '/roles/' + roleId).then(function (r) {
+      var role = r.role;
+      var wrap = document.createElement('div');
+      wrap.className = 'form-dialog';
+      wrap.innerHTML = ''
+        + '<h2>JD — ' + escapeHtml(role.name) + '</h2>'
+        + '<div class="meta">Public job description (岗位描述). Markdown supported.</div>'
+        + '<div class="field"><textarea id="f-jd" rows="20" placeholder="## 岗位职责\n\n## 任职要求\n\n## 加分项"></textarea></div>'
+        + '<div class="actions">'
+        +   '<button class="btn" id="f-cancel">Cancel</button>'
+        +   '<button class="btn btn-primary" id="f-save">Save</button>'
+        + '</div>';
+      openModal(wrap);
+      wrap.querySelector('#f-jd').value = role.description || '';
+      wrap.querySelector('#f-cancel').addEventListener('click', openRoleManager);
+      wrap.querySelector('#f-save').addEventListener('click', function () {
+        var content = wrap.querySelector('#f-jd').value.trim();
+        api('PUT', '/roles/' + roleId, { description: content || null })
+          .then(function () { toast('JD saved', 'success'); openRoleManager(); })
           .catch(function (err) { toast(err.message, 'error'); });
       });
     }).catch(function (err) { toast(err.message, 'error'); });
