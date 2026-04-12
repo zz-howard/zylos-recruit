@@ -1054,8 +1054,9 @@
         modelOptions += '<option value="' + m + '"' + (ai.model === m ? ' selected' : '') + '>' + escapeHtml(m) + '</option>';
       });
 
-      // Effort options
-      var effortHtml = ai.validEfforts.map(function (e) {
+      // Effort options (per runtime)
+      var effortList = ai.validEfforts[effectiveRt] || ai.validEfforts.claude || [];
+      var effortHtml = effortList.map(function (e) {
         return '<option value="' + e + '"' + (ai.effort === e ? ' selected' : '') + '>' + e + '</option>';
       }).join('');
 
@@ -1075,7 +1076,7 @@
         +   '<button class="btn btn-primary" id="f-save">Save</button>'
         + '</div>';
 
-      // Update model dropdown when runtime changes
+      // Update model and effort dropdowns when runtime changes
       wrap.querySelector('#f-runtime').addEventListener('change', function () {
         var rt = this.value;
         var ert = rt === 'auto' ? ai.envRuntime : rt;
@@ -1084,6 +1085,12 @@
         var sel = wrap.querySelector('#f-model');
         sel.innerHTML = '<option value="auto">Auto (' + dm + ')</option>'
           + ms.map(function (m) { return '<option value="' + m + '">' + escapeHtml(m) + '</option>'; }).join('');
+        var ef = ai.validEfforts[ert] || [];
+        var efSel = wrap.querySelector('#f-effort');
+        var curEffort = efSel.value;
+        efSel.innerHTML = ef.map(function (e) {
+          return '<option value="' + e + '"' + (e === curEffort ? ' selected' : '') + '>' + e + '</option>';
+        }).join('');
       });
 
       wrap.querySelector('#f-close').addEventListener('click', closeModal);

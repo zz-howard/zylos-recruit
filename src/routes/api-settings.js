@@ -24,7 +24,7 @@ function buildResponse() {
       availableRuntimes: available,
       model: config.ai?.model || 'auto',
       validModels: VALID_MODELS,
-      effort: config.ai?.effort || 'medium',
+      effort: config.ai?.effort || 'high',
       validEfforts: VALID_EFFORTS,
     },
   };
@@ -67,8 +67,9 @@ export function settingsRouter() {
     }
 
     if (ai.effort !== undefined) {
-      if (!VALID_EFFORTS.includes(ai.effort)) {
-        return res.status(400).json({ error: `invalid effort: ${ai.effort}. Must be one of: ${VALID_EFFORTS.join(', ')}` });
+      const allEfforts = [...new Set([...VALID_EFFORTS.claude, ...VALID_EFFORTS.codex])];
+      if (!allEfforts.includes(ai.effort)) {
+        return res.status(400).json({ error: `invalid effort: ${ai.effort}` });
       }
     }
 

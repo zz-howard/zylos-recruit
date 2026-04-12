@@ -122,7 +122,10 @@ const VALID_MODELS = {
   claude: ['opus', 'sonnet', 'haiku'],
   codex: ['gpt-5.4', 'gpt-5.3-codex'],
 };
-const VALID_EFFORTS = ['low', 'medium', 'high', 'max'];
+const VALID_EFFORTS = {
+  claude: ['low', 'medium', 'high', 'max'],
+  codex: ['none', 'low', 'medium', 'high', 'xhigh'],
+};
 
 export { VALID_MODELS, VALID_EFFORTS };
 
