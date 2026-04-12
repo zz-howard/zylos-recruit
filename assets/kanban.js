@@ -357,13 +357,20 @@
     var right = document.createElement('div');
     var resumePane = document.createElement('div');
     resumePane.className = 'resume-pane';
+    var resumeUrl = API + '/candidates/' + c.id + '/resume';
     resumePane.innerHTML = '<div class="resume-head">'
       + '<span>Resume</span>'
-      + '<span><label class="btn" style="cursor:pointer">Upload'
-      +   '<input type="file" id="resume-file" accept="application/pdf" style="display:none"></label></span>'
+      + '<span class="resume-actions">'
+      + (c.resume_path
+          ? '<a href="' + resumeUrl + '" target="_blank" class="btn resume-action-btn" title="Open in new tab">&#8599;</a>'
+          + '<a href="' + resumeUrl + '?dl=1" download class="btn resume-action-btn" title="Download">&#8615;</a>'
+          : '')
+      + '<label class="btn" style="cursor:pointer">Upload'
+      +   '<input type="file" id="resume-file" accept="application/pdf" style="display:none"></label>'
+      + '</span>'
       + '</div>'
       + (c.resume_path
-          ? '<iframe src="' + API + '/candidates/' + c.id + '/resume#toolbar=0"></iframe>'
+          ? '<iframe src="' + resumeUrl + '#toolbar=0"></iframe>'
           : '<div class="no-resume">No resume uploaded</div>');
     right.appendChild(resumePane);
 
