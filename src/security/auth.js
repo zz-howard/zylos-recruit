@@ -278,7 +278,7 @@ export function setupAuth(app, authConfig, baseUrl) {
   });
 
   app.post('/logout', (req, res) => {
-    const expectedHost = req.headers.host;
+    const expectedHost = req.headers['x-forwarded-host'] || req.headers.host;
     const origin = req.headers.origin;
     const referer = req.headers.referer;
 
