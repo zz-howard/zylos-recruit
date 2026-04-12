@@ -392,6 +392,7 @@
         aiBtn.disabled = true;
         aiBtn.textContent = '⏳ 评估中...';
         statusEl.textContent = '';
+        var evalCountBefore = (c.evaluations || []).filter(function (e) { return e.kind === 'resume_ai'; }).length;
         api('POST', '/candidates/' + c.id + '/ai-evaluate')
           .then(function () {
             toast('AI 评估已启动，请稍候...', 'success');
@@ -400,21 +401,19 @@
             var maxPolls = 36;
             var pollTimer = setInterval(function () {
               pollCount++;
-              api('GET', '/candidates/' + c.id).then(function (data) {
+              fetch(API + '/candidates/' + c.id + '?_t=' + Date.now()).then(function (r) { return r.json(); }).then(function (data) {
                 var cand = data.candidate;
-                var hasNewEval = (cand.evaluations || []).some(function (e) {
-                  return e.kind === 'resume_ai' && new Date(e.created_at) > new Date(Date.now() - 180000);
-                });
-                if (hasNewEval || pollCount >= maxPolls) {
+                var currentCount = (cand.evaluations || []).filter(function (e) { return e.kind === 'resume_ai'; }).length;
+                if (currentCount > evalCountBefore || pollCount >= maxPolls) {
                   clearInterval(pollTimer);
-                  if (hasNewEval) {
+                  if (currentCount > evalCountBefore) {
                     toast('AI 评估完成', 'success');
                   } else {
                     toast('AI 评估超时，请刷新页面查看', 'warning');
                   }
                   loadRolesAndCandidates().then(function () { openCandidate(c.id); });
                 }
-              });
+              }).catch(function () {});
             }, 5000);
           })
           .catch(function (err) {
