@@ -3,7 +3,7 @@ import {
   listCandidates, getCandidate, createCandidate, updateCandidate,
   moveCandidate, addEvaluation, deleteCandidate, STATES,
 } from '../lib/db.js';
-import { evaluateResume } from '../lib/ai.js';
+import { evaluateResumeAsync } from '../lib/ai.js';
 
 export function candidatesRouter() {
   const router = express.Router();
@@ -98,22 +98,16 @@ export function candidatesRouter() {
     res.json({ candidate: cand });
   });
 
-  // AI resume evaluation
-  router.post('/:id/ai-evaluate', async (req, res) => {
-    try {
-      const cand = await evaluateResume(Number(req.params.id));
-      res.json({ candidate: cand });
-    } catch (err) {
-      const msg = String(err.message || '');
-      if (msg.includes('not found') || msg.includes('no resume') || msg.includes('no assigned role') || msg.includes('file missing')) {
-        return res.status(400).json({ error: msg });
-      }
-      if (msg.includes('API_KEY') || msg.includes('API error')) {
-        return res.status(502).json({ error: msg });
-      }
-      console.error('[recruit] AI evaluation error:', err);
-      res.status(500).json({ error: 'AI evaluation failed' });
-    }
+  // AI resume evaluation (async — returns 202 immediately, processes in background)
+  router.post('/:id/ai-evaluate', (req, res) => {
+    const candidateId = Number(req.params.id);
+    const cand = getCandidate(candidateId);
+    if (!cand) return res.status(404).json({ error: 'not found' });
+    if (!cand.resume_path) return res.status(400).json({ error: 'no resume uploaded — upload a PDF first' });
+    if (!cand.role_id) return res.status(400).json({ error: 'candidate has no assigned role' });
+
+    evaluateResumeAsync(candidateId);
+    res.status(202).json({ message: 'AI evaluation started', candidate_id: candidateId });
   });
 
   return router;

@@ -394,8 +394,28 @@
         statusEl.textContent = '';
         api('POST', '/candidates/' + c.id + '/ai-evaluate')
           .then(function () {
-            toast('AI 评估完成', 'success');
-            return loadRolesAndCandidates().then(function () { openCandidate(c.id); });
+            toast('AI 评估已启动，请稍候...', 'success');
+            // Poll for result every 5s, up to 3 minutes
+            var pollCount = 0;
+            var maxPolls = 36;
+            var pollTimer = setInterval(function () {
+              pollCount++;
+              api('GET', '/candidates/' + c.id).then(function (data) {
+                var cand = data.candidate;
+                var hasNewEval = (cand.evaluations || []).some(function (e) {
+                  return e.kind === 'resume_ai' && new Date(e.created_at) > new Date(Date.now() - 180000);
+                });
+                if (hasNewEval || pollCount >= maxPolls) {
+                  clearInterval(pollTimer);
+                  if (hasNewEval) {
+                    toast('AI 评估完成', 'success');
+                  } else {
+                    toast('AI 评估超时，请刷新页面查看', 'warning');
+                  }
+                  loadRolesAndCandidates().then(function () { openCandidate(c.id); });
+                }
+              });
+            }, 5000);
           })
           .catch(function (err) {
             aiBtn.disabled = false;

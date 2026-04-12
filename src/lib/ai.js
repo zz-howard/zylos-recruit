@@ -116,6 +116,9 @@ function parseAiResponse(text) {
  * @returns {object} The updated candidate with new evaluation
  */
 export async function evaluateResume(candidateId) {
+  const t0 = Date.now();
+  console.log(`[recruit] AI evaluation started: candidate #${candidateId}`);
+
   const candidate = getCandidate(candidateId);
   if (!candidate) throw new Error('candidate not found');
   if (!candidate.resume_path) throw new Error('no resume uploaded — upload a PDF first');
@@ -129,13 +132,19 @@ export async function evaluateResume(candidateId) {
   const role = getRole(candidate.role_id);
   if (!role) throw new Error('role not found');
 
+  console.log(`[recruit] AI evaluation: "${candidate.name}" → role "${role.name}", resume: ${candidate.resume_path}`);
+
   const company = getCompany(candidate.company_id);
   const companyProfile = company?.profile?.content || null;
   const roleProfile = role?.profile?.content || null;
 
   const prompt = buildPrompt(resumeAbsPath, role, companyProfile, roleProfile);
+  console.log(`[recruit] AI evaluation: spawning CLI (runtime: ${getRuntime()})...`);
   const { text, runtime } = await runCli(prompt);
+  console.log(`[recruit] AI evaluation: CLI returned (${((Date.now() - t0) / 1000).toFixed(1)}s), parsing response...`);
+
   const parsed = parseAiResponse(text);
+  console.log(`[recruit] AI evaluation result: verdict=${parsed.verdict}, score=${parsed.score}`);
 
   const meta = JSON.stringify({
     runtime,
@@ -154,6 +163,7 @@ export async function evaluateResume(candidateId) {
   if (contact.phone && !candidate.phone) contactUpdate.phone = contact.phone;
   if (Object.keys(contactUpdate).length > 0) {
     updateCandidate(candidateId, contactUpdate);
+    console.log(`[recruit] AI evaluation: auto-filled fields: ${Object.keys(contactUpdate).join(', ')}`);
   }
 
   const verdict = parsed.verdict || 'maybe';
@@ -168,11 +178,24 @@ export async function evaluateResume(candidateId) {
     '**建议：** ' + (parsed.recommendation || ''),
   ].join('\n');
 
-  return addEvaluation(candidateId, {
+  const result = addEvaluation(candidateId, {
     kind: 'resume_ai',
     author: runtime === 'codex' ? 'codex' : 'claude',
     verdict,
     content,
     meta,
+  });
+
+  console.log(`[recruit] AI evaluation complete: candidate #${candidateId} "${candidate.name}" → ${verdict} (${((Date.now() - t0) / 1000).toFixed(1)}s total)`);
+  return result;
+}
+
+/**
+ * Run AI evaluation in background (fire-and-forget).
+ * Returns immediately so the HTTP response isn't blocked by long CLI execution.
+ */
+export function evaluateResumeAsync(candidateId) {
+  evaluateResume(candidateId).catch(err => {
+    console.error(`[recruit] AI evaluation failed for candidate #${candidateId}:`, err.message);
   });
 }
