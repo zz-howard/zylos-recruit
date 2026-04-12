@@ -30,6 +30,9 @@ export const DEFAULT_CONFIG = {
     windowMs: 60_000,
     max: 120,
   },
+  ai: {
+    runtime: 'auto', // 'auto' | 'claude' | 'codex'
+  },
 };
 
 let config = null;
@@ -84,6 +87,21 @@ export function watchConfig(onChange) {
       }
     });
   }
+}
+
+export function saveConfig(updates) {
+  let fileConfig = {};
+  try {
+    if (fs.existsSync(CONFIG_PATH)) {
+      fileConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    }
+  } catch { /* start fresh */ }
+  // Deep merge updates into file config
+  const merged = deepMerge(fileConfig, updates);
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2) + '\n', 'utf8');
+  // Reload in memory
+  loadConfig();
+  return config;
 }
 
 export function stopWatching() {

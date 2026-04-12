@@ -29,6 +29,7 @@ export function kanbanPageHtml(baseUrl) {
       <button id="btn-manage-roles" class="btn btn-ghost" title="Manage roles">☰</button>
       <button id="btn-new-role" class="btn">+ Role</button>
       <button id="btn-new-candidate" class="btn btn-primary">+ Candidate</button>
+      <button id="btn-settings" class="btn btn-ghost" title="Settings">Settings</button>
       <form id="logout-form" method="POST" action="${baseUrl}/logout" style="display:inline">
         <button type="submit" class="btn btn-ghost">Logout</button>
       </form>

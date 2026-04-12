@@ -20,6 +20,8 @@ import { companiesRouter } from './routes/api-companies.js';
 import { rolesRouter } from './routes/api-roles.js';
 import { candidatesRouter } from './routes/api-candidates.js';
 import { resumesRouter } from './routes/api-resumes.js';
+import { settingsRouter } from './routes/api-settings.js';
+import { detectRuntimes } from './lib/ai.js';
 
 const BASE_URL = '/recruit';
 
@@ -44,6 +46,11 @@ fs.mkdirSync(RESUMES_DIR, { recursive: true });
 // Initialize DB (runs migrations)
 getDb();
 console.log('[recruit] Database initialized');
+
+// Detect available AI runtimes
+const runtimeInfo = detectRuntimes();
+console.log('[recruit] Available runtimes:', runtimeInfo.available.join(', ') || 'none');
+console.log('[recruit] Env runtime (ZYLOS_RUNTIME):', runtimeInfo.envRuntime);
 
 let server = null;
 
@@ -95,15 +102,18 @@ async function main() {
   const roles = rolesRouter();
   const candidates = candidatesRouter();
   const resumes = resumesRouter(config.upload);
+  const settings = settingsRouter();
   app.use('/api/companies', companies);
   app.use('/api/roles', roles);
   app.use('/api/candidates', candidates);
   app.use('/api/candidates', resumes);
+  app.use('/api/settings', settings);
   // Also mount at BASE_URL/api/* so it works without a reverse proxy
   app.use(BASE_URL + '/api/companies', companies);
   app.use(BASE_URL + '/api/roles', roles);
   app.use(BASE_URL + '/api/candidates', candidates);
   app.use(BASE_URL + '/api/candidates', resumes);
+  app.use(BASE_URL + '/api/settings', settings);
 
   // Error handler
   app.use((err, req, res, _next) => {

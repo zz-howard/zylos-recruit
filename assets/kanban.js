@@ -967,6 +967,65 @@
     }).catch(function (err) { toast(err.message, 'error'); });
   }
 
+  // ─── Settings ────────────────────────────────────────────────
+
+  function openSettings() {
+    var wrap = document.createElement('div');
+    wrap.className = 'form-dialog';
+    wrap.innerHTML = ''
+      + '<h2>Settings</h2>'
+      + '<div class="meta">Loading...</div>';
+    openModal(wrap);
+
+    api('GET', '/settings').then(function (r) {
+      var ai = r.ai;
+      var options = [{ value: 'auto', label: 'Auto (' + ai.envRuntime + ')' }];
+      ['claude', 'codex'].forEach(function (rt) {
+        var installed = ai.availableRuntimes.indexOf(rt) !== -1;
+        options.push({
+          value: rt,
+          label: rt.charAt(0).toUpperCase() + rt.slice(1) + (installed ? '' : ' (not installed)'),
+          disabled: !installed,
+        });
+      });
+
+      var selectHtml = options.map(function (o) {
+        return '<option value="' + o.value + '"'
+          + (o.disabled ? ' disabled' : '')
+          + (o.value === ai.runtime ? ' selected' : '')
+          + '>' + escapeHtml(o.label) + '</option>';
+      }).join('');
+
+      wrap.innerHTML = ''
+        + '<h2>Settings</h2>'
+        + '<div class="field"><label>AI Evaluation Runtime</label>'
+        +   '<select id="f-runtime">' + selectHtml + '</select></div>'
+        + '<div class="meta">Current: <strong>' + escapeHtml(ai.effective) + '</strong>'
+        +   ' · Env (ZYLOS_RUNTIME): ' + escapeHtml(ai.envRuntime)
+        +   ' · Installed: ' + (ai.availableRuntimes.length > 0 ? escapeHtml(ai.availableRuntimes.join(', ')) : 'none')
+        + '</div>'
+        + '<div class="actions">'
+        +   '<button class="btn" id="f-close">Close</button>'
+        +   '<button class="btn btn-primary" id="f-save">Save</button>'
+        + '</div>';
+
+      wrap.querySelector('#f-close').addEventListener('click', closeModal);
+      wrap.querySelector('#f-save').addEventListener('click', function () {
+        var runtime = wrap.querySelector('#f-runtime').value;
+        api('PUT', '/settings', { ai: { runtime: runtime } })
+          .then(function () {
+            toast('Settings saved', 'success');
+            closeModal();
+          })
+          .catch(function (err) { toast(err.message, 'error'); });
+      });
+    }).catch(function (err) {
+      wrap.innerHTML = '<h2>Settings</h2><div class="meta error">Failed to load settings: ' + escapeHtml(err.message) + '</div>'
+        + '<div class="actions"><button class="btn" id="f-close">Close</button></div>';
+      wrap.querySelector('#f-close').addEventListener('click', closeModal);
+    });
+  }
+
   // ─── Top bar wiring ──────────────────────────────────────────
 
   document.getElementById('company-switcher').addEventListener('change', function (e) {
@@ -980,6 +1039,7 @@
   document.getElementById('btn-manage-roles').addEventListener('click', openRoleManager);
   document.getElementById('btn-new-role').addEventListener('click', openNewRoleForm);
   document.getElementById('btn-new-candidate').addEventListener('click', openNewCandidateForm);
+  document.getElementById('btn-settings').addEventListener('click', openSettings);
   document.getElementById('role-filter').addEventListener('change', function (e) {
     state.filterRoleId = e.target.value;
     renderBoard();

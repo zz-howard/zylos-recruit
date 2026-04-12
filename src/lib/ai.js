@@ -8,20 +8,65 @@
  * Defaults to 'claude'.
  */
 
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getCandidate, getRole, getCompany, addEvaluation, updateCandidate } from './db.js';
-import { RESUMES_DIR } from './config.js';
+import { RESUMES_DIR, getConfig } from './config.js';
 
 const execFileAsync = promisify(execFile);
 
 const PROMPT_PATH = path.join(import.meta.dirname, '..', 'prompts', 'resume-eval.md');
 const CLAUDE_CREDENTIALS_PATH = path.join(process.env.HOME, '.claude', '.credentials.json');
 
+// Available runtimes detected at startup
+let availableRuntimes = [];
+let envRuntime = (process.env.ZYLOS_RUNTIME || 'claude').toLowerCase();
+
+/**
+ * Detect which runtimes are installed on this system.
+ * Called once at startup.
+ */
+export function detectRuntimes() {
+  availableRuntimes = [];
+  for (const rt of ['claude', 'codex']) {
+    try {
+      execFileSync('which', [rt], { encoding: 'utf8', timeout: 5000 });
+      availableRuntimes.push(rt);
+    } catch {
+      // not installed
+    }
+  }
+  envRuntime = (process.env.ZYLOS_RUNTIME || 'claude').toLowerCase();
+  console.log(`[recruit] Detected runtimes: [${availableRuntimes.join(', ')}], env: ${envRuntime}`);
+  return { available: availableRuntimes, envRuntime };
+}
+
+/**
+ * Get the list of available runtimes (detected at startup).
+ */
+export function getAvailableRuntimes() {
+  return availableRuntimes;
+}
+
+/**
+ * Get the current env runtime (ZYLOS_RUNTIME).
+ */
+export function getEnvRuntime() {
+  return envRuntime;
+}
+
+/**
+ * Resolve the effective runtime: config.ai.runtime → env fallback → 'claude'.
+ */
 function getRuntime() {
-  return (process.env.ZYLOS_RUNTIME || 'claude').toLowerCase();
+  const config = getConfig();
+  const setting = config.ai?.runtime || 'auto';
+  if (setting === 'auto') {
+    return envRuntime;
+  }
+  return setting;
 }
 
 /**
