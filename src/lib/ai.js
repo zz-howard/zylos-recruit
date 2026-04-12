@@ -223,9 +223,10 @@ export async function evaluateResume(candidateId) {
     recommendation: parsed.recommendation,
   });
 
-  // Write back extracted contact info (only fill empty fields)
+  // Write back extracted contact info (only fill empty fields, or replace placeholder name)
   const contact = parsed.contact || {};
   const contactUpdate = {};
+  if (contact.name && (!candidate.name || candidate.name === '待识别')) contactUpdate.name = contact.name;
   if (parsed.brief && !candidate.brief) contactUpdate.brief = parsed.brief;
   if (contact.email && !candidate.email) contactUpdate.email = contact.email;
   if (contact.phone && !candidate.phone) contactUpdate.phone = contact.phone;

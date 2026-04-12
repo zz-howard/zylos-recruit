@@ -596,40 +596,62 @@
       toast('Please create/select a company first', 'error');
       return;
     }
+    if (state.roles.length === 0) {
+      toast('Please create a role first', 'error');
+      return;
+    }
     var wrap = document.createElement('div');
     wrap.className = 'form-dialog';
-    var roleOptions = '<option value="">(no role)</option>' + state.roles.map(function (r) {
+    var roleOptions = state.roles.map(function (r) {
       return '<option value="' + r.id + '">' + escapeHtml(r.name) + '</option>';
     }).join('');
     wrap.innerHTML = ''
       + '<h2>New Candidate</h2>'
-      + '<div class="field"><label>Name</label><input type="text" id="f-name"></div>'
-      + '<div class="field"><label>Role</label><select id="f-role">' + roleOptions + '</select></div>'
-      + '<div class="field"><label>Email</label><input type="email" id="f-email"></div>'
-      + '<div class="field"><label>Phone</label><input type="text" id="f-phone"></div>'
-      + '<div class="field"><label>Source</label><input type="text" id="f-source" placeholder="Referral / LinkedIn / ..."></div>'
-      + '<div class="field"><label>Brief</label><textarea id="f-brief"></textarea></div>'
+      + '<div class="field"><label>Role *</label><select id="f-role">' + roleOptions + '</select></div>'
+      + '<div class="field"><label>Resume PDF *</label>'
+      +   '<input type="file" id="f-resume" accept="application/pdf"></div>'
+      + '<div id="f-status"></div>'
       + '<div class="actions">'
       +   '<button class="btn" id="f-cancel">Cancel</button>'
-      +   '<button class="btn btn-primary" id="f-save">Create</button>'
+      +   '<button class="btn btn-primary" id="f-save">Submit</button>'
       + '</div>';
     openModal(wrap);
     wrap.querySelector('#f-cancel').addEventListener('click', closeModal);
     wrap.querySelector('#f-save').addEventListener('click', function () {
-      var name = wrap.querySelector('#f-name').value.trim();
-      if (!name) { toast('name required', 'error'); return; }
-      var payload = {
+      var roleId = wrap.querySelector('#f-role').value;
+      var file = wrap.querySelector('#f-resume').files[0];
+      if (!roleId) { toast('Please select a role', 'error'); return; }
+      if (!file) { toast('Please upload a resume PDF', 'error'); return; }
+      var btn = wrap.querySelector('#f-save');
+      var statusEl = wrap.querySelector('#f-status');
+      btn.disabled = true;
+      btn.textContent = 'Submitting...';
+      statusEl.textContent = '';
+      // 1) Create candidate (name auto-filled by AI later)
+      api('POST', '/candidates', {
         company_id: Number(state.activeCompanyId),
-        name: name,
-        role_id: wrap.querySelector('#f-role').value || null,
-        email: wrap.querySelector('#f-email').value,
-        phone: wrap.querySelector('#f-phone').value,
-        source: wrap.querySelector('#f-source').value,
-        brief: wrap.querySelector('#f-brief').value,
-      };
-      api('POST', '/candidates', payload)
-        .then(function () { toast('Candidate created', 'success'); closeModal(); return loadRolesAndCandidates(); })
-        .catch(function (err) { toast(err.message, 'error'); });
+        role_id: Number(roleId),
+      })
+        .then(function (r) {
+          var candId = r.candidate.id;
+          statusEl.textContent = 'Uploading resume...';
+          // 2) Upload resume
+          return upload('/candidates/' + candId + '/resume', file).then(function () {
+            statusEl.textContent = 'Starting AI evaluation...';
+            // 3) Auto-trigger AI evaluation
+            return api('POST', '/candidates/' + candId + '/ai-evaluate').then(function () {
+              toast('Submitted — AI evaluation in progress', 'success');
+              closeModal();
+              return loadRolesAndCandidates();
+            });
+          });
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          btn.textContent = 'Submit';
+          statusEl.textContent = '';
+          toast(err.message, 'error');
+        });
     });
   }
 

@@ -24,13 +24,10 @@ export function candidatesRouter() {
     if (!company_id) {
       return res.status(400).json({ error: 'company_id required' });
     }
-    if (!name || typeof name !== 'string') {
-      return res.status(400).json({ error: 'name required' });
-    }
     try {
       const cand = createCandidate({
         companyId: Number(company_id),
-        name: name.trim(),
+        name: (name && typeof name === 'string') ? name.trim() : '待识别',
         role_id: role_id ? Number(role_id) : null,
         email, phone, source, brief,
       });
