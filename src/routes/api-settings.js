@@ -59,14 +59,14 @@ export function settingsRouter() {
 
     if (ai.model !== undefined) {
       if (ai.model !== 'auto') {
-        const allModels = [...VALID_MODELS.claude, ...VALID_MODELS.codex];
+        const allModels = [...VALID_MODELS.claude, ...VALID_MODELS.codex, ...(VALID_MODELS.gemini || [])];
         if (!allModels.includes(ai.model)) {
           return res.status(400).json({ error: `invalid model: ${ai.model}` });
         }
       }
     }
 
-    if (ai.effort !== undefined) {
+    if (ai.effort !== undefined && ai.effort !== '') {
       const allEfforts = [...new Set([...VALID_EFFORTS.claude, ...VALID_EFFORTS.codex])];
       if (!allEfforts.includes(ai.effort)) {
         return res.status(400).json({ error: `invalid effort: ${ai.effort}` });
