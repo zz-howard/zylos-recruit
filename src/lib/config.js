@@ -21,6 +21,7 @@ export const DEFAULT_CONFIG = {
   auth: {
     enabled: true,
     password: null,
+    api_token: null, // auto-generated on first start; use as Bearer token for API access
   },
   upload: {
     maxFileSizeBytes: 10 * 1024 * 1024, // 10 MB

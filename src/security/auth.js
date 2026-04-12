@@ -3,7 +3,7 @@
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import { CONFIG_PATH } from '../lib/config.js';
+import { CONFIG_PATH, saveConfig } from '../lib/config.js';
 
 const SCRYPT_KEYLEN = 64;
 const COOKIE_NAME = '__Host-zylos_recruit_session';
@@ -208,8 +208,27 @@ import { loginPageHtml } from '../templates/login.js';
  * @param {object} authConfig - { enabled, password }
  * @param {string} baseUrl - e.g. '/recruit'
  */
+function validateApiToken(req, authConfig) {
+  const token = authConfig.api_token;
+  if (!token) return false;
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith('Bearer ')) return false;
+  return crypto.timingSafeEqual(
+    Buffer.from(header.slice(7)),
+    Buffer.from(token),
+  );
+}
+
 export function setupAuth(app, authConfig, baseUrl) {
   migratePasswordIfNeeded(authConfig);
+
+  // Auto-generate API token if not set
+  if (!authConfig.api_token) {
+    const token = 'zr_' + crypto.randomBytes(24).toString('hex');
+    authConfig.api_token = token;
+    saveConfig({ auth: { api_token: token } });
+    console.log('[recruit] Auth: API token generated');
+  }
 
   // Parse URL-encoded body only for login
   app.use('/login', (req, res, next) => {
@@ -290,6 +309,11 @@ export function setupAuth(app, authConfig, baseUrl) {
 
     if (validateSession(getSessionCookie(req))) {
       res.setHeader('Cache-Control', 'no-store');
+      return next();
+    }
+
+    // API token (Bearer) bypass for programmatic access
+    if (req.path.startsWith('/api/') && validateApiToken(req, authConfig)) {
       return next();
     }
 
