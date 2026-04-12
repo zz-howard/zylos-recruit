@@ -31,6 +31,10 @@
   "verdict": "yes|maybe|no",
   "score": 85,
   "summary": "一句话总结（50字以内）",
+  "contact": {
+    "email": "从简历中提取的邮箱，未找到则为 null",
+    "phone": "从简历中提取的电话号码，未找到则为 null"
+  },
   "analysis": {
     "tech_match": "技术匹配度分析（100字以内）",
     "experience": "经验水平分析（100字以内）",

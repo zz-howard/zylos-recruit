@@ -12,7 +12,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getCandidate, getRole, getCompany, addEvaluation } from './db.js';
+import { getCandidate, getRole, getCompany, addEvaluation, updateCandidate } from './db.js';
 import { RESUMES_DIR } from './config.js';
 
 const execFileAsync = promisify(execFile);
@@ -145,6 +145,15 @@ export async function evaluateResume(candidateId) {
     analysis: parsed.analysis,
     recommendation: parsed.recommendation,
   });
+
+  // Write back extracted contact info (only fill empty fields)
+  const contact = parsed.contact || {};
+  const contactUpdate = {};
+  if (contact.email && !candidate.email) contactUpdate.email = contact.email;
+  if (contact.phone && !candidate.phone) contactUpdate.phone = contact.phone;
+  if (Object.keys(contactUpdate).length > 0) {
+    updateCandidate(candidateId, contactUpdate);
+  }
 
   const verdict = parsed.verdict || 'maybe';
   const content = [
