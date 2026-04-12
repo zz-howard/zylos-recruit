@@ -16,7 +16,11 @@ export function candidatesRouter() {
     }
     const roleId = req.query.role_id ? Number(req.query.role_id) : undefined;
     const state = req.query.state || undefined;
-    res.json({ candidates: listCandidates({ companyId, roleId, state }) });
+    const candidates = listCandidates({ companyId, roleId, state }).map(c => {
+      c.is_evaluating = isEvaluating(c.id);
+      return c;
+    });
+    res.json({ candidates });
   });
 
   router.post('/', (req, res) => {
@@ -47,6 +51,7 @@ export function candidatesRouter() {
   router.get('/:id', (req, res) => {
     const cand = getCandidate(Number(req.params.id));
     if (!cand) return res.status(404).json({ error: 'not found' });
+    cand.is_evaluating = isEvaluating(cand.id);
     res.json({ candidate: cand });
   });
 

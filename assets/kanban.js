@@ -203,7 +203,9 @@
     // Show AI verdict badge if available
     var aiEval = (c.evaluations || []).find(function (e) { return e.kind === 'resume_ai'; });
     var briefText = '';
-    if (aiEval && aiEval.verdict) {
+    if (c.is_evaluating) {
+      briefText = '⏳ AI 评估中...';
+    } else if (aiEval && aiEval.verdict) {
       briefText = (VERDICT_LABELS[aiEval.verdict] || aiEval.verdict);
     } else {
       briefText = c.brief || '';
@@ -282,8 +284,9 @@
       + '<div class="eval-section">'
       + '<h3>AI 简历评估</h3>'
       + (c.resume_path
-          ? '<button class="btn btn-primary" id="btn-ai-eval">'
-            + (aiEvals.length > 0 ? '🤖 重新评估' : '🤖 AI 评估')
+          ? '<button class="btn btn-primary" id="btn-ai-eval"'
+            + (c.is_evaluating ? ' disabled' : '') + '>'
+            + (c.is_evaluating ? '⏳ 评估中...' : (aiEvals.length > 0 ? '🤖 重新评估' : '🤖 AI 评估'))
             + '</button>'
           : '<div class="meta">请先上传简历 PDF</div>')
       + '<div id="ai-eval-status"></div>'
@@ -517,6 +520,29 @@
             toast(err.message, 'error');
           });
       });
+    }
+
+    // Auto-poll if evaluation already in progress (e.g. triggered from submit form)
+    if (c.is_evaluating) {
+      var evalCountBefore = aiEvals.length;
+      var pollCount = 0;
+      var maxPolls = 36;
+      var pollTimer = setInterval(function () {
+        pollCount++;
+        fetch(API + '/candidates/' + c.id + '?_t=' + Date.now()).then(function (r) { return r.json(); }).then(function (data) {
+          var cand = data.candidate;
+          var currentCount = (cand.evaluations || []).filter(function (e) { return e.kind === 'resume_ai'; }).length;
+          if (currentCount > evalCountBefore || pollCount >= maxPolls) {
+            clearInterval(pollTimer);
+            if (currentCount > evalCountBefore) {
+              toast('AI 评估完成', 'success');
+            } else {
+              toast('AI 评估超时，请刷新页面查看', 'warning');
+            }
+            loadRolesAndCandidates().then(function () { openCandidate(c.id); });
+          }
+        }).catch(function () {});
+      }, 5000);
     }
 
     // Add interview evaluation
@@ -1066,6 +1092,31 @@
     state.filterRoleId = e.target.value;
     renderBoard();
   });
+
+  // ─── Board auto-refresh when evaluations in progress ────────
+
+  var boardPollTimer = null;
+
+  function startBoardPolling() {
+    if (boardPollTimer) return;
+    boardPollTimer = setInterval(function () {
+      var hasEvaluating = state.candidates.some(function (c) { return c.is_evaluating; });
+      if (!hasEvaluating) {
+        clearInterval(boardPollTimer);
+        boardPollTimer = null;
+        return;
+      }
+      loadRolesAndCandidates();
+    }, 5000);
+  }
+
+  // Hook into renderBoard to auto-start polling when needed
+  var _origRenderBoard = renderBoard;
+  renderBoard = function () {
+    _origRenderBoard();
+    var hasEvaluating = state.candidates.some(function (c) { return c.is_evaluating; });
+    if (hasEvaluating) startBoardPolling();
+  };
 
   // ─── Go ──────────────────────────────────────────────────────
 
