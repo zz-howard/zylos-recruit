@@ -124,7 +124,7 @@ const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-5.4', gemini: 'gemini-2.5
 const VALID_MODELS = {
   claude: ['opus', 'sonnet', 'haiku'],
   codex: ['gpt-5.4', 'gpt-5.3-codex'],
-  gemini: ['gemini-2.5-pro', 'gemini-2.5-flash'],
+  gemini: ['gemini-3.1-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
 };
 const VALID_EFFORTS = {
   claude: ['low', 'medium', 'high', 'max'],
