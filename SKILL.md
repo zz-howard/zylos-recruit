@@ -55,8 +55,9 @@ interview stages. Kanban board UI + REST API + SQLite storage.
 - **Role library** — create roles, attach versioned job profiles
 - **Candidate Kanban** — 5 columns: pending / scheduled / interviewed / passed / talent pool
 - **Resume storage** — upload PDF, preview in-browser via pdf.js
-- **Interview evaluations** — per-stage notes with author and verdict
-- **Password-protected** — cookie-based session auth (scrypt)
+- **AI resume evaluation** — multi-runtime (Claude/Codex/Gemini), configurable model & effort
+- **Interview evaluations** — notes with author and verdict (yes/no for AI, pass/hold/reject for interview)
+- **Authentication** — cookie-based session auth (scrypt) + API token for programmatic access
 
 ## Usage
 
@@ -69,11 +70,91 @@ zylos add recruit
 # Password is printed during post-install; also in ~/zylos/components/recruit/config.json
 ```
 
-## API
+## Authentication
 
-- `GET /api/roles`, `POST /api/roles`, `PUT /api/roles/:id/profile`
-- `GET /api/candidates`, `POST /api/candidates`, `PUT /api/candidates/:id`
-- `POST /api/candidates/:id/move` `{ state }`
-- `POST /api/candidates/:id/evaluate` `{ stage, author, verdict, content }`
-- `POST /api/candidates/:id/resume` (multipart)
-- `GET  /api/candidates/:id/resume` (PDF stream)
+Two authentication methods, both active simultaneously:
+
+### Web UI (Cookie)
+Login at `/recruit/login` with password → session cookie, 24h expiry.
+
+### API Token (Bearer)
+For programmatic/agent access. Auto-generated on first start, stored in config.json.
+
+```bash
+TOKEN=$(jq -r '.auth.api_token' ~/zylos/components/recruit/config.json)
+curl -H "Authorization: Bearer $TOKEN" https://host/recruit/api/candidates?company_id=1
+```
+
+## API Reference
+
+### Roles
+
+| Method | Endpoint | Body | Description |
+|--------|----------|------|-------------|
+| GET | `/api/roles?company_id=N` | — | List roles |
+| POST | `/api/roles` | `{ company_id, name }` | Create role |
+| PUT | `/api/roles/:id` | `{ name?, description?, ... }` | Update role |
+| DELETE | `/api/roles/:id` | — | Delete role |
+| PUT | `/api/roles/:id/profile` | `{ content }` | Update role JD profile |
+
+### Candidates
+
+| Method | Endpoint | Body | Description |
+|--------|----------|------|-------------|
+| GET | `/api/candidates?company_id=N` | — | List all candidates |
+| POST | `/api/candidates` | `{ company_id, role_id, name?, extra_info? }` | Create candidate |
+| GET | `/api/candidates/:id` | — | Get candidate detail (with evaluations) |
+| PUT | `/api/candidates/:id` | `{ name?, email?, ... }` | Update candidate |
+| DELETE | `/api/candidates/:id` | — | Delete candidate |
+| POST | `/api/candidates/:id/move` | `{ state }` | Move to column (pending/scheduled/interviewed/passed/rejected) |
+
+### Resumes
+
+| Method | Endpoint | Body | Description |
+|--------|----------|------|-------------|
+| POST | `/api/candidates/:id/resume` | multipart `file` (PDF) | Upload resume |
+| GET | `/api/candidates/:id/resume` | — | Download resume PDF |
+
+### Evaluations
+
+| Method | Endpoint | Body | Description |
+|--------|----------|------|-------------|
+| POST | `/api/candidates/:id/ai-evaluate` | — | Trigger AI resume evaluation (async, returns 202) |
+| POST | `/api/candidates/:id/evaluate` | `{ kind?, author, verdict, content }` | Add human interview evaluation |
+
+### Settings
+
+| Method | Endpoint | Body | Description |
+|--------|----------|------|-------------|
+| GET | `/api/settings` | — | Get AI settings |
+| PUT | `/api/settings` | `{ ai: { runtime, model, effort } }` | Update AI settings |
+
+## Agent Workflow: Submit & Evaluate a Candidate
+
+For programmatic access (AI agents, scripts, etc.), the full flow requires 3 sequential API calls:
+
+```bash
+TOKEN="zr_..."
+HOST="https://host/recruit"
+
+# Step 1: Create candidate (name can be omitted — AI will extract from resume)
+CAND_ID=$(curl -s -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"company_id":1, "role_id":2, "extra_info":"推荐理由..."}' \
+  $HOST/api/candidates | jq '.candidate.id')
+
+# Step 2: Upload resume PDF
+curl -H "Authorization: Bearer $TOKEN" \
+  -F file=@/path/to/resume.pdf \
+  $HOST/api/candidates/$CAND_ID/resume
+
+# Step 3: Trigger AI evaluation (async — returns 202 immediately)
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  $HOST/api/candidates/$CAND_ID/ai-evaluate
+
+# (Optional) Poll for result
+curl -s -H "Authorization: Bearer $TOKEN" \
+  $HOST/api/candidates/$CAND_ID | jq '.candidate.evaluations[0]'
+```
+
+The web UI does the same 3 steps automatically when a user submits the "New Candidate" form.
