@@ -165,7 +165,8 @@
     state.roles.forEach(function (r) {
       var opt = document.createElement('option');
       opt.value = String(r.id);
-      opt.textContent = r.name + ' (' + r.candidate_count + ')';
+      var inactiveTag = r.active === 0 ? ' [停用]' : '';
+      opt.textContent = r.name + inactiveTag + ' (' + r.candidate_count + ')';
       sel.appendChild(opt);
     });
     if (cur && !state.roles.some(function (r) { return String(r.id) === cur; })) {
@@ -302,9 +303,13 @@
       +   '<select data-k="role_id">'
       +     '<option value="">(无)</option>'
       +     state.roles.map(function (r) {
-              return '<option value="' + r.id + '"' + (r.id === c.role_id ? ' selected' : '') + '>' + escapeHtml(r.name) + '</option>';
+              var inactiveTag = r.active === 0 ? ' [停用]' : '';
+              return '<option value="' + r.id + '"' + (r.id === c.role_id ? ' selected' : '') + '>' + escapeHtml(r.name) + inactiveTag + '</option>';
             }).join('')
-      +   '</select></div>'
+      +   '</select>'
+      +   '<button class="btn btn-ghost" id="btn-auto-match" style="margin-top:6px;font-size:12px">智能匹配岗位</button>'
+      +   '<div id="auto-match-results"></div>'
+      + '</div>'
       + inlineField('email', 'Email', c.email)
       + inlineField('phone', 'Phone', c.phone)
       + inlineField('source', 'Source', c.source)
@@ -496,6 +501,57 @@
     if (roleSelect) {
       roleSelect.addEventListener('change', function () {
         inlineSave('role_id', roleSelect.value);
+      });
+    }
+
+    // Auto-match button
+    var autoMatchBtn = wrap.querySelector('#btn-auto-match');
+    if (autoMatchBtn) {
+      autoMatchBtn.addEventListener('click', function () {
+        var resultsEl = wrap.querySelector('#auto-match-results');
+        autoMatchBtn.disabled = true;
+        autoMatchBtn.textContent = '匹配中...';
+        resultsEl.innerHTML = '';
+        api('POST', '/candidates/' + c.id + '/auto-match')
+          .then(function (r) {
+            autoMatchBtn.disabled = false;
+            autoMatchBtn.textContent = '智能匹配岗位';
+            if (!r.matches || r.matches.length === 0) {
+              resultsEl.innerHTML = '<div class="meta">未找到匹配的岗位</div>';
+              return;
+            }
+            var html = '<div class="match-results">';
+            r.matches.forEach(function (m) {
+              var scoreClass = m.score >= 70 ? 'high' : (m.score >= 40 ? 'medium' : 'low');
+              html += '<div class="match-item" data-role-id="' + m.role_id + '">'
+                + '<div class="match-score ' + scoreClass + '">' + m.score + '</div>'
+                + '<div class="match-info">'
+                + '<div class="match-name">' + escapeHtml(m.role_name) + '</div>'
+                + '<div class="match-reason">' + escapeHtml(m.reason) + '</div>'
+                + '</div>'
+                + '<button class="match-assign" data-role-id="' + m.role_id + '">分配</button>'
+                + '</div>';
+            });
+            html += '</div>';
+            resultsEl.innerHTML = html;
+            resultsEl.querySelectorAll('.match-assign').forEach(function (btn) {
+              btn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                var rid = btn.dataset.roleId;
+                api('PUT', '/candidates/' + c.id, { role_id: Number(rid) })
+                  .then(function () {
+                    toast('已分配岗位', 'success');
+                    return loadRolesAndCandidates().then(function () { openCandidate(c.id); });
+                  })
+                  .catch(function (err) { toast(err.message, 'error'); });
+              });
+            });
+          })
+          .catch(function (err) {
+            autoMatchBtn.disabled = false;
+            autoMatchBtn.textContent = '智能匹配岗位';
+            toast('匹配失败: ' + err.message, 'error');
+          });
       });
     }
 
@@ -881,13 +937,20 @@
         return;
       }
       list.innerHTML = state.roles.map(function (r) {
+        var isActive = r.active !== 0;
+        var badgeClass = isActive ? 'active' : 'inactive';
+        var badgeLabel = isActive ? '活跃' : '停用';
+        var toggleLabel = isActive ? '停用' : '启用';
+        var toggleClass = isActive ? 'btn-ghost' : 'btn-primary';
         return ''
-          + '<div class="company-row" data-id="' + r.id + '">'
+          + '<div class="company-row' + (isActive ? '' : ' role-inactive') + '" data-id="' + r.id + '">'
           +   '<div class="company-row-head">'
           +     '<strong>' + escapeHtml(r.name) + '</strong>'
+          +     '<span class="role-active-badge ' + badgeClass + '">' + badgeLabel + '</span>'
           +     '<span class="meta"> · ' + (r.candidate_count || 0) + ' candidates</span>'
           +   '</div>'
           +   '<div class="company-row-actions">'
+          +     '<button class="btn ' + toggleClass + '" data-act="toggle" style="min-width:48px">' + toggleLabel + '</button>'
           +     '<button class="btn btn-ghost" data-act="edit">Edit</button>'
           +     '<button class="btn btn-ghost" data-act="jd">JD</button>'
           +     '<button class="btn btn-ghost" data-act="portrait">Portrait</button>'
@@ -899,6 +962,17 @@
 
       list.querySelectorAll('.company-row').forEach(function (row) {
         var id = Number(row.dataset.id);
+        row.querySelector('[data-act="toggle"]').addEventListener('click', function () {
+          var role = state.roles.find(function (r) { return r.id === id; });
+          if (!role) return;
+          var newActive = role.active === 0;
+          api('PUT', '/roles/' + id, { active: newActive })
+            .then(function () {
+              toast(newActive ? '已启用' : '已停用', 'success');
+              return loadRolesAndCandidates().then(rerender);
+            })
+            .catch(function (err) { toast(err.message, 'error'); });
+        });
         row.querySelector('[data-act="edit"]').addEventListener('click', function () {
           openRoleEditor(id);
         });
