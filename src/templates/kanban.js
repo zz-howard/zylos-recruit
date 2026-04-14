@@ -13,6 +13,35 @@ export function kanbanPageHtml(baseUrl) {
 <link rel="stylesheet" href="${baseUrl}/_assets/kanban.css?v=${ASSET_VERSION}">
 </head>
 <body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <strong>Zylos Recruit</strong>
+      <span class="sep">·</span>
+      <select id="company-switcher" title="Active company">
+        <option value="">(no company)</option>
+      </select>
+      <button id="btn-manage-companies" class="btn btn-ghost" title="Manage companies">⚙</button>
+    </div>
+    <div class="topbar-right" id="topbar-right-kanban">
+      <select id="role-filter">
+        <option value="">All roles</option>
+      </select>
+      <button id="btn-manage-roles" class="btn btn-ghost" title="Manage roles">☰</button>
+      <button id="btn-new-role" class="btn">+ Role</button>
+      <button id="btn-new-candidate" class="btn btn-primary">+ Candidate</button>
+      <button id="btn-settings" class="btn btn-ghost" title="Settings">Settings</button>
+      <form id="logout-form" method="POST" action="${baseUrl}/logout" style="display:inline">
+        <button type="submit" class="btn btn-ghost">Logout</button>
+      </form>
+    </div>
+    <div class="topbar-right hidden" id="topbar-right-interviews">
+      <button id="btn-new-interview" class="btn btn-primary">+ 新建访谈</button>
+      <form method="POST" action="${baseUrl}/logout" style="display:inline">
+        <button type="submit" class="btn btn-ghost">Logout</button>
+      </form>
+    </div>
+  </header>
+
   <div class="app-layout">
     <nav class="sidebar" id="sidebar">
       <div class="sidebar-tab active" data-tab="kanban" title="看板">
@@ -26,35 +55,6 @@ export function kanbanPageHtml(baseUrl) {
     </nav>
 
     <div class="main-area">
-      <header class="topbar">
-        <div class="topbar-left">
-          <strong>Zylos Recruit</strong>
-          <span class="sep">·</span>
-          <select id="company-switcher" title="Active company">
-            <option value="">(no company)</option>
-          </select>
-          <button id="btn-manage-companies" class="btn btn-ghost" title="Manage companies">⚙</button>
-        </div>
-        <div class="topbar-right" id="topbar-right-kanban">
-          <select id="role-filter">
-            <option value="">All roles</option>
-          </select>
-          <button id="btn-manage-roles" class="btn btn-ghost" title="Manage roles">☰</button>
-          <button id="btn-new-role" class="btn">+ Role</button>
-          <button id="btn-new-candidate" class="btn btn-primary">+ Candidate</button>
-          <button id="btn-settings" class="btn btn-ghost" title="Settings">Settings</button>
-          <form id="logout-form" method="POST" action="${baseUrl}/logout" style="display:inline">
-            <button type="submit" class="btn btn-ghost">Logout</button>
-          </form>
-        </div>
-        <div class="topbar-right hidden" id="topbar-right-interviews">
-          <button id="btn-new-interview" class="btn btn-primary">+ 新建访谈</button>
-          <form method="POST" action="${baseUrl}/logout" style="display:inline">
-            <button type="submit" class="btn btn-ghost">Logout</button>
-          </form>
-        </div>
-      </header>
-
       <main id="board" class="board" data-base-url="${baseUrl}">
         <div class="col" data-state="pending"><h3>待处理</h3><div class="col-body"></div></div>
         <div class="col" data-state="scheduled"><h3>已预约</h3><div class="col-body"></div></div>

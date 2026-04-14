@@ -3,7 +3,7 @@
 /* ─── App layout with sidebar ─── */
 .app-layout {
   display: flex;
-  height: 100vh;
+  height: calc(100vh - 56px);
   overflow: hidden;
 }
 .sidebar {
