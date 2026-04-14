@@ -423,6 +423,23 @@
 .form-dialog .field textarea {
   width: 100%;
 }
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+.drop-zone:hover, .drop-zone.drag-over {
+  border-color: var(--primary);
+  background: var(--primary-glow);
+}
+.drop-zone input[type="file"] { display: none; }
+.drop-zone-text {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
 .form-dialog .actions {
   display: flex;
   justify-content: flex-end;
