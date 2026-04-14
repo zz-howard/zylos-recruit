@@ -214,7 +214,7 @@ export function chatPageHtml(baseUrl, token) {
       const chat = document.createElement('deep-chat');
 
       // Style configuration
-      chat.style = JSON.stringify({
+      chat.chatStyle = {
         chatbox: {
           container: {
             default: {
@@ -222,9 +222,9 @@ export function chatPageHtml(baseUrl, token) {
             }
           }
         }
-      });
+      };
 
-      chat.messageStyles = JSON.stringify({
+      chat.messageStyles = {
         default: {
           shared: {
             bubble: {
@@ -258,9 +258,9 @@ export function chatPageHtml(baseUrl, token) {
             border: '1px solid var(--border)',
           }
         }
-      });
+      };
 
-      chat.textInput = JSON.stringify({
+      chat.textInput = {
         placeholder: { text: '输入你的回答...' },
         styles: {
           container: {
@@ -274,9 +274,9 @@ export function chatPageHtml(baseUrl, token) {
             boxShadow: '0 0 0 3px var(--primary-glow)',
           }
         }
-      });
+      };
 
-      chat.submitButtonStyles = JSON.stringify({
+      chat.submitButtonStyles = {
         submit: {
           container: {
             default: { backgroundColor: 'var(--primary)', borderRadius: '8px' },
@@ -287,16 +287,16 @@ export function chatPageHtml(baseUrl, token) {
         loading: {
           container: { default: { backgroundColor: 'var(--bg-hover)' } },
         }
-      });
+      };
 
       chat.auxiliaryStyle = '::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }';
 
       // API connection
-      chat.connect = JSON.stringify({
+      chat.connect = {
         url: API_BASE,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-      });
+      };
 
       chat.requestInterceptor = (details) => {
         // Only send the latest user message text
@@ -311,19 +311,17 @@ export function chatPageHtml(baseUrl, token) {
 
       // Load existing messages
       if (existingMessages && existingMessages.length > 0) {
-        chat.history = JSON.stringify(
-          existingMessages.map(m => ({
-            role: m.role === 'user' ? 'user' : 'ai',
-            text: m.text,
-          }))
-        );
+        chat.history = existingMessages.map(m => ({
+          role: m.role === 'user' ? 'user' : 'ai',
+          text: m.text,
+        }));
       }
 
       // Auto-trigger first AI message if no history
       if (!existingMessages || existingMessages.length === 0) {
-        chat.introMessage = JSON.stringify({
+        chat.introMessage = {
           text: '正在初始化访谈...',
-        });
+        };
         // Send an empty greeting to trigger the AI's opening message
         setTimeout(() => {
           fetch(API_BASE, {
@@ -336,10 +334,10 @@ export function chatPageHtml(baseUrl, token) {
             if (data.text) {
               // Clear intro and add the real messages
               chat.clearMessages();
-              chat.history = JSON.stringify([
+              chat.history = [
                 { role: 'user', text: '你好，请开始访谈。' },
                 { role: 'ai', text: data.text },
-              ]);
+              ];
             }
           })
           .catch(err => console.error('Init message error:', err));
@@ -366,7 +364,7 @@ export function chatPageHtml(baseUrl, token) {
     btnEnd.addEventListener('click', () => {
       endConfirm.classList.add('visible');
     });
-    document.getElementById('end-confirm-cancel').addEventListener('click', () => {
+    document.getElementById('btn-end-cancel').addEventListener('click', () => {
       endConfirm.classList.remove('visible');
     });
     document.getElementById('end-confirm-backdrop').addEventListener('click', () => {
