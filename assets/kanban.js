@@ -271,9 +271,22 @@
     var aiEvals = c.evaluations.filter(function (e) { return e.kind === 'resume_ai'; });
     var interviewEvals = c.evaluations.filter(function (e) { return e.kind !== 'resume_ai'; });
 
+    function inlineField(key, label, value, tag) {
+      tag = tag || 'input';
+      var display = escapeHtml(value || '') || '<span class="placeholder">' + (label === 'Extra Info' ? '额外信息（如推荐理由、背景补充等）' : '点击添加') + '</span>';
+      return '<div class="field inline-edit" data-field="' + key + '">'
+        + '<label>' + label + '</label>'
+        + '<div class="inline-display" title="点击编辑">' + display + '</div>'
+        + '<' + tag + ' type="text" data-k="' + key + '" class="inline-input" style="display:none"'
+        + (tag === 'input' ? ' value="' + escapeHtml(value || '') + '"' : '')
+        + '>' + (tag === 'textarea' ? escapeHtml(value || '') + '</textarea>' : '')
+        + '</div>';
+    }
+
     var left = document.createElement('div');
     left.innerHTML = ''
-      + '<h2>' + escapeHtml(c.name) + '</h2>'
+      + '<h2 class="editable-name" title="点击编辑姓名">' + escapeHtml(c.name) + '</h2>'
+      + '<input type="text" data-k="name" value="' + escapeHtml(c.name) + '" class="editable-name-input" style="display:none">'
       + '<div class="meta">'
       +   escapeHtml(c.role_name || '(no role)') + ' · '
       +   escapeHtml(STATE_LABELS[c.state] || c.state)
@@ -292,18 +305,12 @@
               return '<option value="' + r.id + '"' + (r.id === c.role_id ? ' selected' : '') + '>' + escapeHtml(r.name) + '</option>';
             }).join('')
       +   '</select></div>'
-      + '<div class="field"><label>Email</label>'
-      +   '<input type="email" data-k="email" value="' + escapeHtml(c.email) + '"></div>'
-      + '<div class="field"><label>Phone</label>'
-      +   '<input type="text" data-k="phone" value="' + escapeHtml(c.phone) + '"></div>'
-      + '<div class="field"><label>Source</label>'
-      +   '<input type="text" data-k="source" value="' + escapeHtml(c.source) + '"></div>'
-      + '<div class="field"><label>Brief</label>'
-      +   '<textarea data-k="brief">' + escapeHtml(c.brief) + '</textarea></div>'
-      + '<div class="field"><label>Extra Info</label>'
-      +   '<textarea data-k="extra_info" placeholder="额外信息（如推荐理由、背景补充等）">' + escapeHtml(c.extra_info || '') + '</textarea></div>'
-      + '<div class="field"><button class="btn btn-primary" id="btn-save-cand">Save changes</button> '
-      +   '<button class="btn btn-danger" id="btn-delete-cand">Delete</button></div>'
+      + inlineField('email', 'Email', c.email)
+      + inlineField('phone', 'Phone', c.phone)
+      + inlineField('source', 'Source', c.source)
+      + inlineField('brief', 'Brief', c.brief, 'textarea')
+      + inlineField('extra_info', 'Extra Info', c.extra_info || '', 'textarea')
+      + '<div class="field"><button class="btn btn-danger" id="btn-delete-cand">Delete</button></div>'
 
       // ─── AI Resume Evaluation section ───
       + '<div class="eval-section">'
@@ -417,6 +424,81 @@
     wrap.appendChild(right);
     openModal(wrap);
 
+    // Inline save helper — saves a single field
+    function inlineSave(key, value) {
+      var updates = {};
+      updates[key] = value;
+      if (key === 'role_id') { updates.role_id = value ? Number(value) : null; }
+      api('PUT', '/candidates/' + c.id, updates)
+        .then(function () { toast('已保存', 'success'); return loadRolesAndCandidates(); })
+        .catch(function (err) { toast(err.message, 'error'); });
+    }
+
+    // Click-to-edit name
+    var nameH2 = wrap.querySelector('.editable-name');
+    var nameInput = wrap.querySelector('.editable-name-input');
+    nameH2.addEventListener('click', function () {
+      nameH2.style.display = 'none';
+      nameInput.style.display = '';
+      nameInput.focus();
+    });
+    function commitName() {
+      var val = nameInput.value.trim() || c.name;
+      nameH2.textContent = val;
+      nameH2.style.display = '';
+      nameInput.style.display = 'none';
+      if (val !== c.name) { c.name = val; inlineSave('name', val); }
+    }
+    nameInput.addEventListener('blur', commitName);
+    nameInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); nameInput.blur(); }
+      if (e.key === 'Escape') { nameInput.value = c.name; nameInput.blur(); }
+    });
+
+    // Click-to-edit for all inline fields
+    wrap.querySelectorAll('.inline-edit').forEach(function (field) {
+      var key = field.dataset.field;
+      var display = field.querySelector('.inline-display');
+      var input = field.querySelector('.inline-input');
+      var origVal = input.value || input.textContent;
+
+      display.addEventListener('click', function () {
+        display.style.display = 'none';
+        input.style.display = '';
+        input.focus();
+      });
+
+      function commit() {
+        var val = input.value;
+        var showVal = escapeHtml(val) || '<span class="placeholder">点击添加</span>';
+        display.innerHTML = showVal;
+        display.style.display = '';
+        input.style.display = 'none';
+        if (val !== origVal) { origVal = val; inlineSave(key, val); }
+      }
+
+      input.addEventListener('blur', commit);
+      if (input.tagName === 'INPUT') {
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+          if (e.key === 'Escape') { input.value = origVal; input.blur(); }
+        });
+      }
+      if (input.tagName === 'TEXTAREA') {
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') { input.value = origVal; input.blur(); }
+        });
+      }
+    });
+
+    // Auto-save role dropdown on change
+    var roleSelect = wrap.querySelector('[data-k="role_id"]');
+    if (roleSelect) {
+      roleSelect.addEventListener('change', function () {
+        inlineSave('role_id', roleSelect.value);
+      });
+    }
+
     // Render PDF with pdf.js
     var pdfViewer = wrap.querySelector('.pdf-viewer');
     if (pdfViewer) {
@@ -528,19 +610,6 @@
         });
       });
     }
-
-    // Save candidate
-    wrap.querySelector('#btn-save-cand').addEventListener('click', function () {
-      var updates = {};
-      wrap.querySelectorAll('[data-k]').forEach(function (el) {
-        updates[el.dataset.k] = el.value;
-      });
-      if (updates.role_id) updates.role_id = Number(updates.role_id);
-      else delete updates.role_id;
-      api('PUT', '/candidates/' + c.id, updates)
-        .then(function () { toast('Saved', 'success'); return loadRolesAndCandidates(); })
-        .catch(function (err) { toast(err.message, 'error'); });
-    });
 
     // Delete candidate
     wrap.querySelector('#btn-delete-cand').addEventListener('click', function () {

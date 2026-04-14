@@ -417,6 +417,21 @@
   box-shadow: 0 0 0 3px var(--primary-glow);
 }
 
+.editable-name { cursor: pointer; }
+.editable-name:hover { color: var(--primary); }
+.editable-name-input {
+  font-size: 1.4em; font-weight: 700; padding: 4px 0; width: 100%;
+  border: none; border-bottom: 2px solid var(--primary); outline: none;
+  background: transparent; color: var(--text);
+}
+.inline-display {
+  cursor: pointer; padding: 6px 0; font-size: 13px; color: var(--text);
+  border-bottom: 1px solid transparent; min-height: 1.4em;
+  white-space: pre-wrap; word-break: break-word;
+}
+.inline-display:hover { border-bottom-color: var(--primary); color: var(--primary); }
+.inline-display .placeholder { color: var(--text-muted); font-style: italic; }
+.inline-edit .inline-input { width: 100%; }
 .form-dialog .field { margin-bottom: 14px; }
 .form-dialog .field input,
 .form-dialog .field select,
