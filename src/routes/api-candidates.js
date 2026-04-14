@@ -3,7 +3,7 @@ import {
   listCandidates, getCandidate, createCandidate, updateCandidate,
   moveCandidate, addEvaluation, deleteCandidate, listRoles, STATES,
 } from '../lib/db.js';
-import { evaluateResumeAsync, isEvaluating } from '../lib/ai.js';
+import { evaluateResumeAsync, isEvaluating, autoMatchFromResume } from '../lib/ai.js';
 import { runClaude } from '../lib/ai-chat.js';
 
 export function candidatesRouter() {
@@ -99,6 +99,22 @@ export function candidatesRouter() {
     });
     if (!cand) return res.status(404).json({ error: 'not found' });
     res.json({ candidate: cand });
+  });
+
+  // Auto-match candidate to best role based on resume content (no prior eval needed)
+  router.post('/:id/auto-match-resume', async (req, res) => {
+    const candidateId = Number(req.params.id);
+    const cand = getCandidate(candidateId);
+    if (!cand) return res.status(404).json({ error: 'not found' });
+    if (!cand.resume_path) return res.status(400).json({ error: 'no resume uploaded' });
+
+    try {
+      const match = await autoMatchFromResume(candidateId);
+      res.json(match);
+    } catch (err) {
+      console.error(`[recruit] Auto-match-resume error (candidate #${candidateId}):`, err.message);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Auto-match candidate to active roles based on resume evaluation

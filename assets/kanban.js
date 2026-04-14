@@ -817,18 +817,14 @@
       toast('Please create/select a company first', 'error');
       return;
     }
-    if (state.roles.length === 0) {
-      toast('Please create a role first', 'error');
-      return;
-    }
     var wrap = document.createElement('div');
     wrap.className = 'form-dialog';
-    var roleOptions = state.roles.map(function (r) {
+    var roleOptions = '<option value="auto">Auto (自动匹配)</option>' + state.roles.map(function (r) {
       return '<option value="' + r.id + '">' + escapeHtml(r.name) + '</option>';
     }).join('');
     wrap.innerHTML = ''
       + '<h2>New Candidate</h2>'
-      + '<div class="field"><label>Role *</label><select id="f-role">' + roleOptions + '</select></div>'
+      + '<div class="field"><label>Role</label><select id="f-role">' + roleOptions + '</select></div>'
       + '<div class="field"><label>Resume *</label>'
       +   '<div class="drop-zone" id="f-drop-zone">'
       +     '<input type="file" id="f-resume" accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">'
@@ -869,9 +865,9 @@
     wrap.querySelector('#f-cancel').addEventListener('click', closeModal);
     wrap.querySelector('#f-save').addEventListener('click', function () {
       var roleId = wrap.querySelector('#f-role').value;
+      var isAuto = roleId === 'auto';
       var file = wrap.querySelector('#f-resume').files[0];
       var extraInfo = wrap.querySelector('#f-extra-info').value.trim();
-      if (!roleId) { toast('Please select a role', 'error'); return; }
       if (!file) { toast('请上传简历文件（PDF 或 DOCX）', 'error'); return; }
       var btn = wrap.querySelector('#f-save');
       var statusEl = wrap.querySelector('#f-status');
@@ -879,24 +875,30 @@
       btn.textContent = 'Submitting...';
       statusEl.textContent = '';
       // 1) Create candidate (name auto-filled by AI later)
-      var body = {
-        company_id: Number(state.activeCompanyId),
-        role_id: Number(roleId),
-      };
+      var body = { company_id: Number(state.activeCompanyId) };
+      if (!isAuto) body.role_id = Number(roleId);
       if (extraInfo) body.extra_info = extraInfo;
       api('POST', '/candidates', body)
         .then(function (r) {
           var candId = r.candidate.id;
-          statusEl.textContent = 'Uploading resume...';
+          statusEl.textContent = '上传简历中...';
           // 2) Upload resume
           return upload('/candidates/' + candId + '/resume', file).then(function () {
-            statusEl.textContent = 'Starting AI evaluation...';
-            // 3) Auto-trigger AI evaluation
-            return api('POST', '/candidates/' + candId + '/ai-evaluate').then(function () {
-              toast('Submitted — AI evaluation in progress', 'success');
-              closeModal();
-              return loadRolesAndCandidates();
-            });
+            // 3) Auto-match if needed, then AI evaluation
+            if (isAuto) {
+              statusEl.textContent = '自动匹配岗位中...';
+              return api('POST', '/candidates/' + candId + '/auto-match-resume').then(function (match) {
+                statusEl.textContent = '已匹配「' + match.role_name + '」，AI 评估中...';
+                return api('POST', '/candidates/' + candId + '/ai-evaluate');
+              });
+            } else {
+              statusEl.textContent = 'AI 评估中...';
+              return api('POST', '/candidates/' + candId + '/ai-evaluate');
+            }
+          }).then(function () {
+            toast('已提交，AI 评估进行中', 'success');
+            closeModal();
+            return loadRolesAndCandidates();
           });
         })
         .catch(function (err) {

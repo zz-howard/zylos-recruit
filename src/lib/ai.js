@@ -12,7 +12,7 @@ import { execFile, execFileSync, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getCandidate, getRole, getCompany, addEvaluation, updateCandidate } from './db.js';
+import { getCandidate, getRole, getCompany, addEvaluation, updateCandidate, listRoles } from './db.js';
 import { RESUMES_DIR, getConfig } from './config.js';
 
 const execFileAsync = promisify(execFile);
@@ -376,6 +376,76 @@ export async function evaluateResume(candidateId) {
   console.log(`[recruit] AI evaluation complete: candidate #${candidateId} "${candidate.name}" → ${verdict} (${((Date.now() - t0) / 1000).toFixed(1)}s total)`);
   evaluatingSet.delete(candidateId);
   return result;
+}
+
+/**
+ * Auto-match a candidate to the best active role based on their resume.
+ * Reads the resume, compares against active role portraits, assigns the best match.
+ * @param {number} candidateId
+ * @returns {object} { role_id, role_name, reason }
+ */
+export async function autoMatchFromResume(candidateId) {
+  const candidate = getCandidate(candidateId);
+  if (!candidate) throw new Error('candidate not found');
+  if (!candidate.resume_path) throw new Error('no resume uploaded');
+
+  const resumeAbsPath = path.resolve(RESUMES_DIR, candidate.resume_path);
+  if (!fs.existsSync(resumeAbsPath)) throw new Error('resume file missing on disk');
+
+  const activeRoles = listRoles({ companyId: candidate.company_id, active: true });
+  if (activeRoles.length === 0) throw new Error('没有活跃的岗位可供匹配');
+
+  // Single active role — assign directly without AI call
+  if (activeRoles.length === 1) {
+    const role = activeRoles[0];
+    updateCandidate(candidateId, { role_id: role.id });
+    console.log(`[recruit] Auto-match: candidate #${candidateId} → only active role "${role.name}" (ID: ${role.id})`);
+    return { role_id: role.id, role_name: role.name, reason: '唯一活跃岗位，自动分配' };
+  }
+
+  const rolesText = activeRoles.map(r => {
+    const parts = [`### ${r.name} (ID: ${r.id})`];
+    if (r.description) parts.push(r.description);
+    if (r.expected_portrait) parts.push(`**岗位画像：**\n${r.expected_portrait}`);
+    return parts.join('\n');
+  }).join('\n\n---\n\n');
+
+  const prompt = `你是一位资深招聘专家。请阅读以下简历文件，并与可匹配的岗位进行比对，选出最合适的岗位。
+
+请先使用 Read 工具阅读简历文件：${resumeAbsPath}
+
+## 可匹配的岗位
+
+${rolesText}
+
+---
+
+请选出最匹配的岗位，以 JSON 格式输出：
+{"role_id": <数字>, "role_name": "<岗位名称>", "reason": "<一句话说明匹配原因>"}
+
+只输出 JSON，不要其他文字。`;
+
+  console.log(`[recruit] Auto-match from resume: candidate #${candidateId} against ${activeRoles.length} active roles...`);
+  const { text } = await runCli(prompt);
+
+  let parsed;
+  const jsonMatch = text.match(/\{[\s\S]*?\}/);
+  if (jsonMatch) {
+    parsed = JSON.parse(jsonMatch[0]);
+  } else {
+    throw new Error('Failed to parse auto-match response');
+  }
+
+  // Validate — fall back to first active role if AI returned invalid ID
+  const matchedRole = activeRoles.find(r => r.id === parsed.role_id);
+  if (!matchedRole) {
+    parsed.role_id = activeRoles[0].id;
+    parsed.role_name = activeRoles[0].name;
+  }
+
+  updateCandidate(candidateId, { role_id: parsed.role_id });
+  console.log(`[recruit] Auto-match: candidate #${candidateId} → "${parsed.role_name}" (ID: ${parsed.role_id}): ${parsed.reason}`);
+  return parsed;
 }
 
 /**
