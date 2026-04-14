@@ -8,7 +8,7 @@
  * Defaults to 'claude'.
  */
 
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -150,7 +150,7 @@ async function runCli(prompt) {
   const runtime = getRuntime();
   const model = resolveModel(runtime);
   const effort = resolveEffort();
-  let cmd, args;
+  let cmd, args, useStdin = false;
 
   if (runtime === 'codex') {
     cmd = 'codex';
@@ -163,21 +163,12 @@ async function runCli(prompt) {
     ];
   } else if (runtime === 'gemini') {
     cmd = 'gemini';
-    args = [
-      '-p', prompt,
-      '--model', model,
-      '-y',
-      '-o', 'text',
-    ];
+    args = ['-p', prompt, '--model', model, '-y', '-o', 'text'];
   } else {
+    // Claude: pipe prompt via stdin to avoid arg-length limits and stdin-wait warnings
     cmd = 'claude';
-    args = [
-      '-p', prompt,
-      '--model', model,
-      '--effort', effort,
-      '--allowedTools', 'Read',
-      '--bare',
-    ];
+    args = ['--model', model, '--effort', effort, '--allowedTools', 'Read', '--bare'];
+    useStdin = true;
   }
 
   const effortStr = effort && VALID_EFFORTS[runtime]?.length ? `, effort: ${effort}` : '';
@@ -187,6 +178,33 @@ async function runCli(prompt) {
   if (runtime !== 'codex') {
     const apiKey = getClaudeApiKey();
     if (apiKey) childEnv.ANTHROPIC_API_KEY = apiKey;
+  }
+
+  if (useStdin) {
+    // Use spawn + stdin pipe for claude to avoid "no stdin data" warning
+    return new Promise((resolve, reject) => {
+      const child = spawn(cmd, args, {
+        env: childEnv,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 600_000,
+      });
+      let stdout = '', stderr = '';
+      child.stdout.on('data', d => { stdout += d; });
+      child.stderr.on('data', d => { stderr += d; });
+      child.on('error', err => reject(err));
+      child.on('close', code => {
+        if (code !== 0) {
+          const errMsg = `CLI exited with code ${code}. stderr: ${stderr.slice(0, 500)}`;
+          console.error(`[recruit] AI evaluation CLI error: ${errMsg}`);
+          if (stdout.length > 0) console.error(`[recruit] AI evaluation CLI stdout (partial): ${stdout.slice(0, 300)}`);
+          reject(new Error(errMsg));
+        } else {
+          resolve({ text: stdout, runtime, model, effort });
+        }
+      });
+      child.stdin.write(prompt);
+      child.stdin.end();
+    });
   }
 
   const { stdout } = await execFileAsync(cmd, args, {
