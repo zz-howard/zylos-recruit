@@ -320,7 +320,7 @@
             + (c.is_evaluating ? ' disabled' : '') + '>'
             + (c.is_evaluating ? '⏳ 评估中...' : (aiEvals.length > 0 ? '🤖 重新评估' : '🤖 AI 评估'))
             + '</button>'
-          : '<div class="meta">请先上传简历 PDF</div>')
+          : '<div class="meta">请先上传简历</div>')
       + '<div id="ai-eval-status"></div>'
       + (aiEvals.length > 0
           ? (function () {
@@ -405,7 +405,7 @@
           + '<a href="' + resumeUrl + '?dl=1" download class="btn resume-action-btn" title="Download">&#8615;</a>'
           : '')
       + '<label class="btn" style="cursor:pointer">Upload'
-      +   '<input type="file" id="resume-file" accept="application/pdf" style="display:none"></label>'
+      +   '<input type="file" id="resume-file" accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none"></label>'
       + '</span>'
       + '</div>'
       + (c.resume_path
@@ -773,10 +773,10 @@
     wrap.innerHTML = ''
       + '<h2>New Candidate</h2>'
       + '<div class="field"><label>Role *</label><select id="f-role">' + roleOptions + '</select></div>'
-      + '<div class="field"><label>Resume PDF *</label>'
+      + '<div class="field"><label>Resume *</label>'
       +   '<div class="drop-zone" id="f-drop-zone">'
-      +     '<input type="file" id="f-resume" accept="application/pdf">'
-      +     '<div class="drop-zone-text">拖拽 PDF 到此处，或点击选择文件</div>'
+      +     '<input type="file" id="f-resume" accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">'
+      +     '<div class="drop-zone-text">拖拽简历到此处，或点击选择文件（PDF / DOCX）</div>'
       +   '</div></div>'
       + '<div class="field"><label>Extra Info</label>'
       +   '<textarea id="f-extra-info" placeholder="额外信息（如推荐理由、背景补充等）" rows="3"></textarea></div>'
@@ -802,11 +802,12 @@
     });
     dropZone.addEventListener('drop', function (e) {
       var f = e.dataTransfer.files[0];
-      if (f && f.type === 'application/pdf') {
+      var validTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+      if (f && (validTypes.indexOf(f.type) !== -1 || f.name.match(/\.(pdf|docx)$/i))) {
         fileInput.files = e.dataTransfer.files;
         dropText.textContent = f.name;
       } else {
-        toast('Please drop a PDF file', 'error');
+        toast('请上传 PDF 或 DOCX 文件', 'error');
       }
     });
     wrap.querySelector('#f-cancel').addEventListener('click', closeModal);
@@ -815,7 +816,7 @@
       var file = wrap.querySelector('#f-resume').files[0];
       var extraInfo = wrap.querySelector('#f-extra-info').value.trim();
       if (!roleId) { toast('Please select a role', 'error'); return; }
-      if (!file) { toast('Please upload a resume PDF', 'error'); return; }
+      if (!file) { toast('请上传简历文件（PDF 或 DOCX）', 'error'); return; }
       var btn = wrap.querySelector('#f-save');
       var statusEl = wrap.querySelector('#f-status');
       btn.disabled = true;

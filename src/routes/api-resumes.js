@@ -3,8 +3,12 @@ import multer from 'multer';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { RESUMES_DIR } from '../lib/config.js';
 import { getCandidate, updateCandidate } from '../lib/db.js';
+
+const execFileAsync = promisify(execFile);
 
 function ensureDir() {
   fs.mkdirSync(RESUMES_DIR, { recursive: true });
@@ -26,23 +30,44 @@ export function resumesRouter(uploadConfig) {
     },
   });
 
+  const ALLOWED_MIMES = [
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+  ];
+
   const upload = multer({
     storage,
     limits: { fileSize: uploadConfig?.maxFileSizeBytes || 10 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
-      const allowed = uploadConfig?.allowedMimeTypes || ['application/pdf'];
+      const allowed = uploadConfig?.allowedMimeTypes || ALLOWED_MIMES;
       if (!allowed.includes(file.mimetype)) {
-        return cb(new Error(`file type not allowed: ${file.mimetype}`));
+        return cb(new Error(`file type not allowed: ${file.mimetype}. Accepted: PDF, DOCX`));
       }
       cb(null, true);
     },
   });
 
+  /**
+   * Convert DOCX to PDF using LibreOffice headless.
+   * Returns the path of the generated PDF file.
+   */
+  async function convertDocxToPdf(docxPath) {
+    const dir = path.dirname(docxPath);
+    await execFileAsync('libreoffice', [
+      '--headless', '--convert-to', 'pdf', '--outdir', dir, docxPath,
+    ], { timeout: 60_000 });
+    const pdfPath = docxPath.replace(/\.docx$/i, '.pdf');
+    if (!fs.existsSync(pdfPath)) throw new Error('DOCX to PDF conversion failed');
+    // Remove the original DOCX
+    try { fs.unlinkSync(docxPath); } catch { /* ignore */ }
+    return pdfPath;
+  }
+
   router.post('/:id/resume', (req, res) => {
     const cand = getCandidate(Number(req.params.id));
     if (!cand) return res.status(404).json({ error: 'candidate not found' });
 
-    upload.single('file')(req, res, (err) => {
+    upload.single('file')(req, res, async (err) => {
       if (err) return res.status(400).json({ error: err.message });
       if (!req.file) return res.status(400).json({ error: 'no file' });
 
@@ -53,7 +78,22 @@ export function resumesRouter(uploadConfig) {
           try { fs.unlinkSync(old); } catch { /* ignore */ }
         }
       }
-      const updated = updateCandidate(Number(req.params.id), { resume_path: req.file.filename });
+
+      let finalFilename = req.file.filename;
+
+      // Convert DOCX to PDF
+      if (req.file.filename.toLowerCase().endsWith('.docx')) {
+        try {
+          const pdfPath = await convertDocxToPdf(path.join(RESUMES_DIR, req.file.filename));
+          finalFilename = path.basename(pdfPath);
+          console.log(`[recruit] Converted DOCX → PDF: ${finalFilename}`);
+        } catch (convErr) {
+          console.error(`[recruit] DOCX conversion failed:`, convErr.message);
+          return res.status(500).json({ error: 'Failed to convert DOCX to PDF' });
+        }
+      }
+
+      const updated = updateCandidate(Number(req.params.id), { resume_path: finalFilename });
       res.json({ candidate: updated });
     });
   });
