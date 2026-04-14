@@ -696,7 +696,10 @@
       + '<h2>New Candidate</h2>'
       + '<div class="field"><label>Role *</label><select id="f-role">' + roleOptions + '</select></div>'
       + '<div class="field"><label>Resume PDF *</label>'
-      +   '<input type="file" id="f-resume" accept="application/pdf"></div>'
+      +   '<div class="drop-zone" id="f-drop-zone">'
+      +     '<input type="file" id="f-resume" accept="application/pdf">'
+      +     '<div class="drop-zone-text">拖拽 PDF 到此处，或点击选择文件</div>'
+      +   '</div></div>'
       + '<div class="field"><label>Extra Info</label>'
       +   '<textarea id="f-extra-info" placeholder="额外信息（如推荐理由、背景补充等）" rows="3"></textarea></div>'
       + '<div id="f-status"></div>'
@@ -705,6 +708,29 @@
       +   '<button class="btn btn-primary" id="f-save">Submit</button>'
       + '</div>';
     openModal(wrap);
+    // Drag-and-drop for resume upload
+    var dropZone = wrap.querySelector('#f-drop-zone');
+    var fileInput = wrap.querySelector('#f-resume');
+    var dropText = wrap.querySelector('.drop-zone-text');
+    dropZone.addEventListener('click', function () { fileInput.click(); });
+    fileInput.addEventListener('change', function () {
+      if (fileInput.files[0]) dropText.textContent = fileInput.files[0].name;
+    });
+    ['dragenter', 'dragover'].forEach(function (evt) {
+      dropZone.addEventListener(evt, function (e) { e.preventDefault(); dropZone.classList.add('drag-over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (evt) {
+      dropZone.addEventListener(evt, function (e) { e.preventDefault(); dropZone.classList.remove('drag-over'); });
+    });
+    dropZone.addEventListener('drop', function (e) {
+      var f = e.dataTransfer.files[0];
+      if (f && f.type === 'application/pdf') {
+        fileInput.files = e.dataTransfer.files;
+        dropText.textContent = f.name;
+      } else {
+        toast('Please drop a PDF file', 'error');
+      }
+    });
     wrap.querySelector('#f-cancel').addEventListener('click', closeModal);
     wrap.querySelector('#f-save').addEventListener('click', function () {
       var roleId = wrap.querySelector('#f-role').value;
