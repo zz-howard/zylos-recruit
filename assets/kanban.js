@@ -273,7 +273,7 @@
 
     var left = document.createElement('div');
     left.innerHTML = ''
-      + '<h2>' + escapeHtml(c.name) + '</h2>'
+      + '<div class="field"><input type="text" data-k="name" value="' + escapeHtml(c.name) + '" style="font-size:1.4em;font-weight:700;padding:4px 0;border:none;border-bottom:1px solid var(--border);width:100%"></div>'
       + '<div class="meta">'
       +   escapeHtml(c.role_name || '(no role)') + ' · '
       +   escapeHtml(STATE_LABELS[c.state] || c.state)
