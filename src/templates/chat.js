@@ -51,19 +51,21 @@ export function chatPageHtml(baseUrl, token) {
   .chat-body {
     flex: 1;
     display: flex;
-    align-items: center;
+    align-items: stretch;
     justify-content: center;
     min-height: 0;
-    padding: 16px;
+    padding: 0;
+    height: calc(100vh - 56px);
   }
   /* Deep Chat customization */
   deep-chat {
-    width: 100%;
-    max-width: 800px;
-    height: 100%;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-md);
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 50vw;
+    height: calc(100vh - 56px) !important;
+    border: none !important;
+    border-left: 1px solid var(--border) !important;
+    border-right: 1px solid var(--border) !important;
     font-family: inherit;
   }
   .chat-ended {

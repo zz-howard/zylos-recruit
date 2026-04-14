@@ -1498,10 +1498,10 @@
         html += '<a class="interview-link" href="' + chatUrl + '" target="_blank">打开访谈</a>';
       }
       if (iv.summary) {
-        html += '<span class="interview-link" onclick="toggleSummary(' + iv.id + ')">查看汇总</span>';
+        html += '<span class="interview-link btn-view-summary" data-id="' + iv.id + '">查看汇总</span>';
       }
-      html += '<a class="interview-link" onclick="copyInterviewLink(\'' + escapeHtml(chatUrl) + '\')">复制链接</a>';
-      html += '<span class="interview-link" style="color:var(--danger)" onclick="deleteInterview(' + iv.id + ')">删除</span>';
+      html += '<span class="interview-link btn-copy-link" data-url="' + escapeHtml(chatUrl) + '">复制链接</span>';
+      html += '<span class="interview-link btn-delete-interview" style="color:var(--danger)" data-id="' + iv.id + '">删除</span>';
       html += '</div>';
       html += '</div>';
     });
@@ -1518,6 +1518,37 @@
           selectedInterviewIds.delete(id);
         }
         updateGenerateBtn();
+      });
+    });
+
+    // Bind action buttons (CSP blocks inline onclick — use addEventListener)
+    container.querySelectorAll('.btn-view-summary').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var el = document.getElementById('summary-' + btn.dataset.id);
+        if (el) el.classList.toggle('visible');
+      });
+    });
+    container.querySelectorAll('.btn-copy-link').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var fullUrl = window.location.origin + btn.dataset.url;
+        navigator.clipboard.writeText(fullUrl).then(function () {
+          toast('链接已复制', 'success');
+        }).catch(function () {
+          prompt('复制此链接:', fullUrl);
+        });
+      });
+    });
+    container.querySelectorAll('.btn-delete-interview').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = Number(btn.dataset.id);
+        if (!confirm('确认删除此访谈？')) return;
+        api('DELETE', '/internal-interviews/' + id).then(function () {
+          toast('已删除', 'success');
+          selectedInterviewIds.delete(id);
+          loadInterviews();
+        }).catch(function (err) {
+          toast('删除失败: ' + err.message, 'error');
+        });
       });
     });
 
@@ -1594,33 +1625,6 @@
     });
   }
 
-  // Global functions for onclick handlers
-  window.toggleSummary = function (id) {
-    var el = document.getElementById('summary-' + id);
-    if (el) el.classList.toggle('visible');
-  };
-
-  window.copyInterviewLink = function (url) {
-    var fullUrl = window.location.origin + url;
-    navigator.clipboard.writeText(fullUrl).then(function () {
-      toast('链接已复制', 'success');
-    }).catch(function () {
-      prompt('复制此链接:', fullUrl);
-    });
-  };
-
-  window.deleteInterview = function (id) {
-    if (!confirm('确认删除此访谈？')) return;
-    api('DELETE', '/internal-interviews/' + id)
-      .then(function () {
-        toast('已删除', 'success');
-        selectedInterviewIds.delete(id);
-        loadInterviews();
-      })
-      .catch(function (err) {
-        toast('删除失败: ' + err.message, 'error');
-      });
-  };
 
   // New interview
   var btnNewInterview = document.getElementById('btn-new-interview');
