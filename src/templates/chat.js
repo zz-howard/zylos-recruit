@@ -7,7 +7,7 @@ export function chatPageHtml(baseUrl, token) {
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>需求访谈 — Zylos Recruit</title>
 <link rel="stylesheet" href="${baseUrl}/_assets/style.css?v=${ASSET_VERSION}">
 <style>
@@ -15,8 +15,13 @@ export function chatPageHtml(baseUrl, token) {
   .chat-app {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: 100dvh;
+    height: 100vh; /* fallback */
     background: var(--bg);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @supports (height: 100dvh) {
+    .chat-app { height: 100dvh; }
   }
   .chat-header {
     display: flex;
@@ -55,14 +60,18 @@ export function chatPageHtml(baseUrl, token) {
     justify-content: center;
     min-height: 0;
     padding: 0;
+    height: calc(100dvh - 56px - env(safe-area-inset-bottom, 0px));
     height: calc(100vh - 56px);
+  }
+  @supports (height: 100dvh) {
+    .chat-body { height: calc(100dvh - 56px - env(safe-area-inset-bottom, 0px)); }
   }
   /* Deep Chat customization */
   deep-chat {
     width: 100% !important;
     max-width: 100% !important;
     min-width: 50vw;
-    height: calc(100vh - 56px) !important;
+    height: 100% !important;
     border: none !important;
     border-left: 1px solid var(--border) !important;
     border-right: 1px solid var(--border) !important;
