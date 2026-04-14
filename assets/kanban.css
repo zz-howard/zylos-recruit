@@ -755,4 +755,18 @@
   }
   .company-row-head { min-width: 0; }
   .interviews-view { padding: 14px; }
+  .interview-card {
+    flex-wrap: wrap;
+    padding: 12px 14px;
+    gap: 8px;
+  }
+  .interview-card-info {
+    flex: 1 1 0;
+    min-width: calc(100% - 36px);
+  }
+  .interview-card-actions {
+    flex-wrap: wrap;
+    width: 100%;
+    padding-left: 26px;
+  }
 }
