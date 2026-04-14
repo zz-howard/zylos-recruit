@@ -285,6 +285,13 @@
               + '>' + STATE_LABELS[s] + '</button>';
           }).join('')
       + '</div>'
+      + '<div class="field"><label>目标岗位</label>'
+      +   '<select data-k="role_id">'
+      +     '<option value="">(无)</option>'
+      +     state.roles.map(function (r) {
+              return '<option value="' + r.id + '"' + (r.id === c.role_id ? ' selected' : '') + '>' + escapeHtml(r.name) + '</option>';
+            }).join('')
+      +   '</select></div>'
       + '<div class="field"><label>Email</label>'
       +   '<input type="email" data-k="email" value="' + escapeHtml(c.email) + '"></div>'
       + '<div class="field"><label>Phone</label>'
@@ -528,6 +535,8 @@
       wrap.querySelectorAll('[data-k]').forEach(function (el) {
         updates[el.dataset.k] = el.value;
       });
+      if (updates.role_id) updates.role_id = Number(updates.role_id);
+      else delete updates.role_id;
       api('PUT', '/candidates/' + c.id, updates)
         .then(function () { toast('Saved', 'success'); return loadRolesAndCandidates(); })
         .catch(function (err) { toast(err.message, 'error'); });
