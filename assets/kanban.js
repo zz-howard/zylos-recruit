@@ -1331,6 +1331,177 @@
     if (hasEvaluating) startBoardPolling();
   };
 
+  // ─── Sidebar Tab Switching ────────────────────────────────────
+
+  var sidebarTabs = document.querySelectorAll('.sidebar-tab');
+  var topbarKanban = document.getElementById('topbar-right-kanban');
+  var topbarInterviews = document.getElementById('topbar-right-interviews');
+  var interviewsView = document.getElementById('interviews-view');
+  var currentTab = 'kanban';
+
+  sidebarTabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      var tabName = tab.dataset.tab;
+      if (tabName === currentTab) return;
+      currentTab = tabName;
+      sidebarTabs.forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+
+      if (tabName === 'kanban') {
+        board.classList.remove('hidden');
+        interviewsView.classList.add('hidden');
+        topbarKanban.classList.remove('hidden');
+        topbarInterviews.classList.add('hidden');
+      } else if (tabName === 'interviews') {
+        board.classList.add('hidden');
+        interviewsView.classList.remove('hidden');
+        topbarKanban.classList.add('hidden');
+        topbarInterviews.classList.remove('hidden');
+        loadInterviews();
+      }
+    });
+  });
+
+  // ─── Internal Interviews ─────────────────────────────────────
+
+  function loadInterviews() {
+    if (!state.activeCompanyId) {
+      renderInterviewsList([]);
+      return;
+    }
+    api('GET', '/internal-interviews?company_id=' + state.activeCompanyId)
+      .then(function (r) {
+        renderInterviewsList(r.interviews || []);
+      })
+      .catch(function (err) {
+        toast('加载访谈列表失败: ' + err.message, 'error');
+      });
+  }
+
+  function renderInterviewsList(interviews) {
+    var container = document.getElementById('interviews-list');
+    if (!interviews || interviews.length === 0) {
+      container.innerHTML = '<div class="interviews-empty">暂无访谈记录，点击右上角"+ 新建访谈"开始</div>';
+      return;
+    }
+
+    var html = '';
+    interviews.forEach(function (iv) {
+      var statusClass = iv.status === 'active' ? 'active' : 'completed';
+      var statusLabel = iv.status === 'active' ? '进行中' : '已完成';
+      var date = iv.created_at ? new Date(iv.created_at + 'Z').toLocaleString('zh-CN') : '';
+      var msgCount = iv.message_count || 0;
+      var chatUrl = BASE + '/chat/' + iv.token;
+
+      html += '<div class="interview-card" data-id="' + iv.id + '">';
+      html += '<div class="interview-card-info">';
+      html += '<div class="interview-card-name">' + escapeHtml(iv.interviewee_name) + '</div>';
+      html += '<div class="interview-card-meta">';
+      html += '<span>' + date + '</span>';
+      html += '<span>' + msgCount + ' 条消息</span>';
+      html += '</div>';
+      if (iv.summary) {
+        html += '<div class="interview-summary-preview" id="summary-' + iv.id + '">' + escapeHtml(iv.summary) + '</div>';
+      }
+      html += '</div>';
+      html += '<div class="interview-card-actions">';
+      html += '<span class="interview-status ' + statusClass + '">' + statusLabel + '</span>';
+      if (iv.status === 'active') {
+        html += '<a class="interview-link" href="' + chatUrl + '" target="_blank">打开访谈</a>';
+      }
+      if (iv.summary) {
+        html += '<span class="interview-link" onclick="toggleSummary(' + iv.id + ')">查看汇总</span>';
+      }
+      html += '<a class="interview-link" onclick="copyInterviewLink(\'' + escapeHtml(chatUrl) + '\')">复制链接</a>';
+      html += '<span class="interview-link" style="color:var(--danger)" onclick="deleteInterview(' + iv.id + ')">删除</span>';
+      html += '</div>';
+      html += '</div>';
+    });
+
+    container.innerHTML = html;
+  }
+
+  // Global functions for onclick handlers
+  window.toggleSummary = function (id) {
+    var el = document.getElementById('summary-' + id);
+    if (el) el.classList.toggle('visible');
+  };
+
+  window.copyInterviewLink = function (url) {
+    var fullUrl = window.location.origin + url;
+    navigator.clipboard.writeText(fullUrl).then(function () {
+      toast('链接已复制', 'success');
+    }).catch(function () {
+      // Fallback
+      prompt('复制此链接:', fullUrl);
+    });
+  };
+
+  window.deleteInterview = function (id) {
+    if (!confirm('确认删除此访谈？')) return;
+    api('DELETE', '/internal-interviews/' + id)
+      .then(function () {
+        toast('已删除', 'success');
+        loadInterviews();
+      })
+      .catch(function (err) {
+        toast('删除失败: ' + err.message, 'error');
+      });
+  };
+
+  // New interview
+  var btnNewInterview = document.getElementById('btn-new-interview');
+  if (btnNewInterview) {
+    btnNewInterview.addEventListener('click', function () {
+      if (!state.activeCompanyId) {
+        toast('请先选择一家公司', 'error');
+        return;
+      }
+      showNewInterviewDialog();
+    });
+  }
+
+  function showNewInterviewDialog() {
+    var html = '<div class="form-dialog">' +
+      '<h2>新建需求访谈</h2>' +
+      '<div class="field"><label>被访谈人姓名</label>' +
+      '<input type="text" id="ii-name" placeholder="例：Kevin" autofocus></div>' +
+      '<div class="actions">' +
+      '<button class="btn" id="ii-cancel">取消</button>' +
+      '<button class="btn btn-primary" id="ii-create">创建</button>' +
+      '</div></div>';
+
+    openModal(html);
+
+    document.getElementById('ii-cancel').addEventListener('click', closeModal);
+    document.getElementById('ii-create').addEventListener('click', function () {
+      var name = document.getElementById('ii-name').value.trim();
+      if (!name) { toast('请输入姓名', 'error'); return; }
+
+      api('POST', '/internal-interviews', {
+        company_id: Number(state.activeCompanyId),
+        interviewee_name: name,
+      }).then(function (r) {
+        closeModal();
+        toast('访谈已创建', 'success');
+        loadInterviews();
+        // Open the chat link
+        var chatUrl = BASE + '/chat/' + r.interview.token;
+        window.open(chatUrl, '_blank');
+      }).catch(function (err) {
+        toast('创建失败: ' + err.message, 'error');
+      });
+    });
+
+    // Enter key to submit
+    document.getElementById('ii-name').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('ii-create').click();
+      }
+    });
+  }
+
   // ─── Go ──────────────────────────────────────────────────────
 
   loadAll().then(function () {

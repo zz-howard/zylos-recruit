@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
+    "deep-chat": "^2.4.2",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "multer": "^2.1.1"

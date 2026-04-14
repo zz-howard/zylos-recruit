@@ -21,6 +21,9 @@ import { rolesRouter } from './routes/api-roles.js';
 import { candidatesRouter } from './routes/api-candidates.js';
 import { resumesRouter } from './routes/api-resumes.js';
 import { settingsRouter } from './routes/api-settings.js';
+import { internalInterviewsRouter } from './routes/api-internal-interviews.js';
+import { chatRouter } from './routes/api-chat.js';
+import { chatPageRoute } from './routes/ui-chat.js';
 import { detectRuntimes } from './lib/ai.js';
 
 const BASE_URL = '/recruit';
@@ -74,9 +77,11 @@ async function main() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Referrer-Policy', 'no-referrer');
+    // Chat pages use Deep Chat web component which needs 'unsafe-inline' for scripts
+    const isChatPage = req.path.startsWith('/chat/');
     res.setHeader('Content-Security-Policy', [
       "default-src 'self'",
-      "script-src 'self'",
+      isChatPage ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data:",
       "frame-src 'self'",
@@ -93,6 +98,13 @@ async function main() {
   // Also mount at BASE_URL/_assets so it works without a reverse proxy
   app.use(BASE_URL + '/_assets', express.static(assetsDir, staticOpts));
 
+  // Chat routes (token-based, no login required — mounted before auth gate)
+  const chat = chatRouter();
+  app.use('/api/chat', chat);
+  app.use(BASE_URL + '/api/chat', chat);
+  app.get('/chat/:token', chatPageRoute(BASE_URL));
+  app.get(BASE_URL + '/chat/:token', chatPageRoute(BASE_URL));
+
   // Auth (login/logout + gate)
   setupAuth(app, config.auth || {}, BASE_URL);
 
@@ -108,12 +120,15 @@ async function main() {
   app.use('/api/candidates', candidates);
   app.use('/api/candidates', resumes);
   app.use('/api/settings', settings);
+  const interviews = internalInterviewsRouter();
+  app.use('/api/internal-interviews', interviews);
   // Also mount at BASE_URL/api/* so it works without a reverse proxy
   app.use(BASE_URL + '/api/companies', companies);
   app.use(BASE_URL + '/api/roles', roles);
   app.use(BASE_URL + '/api/candidates', candidates);
   app.use(BASE_URL + '/api/candidates', resumes);
   app.use(BASE_URL + '/api/settings', settings);
+  app.use(BASE_URL + '/api/internal-interviews', interviews);
 
   // Error handler
   app.use((err, req, res, _next) => {
