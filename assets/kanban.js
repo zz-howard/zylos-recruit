@@ -273,7 +273,8 @@
 
     var left = document.createElement('div');
     left.innerHTML = ''
-      + '<div class="field"><input type="text" data-k="name" value="' + escapeHtml(c.name) + '" style="font-size:1.4em;font-weight:700;padding:4px 0;border:none;border-bottom:1px solid var(--border);width:100%"></div>'
+      + '<h2 class="editable-name" title="点击编辑姓名">' + escapeHtml(c.name) + '</h2>'
+      + '<input type="text" data-k="name" value="' + escapeHtml(c.name) + '" class="editable-name-input" style="display:none">'
       + '<div class="meta">'
       +   escapeHtml(c.role_name || '(no role)') + ' · '
       +   escapeHtml(STATE_LABELS[c.state] || c.state)
@@ -416,6 +417,20 @@
     wrap.appendChild(left);
     wrap.appendChild(right);
     openModal(wrap);
+
+    // Click-to-edit name
+    var nameH2 = wrap.querySelector('.editable-name');
+    var nameInput = wrap.querySelector('.editable-name-input');
+    nameH2.addEventListener('click', function () {
+      nameH2.style.display = 'none';
+      nameInput.style.display = '';
+      nameInput.focus();
+    });
+    nameInput.addEventListener('blur', function () {
+      nameH2.textContent = nameInput.value || c.name;
+      nameH2.style.display = '';
+      nameInput.style.display = 'none';
+    });
 
     // Render PDF with pdf.js
     var pdfViewer = wrap.querySelector('.pdf-viewer');
