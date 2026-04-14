@@ -84,6 +84,28 @@ function buildSummaryPrompt(messages) {
 // In-flight lock to prevent concurrent messages on the same interview
 const chatLocks = new Set();
 
+// Track in-progress summary generation
+const summaryInProgress = new Set();
+
+function generateSummaryAsync(interviewId, messages) {
+  if (summaryInProgress.has(interviewId)) return;
+  summaryInProgress.add(interviewId);
+  console.log(`[recruit] Chat: interview #${interviewId} — generating summary in background...`);
+
+  const summaryPrompt = buildSummaryPrompt(messages);
+  runClaude(summaryPrompt)
+    .then(summary => {
+      console.log(`[recruit] Chat: interview #${interviewId} — summary generated (${summary.length} chars)`);
+      updateInternalInterview(interviewId, { summary });
+    })
+    .catch(err => {
+      console.error(`[recruit] Chat: interview #${interviewId} — summary failed: ${err.message}`);
+    })
+    .finally(() => {
+      summaryInProgress.delete(interviewId);
+    });
+}
+
 export function chatRouter() {
   const router = express.Router();
   router.use(express.json({ limit: '256kb' }));
@@ -156,46 +178,57 @@ export function chatRouter() {
     }
   });
 
-  // End interview — trigger summary generation
-  router.post('/:token/end', async (req, res) => {
+  // End interview — mark completed immediately, generate summary in background
+  router.post('/:token/end', (req, res) => {
     const interview = getInternalInterviewByToken(req.params.token);
     if (!interview) return res.status(404).json({ error: 'interview not found' });
     if (interview.status !== 'active') {
       return res.status(400).json({ error: 'interview already ended' });
     }
 
+    // Mark completed immediately
+    updateInternalInterview(interview.id, {
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+    });
+
+    // Generate summary in background (non-blocking)
+    const messages = listInterviewMessages(interview.id);
+    if (messages.length > 0) {
+      generateSummaryAsync(interview.id, messages);
+    }
+
+    res.json({ interview: getInternalInterviewByToken(req.params.token) });
+  });
+
+  // Retry summary generation for a completed interview
+  router.post('/:token/generate-summary', (req, res) => {
+    const interview = getInternalInterviewByToken(req.params.token);
+    if (!interview) return res.status(404).json({ error: 'interview not found' });
+    if (interview.status !== 'completed') {
+      return res.status(400).json({ error: 'interview must be completed first' });
+    }
+    if (summaryInProgress.has(interview.id)) {
+      return res.status(409).json({ error: 'summary generation already in progress' });
+    }
+
     const messages = listInterviewMessages(interview.id);
     if (messages.length === 0) {
-      // No messages — just mark completed, no summary
-      updateInternalInterview(interview.id, {
-        status: 'completed',
-        completed_at: new Date().toISOString(),
-      });
-      return res.json({ interview: getInternalInterviewByToken(req.params.token) });
+      return res.status(400).json({ error: 'no messages to summarize' });
     }
 
-    try {
-      console.log(`[recruit] Chat: ending interview #${interview.id} — generating summary...`);
-      const summaryPrompt = buildSummaryPrompt(messages);
-      const summary = await runClaude(summaryPrompt);
-      console.log(`[recruit] Chat: interview #${interview.id} — summary generated (${summary.length} chars)`);
+    generateSummaryAsync(interview.id, messages);
+    res.json({ status: 'generating' });
+  });
 
-      updateInternalInterview(interview.id, {
-        status: 'completed',
-        summary,
-        completed_at: new Date().toISOString(),
-      });
-
-      res.json({ interview: getInternalInterviewByToken(req.params.token) });
-    } catch (err) {
-      console.error(`[recruit] Chat summary error (interview #${interview.id}):`, err.message);
-      // Still mark as completed even if summary fails
-      updateInternalInterview(interview.id, {
-        status: 'completed',
-        completed_at: new Date().toISOString(),
-      });
-      res.status(500).json({ error: 'summary generation failed', interview: getInternalInterviewByToken(req.params.token) });
-    }
+  // Check summary status
+  router.get('/:token/summary-status', (req, res) => {
+    const interview = getInternalInterviewByToken(req.params.token);
+    if (!interview) return res.status(404).json({ error: 'interview not found' });
+    res.json({
+      has_summary: !!interview.summary,
+      generating: summaryInProgress.has(interview.id),
+    });
   });
 
   return router;

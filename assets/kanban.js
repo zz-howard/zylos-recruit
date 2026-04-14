@@ -1499,6 +1499,8 @@
       }
       if (iv.summary) {
         html += '<span class="interview-link btn-view-summary" data-id="' + iv.id + '">查看汇总</span>';
+      } else if (iv.status === 'completed' && msgCount > 0) {
+        html += '<span class="interview-link btn-gen-summary" data-token="' + iv.token + '" style="color:var(--accent)">生成汇总</span>';
       }
       html += '<span class="interview-link btn-copy-link" data-url="' + escapeHtml(chatUrl) + '">复制链接</span>';
       html += '<span class="interview-link btn-delete-interview" style="color:var(--danger)" data-id="' + iv.id + '">删除</span>';
@@ -1544,11 +1546,50 @@
         if (!confirm('确认删除此访谈？')) return;
         api('DELETE', '/internal-interviews/' + id).then(function () {
           toast('已删除', 'success');
-          selectedInterviewIds.delete(id);
           loadInterviews();
         }).catch(function (err) {
           toast('删除失败: ' + err.message, 'error');
         });
+      });
+    });
+
+    container.querySelectorAll('.btn-gen-summary').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var token = btn.dataset.token;
+        btn.textContent = '生成中...';
+        btn.style.pointerEvents = 'none';
+        fetch(BASE + '/api/chat/' + token + '/generate-summary', { method: 'POST' })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.error) {
+              toast('生成失败: ' + data.error, 'error');
+              btn.textContent = '生成汇总';
+              btn.style.pointerEvents = '';
+            } else {
+              toast('汇总正在后台生成', 'success');
+              // Poll for completion
+              var pollInterval = setInterval(function () {
+                fetch(BASE + '/api/chat/' + token + '/summary-status')
+                  .then(function (r) { return r.json(); })
+                  .then(function (s) {
+                    if (s.has_summary) {
+                      clearInterval(pollInterval);
+                      loadInterviews();
+                    } else if (!s.generating) {
+                      clearInterval(pollInterval);
+                      btn.textContent = '生成汇总';
+                      btn.style.pointerEvents = '';
+                      toast('汇总生成失败，请重试', 'error');
+                    }
+                  });
+              }, 3000);
+            }
+          })
+          .catch(function (err) {
+            toast('请求失败: ' + err.message, 'error');
+            btn.textContent = '生成汇总';
+            btn.style.pointerEvents = '';
+          });
       });
     });
 

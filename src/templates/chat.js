@@ -365,7 +365,8 @@ export function chatPageHtml(baseUrl, token) {
         html += '<p>感谢参与！以下是访谈汇总：</p>';
         html += '<div class="summary">' + escapeHtml(interview.summary) + '</div>';
       } else {
-        html += '<p>感谢参与访谈。</p>';
+        html += '<p>感谢参与！汇总正在后台生成中...</p>';
+        html += '<div id="summary-status" style="color:var(--text-muted);font-size:13px;margin-top:12px;">⏳ 生成中，稍后刷新页面查看</div>';
       }
       html += '</div>';
       body.innerHTML = html;
@@ -384,14 +385,13 @@ export function chatPageHtml(baseUrl, token) {
     document.getElementById('btn-end-confirm').addEventListener('click', () => {
       endConfirm.classList.remove('visible');
       btnEnd.disabled = true;
-      btnEnd.textContent = '正在生成汇总...';
+      btnEnd.textContent = '正在结束...';
 
       fetch(API_BASE + '/end', { method: 'POST' })
         .then(r => r.json())
         .then(data => {
           if (data.interview) {
             showCompleted(data.interview);
-            // Remove the deep-chat element
             const chatEl = body.querySelector('deep-chat');
             if (chatEl) chatEl.remove();
           }
