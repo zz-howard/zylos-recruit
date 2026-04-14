@@ -1364,14 +1364,20 @@
 
   // ─── Internal Interviews ─────────────────────────────────────
 
+  var interviewsData = [];
+  var selectedInterviewIds = new Set();
+
   function loadInterviews() {
     if (!state.activeCompanyId) {
+      interviewsData = [];
       renderInterviewsList([]);
       return;
     }
     api('GET', '/internal-interviews?company_id=' + state.activeCompanyId)
       .then(function (r) {
-        renderInterviewsList(r.interviews || []);
+        interviewsData = r.interviews || [];
+        selectedInterviewIds.clear();
+        renderInterviewsList(interviewsData);
       })
       .catch(function (err) {
         toast('加载访谈列表失败: ' + err.message, 'error');
@@ -1382,6 +1388,7 @@
     var container = document.getElementById('interviews-list');
     if (!interviews || interviews.length === 0) {
       container.innerHTML = '<div class="interviews-empty">暂无访谈记录，点击右上角"+ 新建访谈"开始</div>';
+      updateGenerateBtn();
       return;
     }
 
@@ -1392,8 +1399,15 @@
       var date = iv.created_at ? new Date(iv.created_at + 'Z').toLocaleString('zh-CN') : '';
       var msgCount = iv.message_count || 0;
       var chatUrl = BASE + '/chat/' + iv.token;
+      var checked = selectedInterviewIds.has(iv.id) ? ' checked' : '';
+      var hasContent = iv.status === 'completed' || msgCount > 0;
 
       html += '<div class="interview-card" data-id="' + iv.id + '">';
+      if (hasContent) {
+        html += '<input type="checkbox" class="interview-checkbox" data-id="' + iv.id + '"' + checked + '>';
+      } else {
+        html += '<div style="width:18px"></div>';
+      }
       html += '<div class="interview-card-info">';
       html += '<div class="interview-card-name">' + escapeHtml(iv.interviewee_name) + '</div>';
       html += '<div class="interview-card-meta">';
@@ -1419,6 +1433,91 @@
     });
 
     container.innerHTML = html;
+
+    // Bind checkbox events
+    container.querySelectorAll('.interview-checkbox').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var id = Number(cb.dataset.id);
+        if (cb.checked) {
+          selectedInterviewIds.add(id);
+        } else {
+          selectedInterviewIds.delete(id);
+        }
+        updateGenerateBtn();
+      });
+    });
+
+    updateGenerateBtn();
+  }
+
+  function updateGenerateBtn() {
+    var btn = document.getElementById('btn-generate-portrait');
+    if (!btn) return;
+    var count = selectedInterviewIds.size;
+    if (count > 0) {
+      btn.style.display = '';
+      btn.textContent = '生成岗位画像 (' + count + ')';
+    } else {
+      btn.style.display = 'none';
+    }
+  }
+
+  // Portrait generation
+  var btnGenerate = document.getElementById('btn-generate-portrait');
+  if (btnGenerate) {
+    btnGenerate.addEventListener('click', function () {
+      if (selectedInterviewIds.size === 0) return;
+      var ids = Array.from(selectedInterviewIds);
+      btnGenerate.disabled = true;
+      btnGenerate.textContent = '正在生成...';
+
+      api('POST', '/internal-interviews/generate-portrait', { interview_ids: ids })
+        .then(function (r) {
+          btnGenerate.disabled = false;
+          updateGenerateBtn();
+          showPortraitResult(r.portrait, r.suggested_name);
+        })
+        .catch(function (err) {
+          btnGenerate.disabled = false;
+          updateGenerateBtn();
+          toast('生成失败: ' + err.message, 'error');
+        });
+    });
+  }
+
+  function showPortraitResult(portrait, suggestedName) {
+    var html = '<div class="form-dialog" style="max-width:800px">' +
+      '<h2>岗位画像建议</h2>' +
+      '<div class="field"><label>岗位名称</label>' +
+      '<input type="text" id="portrait-role-name" value="' + escapeHtml(suggestedName) + '" placeholder="输入岗位名称"></div>' +
+      '<div class="field"><label>岗位画像（Expected Portrait）</label>' +
+      '<textarea id="portrait-content" rows="20" style="font-size:13px;line-height:1.6">' + escapeHtml(portrait) + '</textarea></div>' +
+      '<div class="actions">' +
+      '<button class="btn" id="portrait-cancel">取消</button>' +
+      '<button class="btn btn-primary" id="portrait-save">收录为新角色</button>' +
+      '</div></div>';
+
+    openModal(html);
+
+    document.getElementById('portrait-cancel').addEventListener('click', closeModal);
+    document.getElementById('portrait-save').addEventListener('click', function () {
+      var roleName = document.getElementById('portrait-role-name').value.trim();
+      var content = document.getElementById('portrait-content').value.trim();
+      if (!roleName) { toast('请输入岗位名称', 'error'); return; }
+      if (!content) { toast('画像内容不能为空', 'error'); return; }
+
+      api('POST', '/roles', {
+        company_id: Number(state.activeCompanyId),
+        name: roleName,
+        expected_portrait: content,
+      }).then(function () {
+        closeModal();
+        toast('已收录为新角色: ' + roleName, 'success');
+        loadRolesAndCandidates();
+      }).catch(function (err) {
+        toast('收录失败: ' + err.message, 'error');
+      });
+    });
   }
 
   // Global functions for onclick handlers
@@ -1432,7 +1531,6 @@
     navigator.clipboard.writeText(fullUrl).then(function () {
       toast('链接已复制', 'success');
     }).catch(function () {
-      // Fallback
       prompt('复制此链接:', fullUrl);
     });
   };
@@ -1442,6 +1540,7 @@
     api('DELETE', '/internal-interviews/' + id)
       .then(function () {
         toast('已删除', 'success');
+        selectedInterviewIds.delete(id);
         loadInterviews();
       })
       .catch(function (err) {
@@ -1485,7 +1584,6 @@
         closeModal();
         toast('访谈已创建', 'success');
         loadInterviews();
-        // Open the chat link
         var chatUrl = BASE + '/chat/' + r.interview.token;
         window.open(chatUrl, '_blank');
       }).catch(function (err) {
@@ -1493,7 +1591,6 @@
       });
     });
 
-    // Enter key to submit
     document.getElementById('ii-name').addEventListener('keydown', function (e) {
       if (e.key === 'Enter') {
         e.preventDefault();

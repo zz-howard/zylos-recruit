@@ -75,7 +75,6 @@
 .interview-card {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 14px 18px;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -83,6 +82,13 @@
   margin-bottom: 8px;
   transition: all var(--transition);
   gap: 12px;
+}
+.interview-checkbox {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--primary);
 }
 .interview-card:hover {
   border-color: var(--border-hover);

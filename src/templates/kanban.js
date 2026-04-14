@@ -35,6 +35,7 @@ export function kanbanPageHtml(baseUrl) {
       </form>
     </div>
     <div class="topbar-right hidden" id="topbar-right-interviews">
+      <button id="btn-generate-portrait" class="btn" style="display:none">生成岗位画像</button>
       <button id="btn-new-interview" class="btn btn-primary">+ 新建访谈</button>
       <form method="POST" action="${baseUrl}/logout" style="display:inline">
         <button type="submit" class="btn btn-ghost">Logout</button>

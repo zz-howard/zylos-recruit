@@ -10,30 +10,16 @@
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import {
   getInternalInterviewByToken, updateInternalInterview,
   listInterviewMessages, addInterviewMessage,
 } from '../lib/db.js';
+import { runClaude } from '../lib/ai-chat.js';
 
 const PROMPT_PATH = path.join(import.meta.dirname, '..', 'prompts', 'internal-interview.md');
-const CLAUDE_CREDENTIALS_PATH = path.join(process.env.HOME, '.claude', '.credentials.json');
 
 function loadSystemPrompt() {
   return fs.readFileSync(PROMPT_PATH, 'utf8');
-}
-
-function getClaudeApiKey() {
-  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
-  try {
-    const creds = JSON.parse(fs.readFileSync(CLAUDE_CREDENTIALS_PATH, 'utf8'));
-    const oauth = creds?.claudeAiOauth;
-    if (!oauth?.accessToken) return null;
-    if (oauth.expiresAt && Date.now() > oauth.expiresAt) return null;
-    return oauth.accessToken;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -93,38 +79,6 @@ function buildSummaryPrompt(messages) {
 如果某些维度在对话中没有涉及，标注"（未提及）"。`;
 
   return prompt;
-}
-
-/**
- * Run a prompt through Claude CLI and return the response text.
- */
-function runClaude(prompt) {
-  return new Promise((resolve, reject) => {
-    const args = ['--model', 'sonnet', '--effort', 'medium', '--bare'];
-    const childEnv = { ...process.env, NO_COLOR: '1' };
-    const apiKey = getClaudeApiKey();
-    if (apiKey) childEnv.ANTHROPIC_API_KEY = apiKey;
-
-    const child = spawn('claude', args, {
-      env: childEnv,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 300_000,
-    });
-
-    let stdout = '', stderr = '';
-    child.stdout.on('data', d => { stdout += d; });
-    child.stderr.on('data', d => { stderr += d; });
-    child.on('error', err => reject(err));
-    child.on('close', code => {
-      if (code !== 0) {
-        reject(new Error(`claude exited with code ${code}: ${stderr.slice(0, 500)}`));
-      } else {
-        resolve(stdout.trim());
-      }
-    });
-    child.stdin.write(prompt);
-    child.stdin.end();
-  });
 }
 
 // In-flight lock to prevent concurrent messages on the same interview
