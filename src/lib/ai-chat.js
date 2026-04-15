@@ -1,8 +1,14 @@
 /**
- * Shared AI chat helper — runs a prompt through Claude CLI.
+ * Shared AI chat helper — runs a prompt through AI runtimes.
  *
- * Uses `-p` (print mode) instead of `--bare` — bare mode requires
- * API billing auth, while -p works with Claude Max subscription.
+ * Security: interview prompts include user-controlled content (prompt injection
+ * risk). All runtimes must have tool/shell access fully disabled:
+ *   - Claude: uses CLI with --tools "" (no tools available)
+ *   - Codex (OpenAI): uses Chat Completions API directly (no tools defined)
+ *   - Gemini: uses Generative Language API directly (no tools defined)
+ *
+ * Claude uses CLI because it needs Max subscription OAuth auth.
+ * Codex/Gemini use HTTP API to guarantee zero tool access.
  */
 
 import { execFile } from 'node:child_process';
@@ -12,10 +18,103 @@ import { resolveAiConfig } from './config.js';
 const execFileAsync = promisify(execFile);
 
 // Default models per runtime
-const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-5.4', gemini: 'gemini-2.5-flash' };
+const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-4.1', gemini: 'gemini-2.5-flash' };
+
+// Model name mapping for API calls
+const OPENAI_MODELS = {
+  'gpt-4.1': 'gpt-4.1',
+  'gpt-4.1-mini': 'gpt-4.1-mini',
+  'gpt-4.1-nano': 'gpt-4.1-nano',
+  'gpt-5.4': 'gpt-5.4',
+  'o3': 'o3',
+  'o4-mini': 'o4-mini',
+};
+
+const GEMINI_MODELS = {
+  'gemini-2.5-flash': 'gemini-2.5-flash',
+  'gemini-2.5-pro': 'gemini-2.5-pro',
+  'gemini-2.0-flash': 'gemini-2.0-flash',
+};
 
 /**
- * Run a prompt through Claude CLI and return the response text.
+ * Call OpenAI Chat Completions API directly (no tools, pure text).
+ */
+async function callOpenAI(prompt, model, effort) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('OPENAI_API_KEY not set');
+
+  const modelId = OPENAI_MODELS[model] || model;
+  const body = {
+    model: modelId,
+    messages: [{ role: 'user', content: prompt }],
+  };
+  if (effort && effort !== 'medium') {
+    body.reasoning_effort = effort;
+  }
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(300_000),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`OpenAI API ${res.status}: ${text.slice(0, 500)}`);
+  }
+
+  const data = await res.json();
+  return (data.choices?.[0]?.message?.content || '').trim();
+}
+
+/**
+ * Call Gemini Generative Language API directly (no tools, pure text).
+ */
+async function callGemini(prompt, model) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY not set');
+
+  const modelId = GEMINI_MODELS[model] || model;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+    }),
+    signal: AbortSignal.timeout(300_000),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Gemini API ${res.status}: ${text.slice(0, 500)}`);
+  }
+
+  const data = await res.json();
+  return (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+}
+
+/**
+ * Call Claude CLI in print mode with all tools disabled.
+ */
+async function callClaude(prompt, model, effort) {
+  const args = ['-p', prompt, '--model', model, '--effort', effort, '--tools', ''];
+  const childEnv = { ...process.env, NO_COLOR: '1' };
+  delete childEnv.ANTHROPIC_API_KEY;
+
+  const { stdout } = await execFileAsync('claude', args, {
+    env: childEnv,
+    encoding: 'utf8',
+    timeout: 300_000,
+    maxBuffer: 1024 * 1024,
+  });
+  return stdout.trim();
+}
+
+/**
+ * Run a prompt through the configured AI runtime and return the response text.
  * @param {string} prompt
  * @param {string} [scenario] - AI scenario name for config resolution
  */
@@ -26,37 +125,16 @@ export async function runClaude(prompt, scenario) {
   const model = aiCfg.model === 'auto' ? (DEFAULT_MODELS[runtime] || 'sonnet') : aiCfg.model;
   const effort = aiCfg.effort || 'medium';
 
-  // Security: all runtimes must have tool access disabled or sandboxed.
-  // Interview prompts include user-controlled content (prompt injection risk).
-  let cmd, args;
-  if (runtime === 'codex') {
-    cmd = 'codex';
-    args = ['exec', '--sandbox', 'read-only', '-c', `model="${model}"`, '-c', `model_reasoning_effort=${effort}`, prompt];
-  } else if (runtime === 'gemini') {
-    cmd = 'gemini';
-    // --sandbox enables sandboxing; removed -y (yolo) to prevent auto-approving tool calls
-    args = ['-p', prompt, '--model', model, '-o', 'text', '--sandbox'];
-  } else {
-    cmd = 'claude';
-    // --tools "" disables all tool access (Bash, Read, Write, etc.)
-    args = ['-p', prompt, '--model', model, '--effort', effort, '--tools', ''];
-  }
-
-  const childEnv = { ...process.env, NO_COLOR: '1' };
-  delete childEnv.ANTHROPIC_API_KEY;
-
   try {
-    const { stdout } = await execFileAsync(cmd, args, {
-      env: childEnv,
-      encoding: 'utf8',
-      timeout: 300_000,
-      maxBuffer: 1024 * 1024,
-    });
-    return stdout.trim();
+    if (runtime === 'codex') {
+      return await callOpenAI(prompt, model, effort);
+    } else if (runtime === 'gemini') {
+      return await callGemini(prompt, model);
+    } else {
+      return await callClaude(prompt, model, effort);
+    }
   } catch (err) {
-    const stdout = err.stdout || '';
-    const stderr = err.stderr || '';
-    console.error(`[recruit] runClaude(${scenario || 'default'}): exit ${err.code}, stdout(200): ${stdout.slice(0, 200)}, stderr(200): ${stderr.slice(0, 200)}`);
-    throw new Error(`claude exited with code ${err.code}: ${stderr.slice(0, 500) || stdout.slice(0, 500)}`);
+    console.error(`[recruit] runClaude(${scenario || 'default'}, ${runtime}/${model}): ${err.message}`);
+    throw err;
   }
 }
