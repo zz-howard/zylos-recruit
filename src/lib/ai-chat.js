@@ -4,11 +4,12 @@
  * Security: interview prompts include user-controlled content (prompt injection
  * risk). All runtimes must have tool/shell access fully disabled:
  *   - Claude: uses CLI with --tools "" (no tools available)
- *   - Codex (OpenAI): uses Chat Completions API directly (no tools defined)
- *   - Gemini: uses Generative Language API directly (no tools defined)
+ *   - Codex (OpenAI): uses Chat Completions API via curl (no tools defined)
+ *   - Gemini: uses Generative Language API via curl (no tools defined)
  *
  * Claude uses CLI because it needs Max subscription OAuth auth.
- * Codex/Gemini use HTTP API to guarantee zero tool access.
+ * Codex/Gemini use HTTP API (via curl, which respects HTTPS_PROXY) to
+ * guarantee zero tool access.
  */
 
 import { execFile } from 'node:child_process';
@@ -20,22 +21,6 @@ const execFileAsync = promisify(execFile);
 // Default models per runtime
 const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-4.1', gemini: 'gemini-2.5-flash' };
 
-// Model name mapping for API calls
-const OPENAI_MODELS = {
-  'gpt-4.1': 'gpt-4.1',
-  'gpt-4.1-mini': 'gpt-4.1-mini',
-  'gpt-4.1-nano': 'gpt-4.1-nano',
-  'gpt-5.4': 'gpt-5.4',
-  'o3': 'o3',
-  'o4-mini': 'o4-mini',
-};
-
-const GEMINI_MODELS = {
-  'gemini-2.5-flash': 'gemini-2.5-flash',
-  'gemini-2.5-pro': 'gemini-2.5-pro',
-  'gemini-2.0-flash': 'gemini-2.0-flash',
-};
-
 /**
  * Call OpenAI Chat Completions API directly (no tools, pure text).
  */
@@ -43,28 +28,24 @@ async function callOpenAI(prompt, model, effort) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY not set');
 
-  const modelId = OPENAI_MODELS[model] || model;
   const body = {
-    model: modelId,
+    model,
     messages: [{ role: 'user', content: prompt }],
   };
   if (effort && effort !== 'medium') {
     body.reasoning_effort = effort;
   }
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(300_000),
-  });
+  const { stdout } = await execFileAsync('curl', [
+    '-s', '-m', '300',
+    'https://api.openai.com/v1/chat/completions',
+    '-H', 'Content-Type: application/json',
+    '-H', `Authorization: Bearer ${apiKey}`,
+    '-d', JSON.stringify(body),
+  ], { encoding: 'utf8', timeout: 310_000, maxBuffer: 1024 * 1024 });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenAI API ${res.status}: ${text.slice(0, 500)}`);
-  }
-
-  const data = await res.json();
+  const data = JSON.parse(stdout);
+  if (data.error) throw new Error(`OpenAI API: ${data.error.message || JSON.stringify(data.error)}`);
   return (data.choices?.[0]?.message?.content || '').trim();
 }
 
@@ -75,24 +56,17 @@ async function callGemini(prompt, model) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY not set');
 
-  const modelId = GEMINI_MODELS[model] || model;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-    }),
-    signal: AbortSignal.timeout(300_000),
-  });
+  const { stdout } = await execFileAsync('curl', [
+    '-s', '-m', '300',
+    url,
+    '-H', 'Content-Type: application/json',
+    '-d', JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+  ], { encoding: 'utf8', timeout: 310_000, maxBuffer: 1024 * 1024 });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gemini API ${res.status}: ${text.slice(0, 500)}`);
-  }
-
-  const data = await res.json();
+  const data = JSON.parse(stdout);
+  if (data.error) throw new Error(`Gemini API: ${data.error.message || JSON.stringify(data.error)}`);
   return (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
 }
 
