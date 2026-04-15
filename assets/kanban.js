@@ -1540,6 +1540,8 @@
       }
       if (iv.summary) {
         html += '<span class="interview-link btn-view-summary" data-id="' + iv.id + '">查看汇总</span>';
+      } else if (iv.summary_generating) {
+        html += '<span class="interview-link btn-gen-summary generating" data-token="' + iv.token + '" style="color:var(--muted);pointer-events:none">生成中...</span>';
       } else if (iv.status === 'completed' && msgCount > 0) {
         html += '<span class="interview-link btn-gen-summary" data-token="' + iv.token + '" style="color:var(--accent)">生成汇总</span>';
       }
@@ -1594,11 +1596,39 @@
       });
     });
 
-    container.querySelectorAll('.btn-gen-summary').forEach(function (btn) {
+    // Poll helper for summary generation
+    function pollSummary(token, btn) {
+      var pollInterval = setInterval(function () {
+        fetch(BASE + '/api/chat/' + token + '/summary-status')
+          .then(function (r) { return r.json(); })
+          .then(function (s) {
+            if (s.has_summary) {
+              clearInterval(pollInterval);
+              loadInterviews();
+            } else if (!s.generating) {
+              clearInterval(pollInterval);
+              btn.textContent = '生成汇总';
+              btn.style.pointerEvents = '';
+              btn.style.color = 'var(--accent)';
+              btn.classList.remove('generating');
+              toast('汇总生成失败，请重试', 'error');
+            }
+          });
+      }, 3000);
+    }
+
+    // Auto-poll for interviews already generating on page load
+    container.querySelectorAll('.btn-gen-summary.generating').forEach(function (btn) {
+      pollSummary(btn.dataset.token, btn);
+    });
+
+    container.querySelectorAll('.btn-gen-summary:not(.generating)').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var token = btn.dataset.token;
         btn.textContent = '生成中...';
         btn.style.pointerEvents = 'none';
+        btn.style.color = 'var(--muted)';
+        btn.classList.add('generating');
         fetch(BASE + '/api/chat/' + token + '/generate-summary', { method: 'POST' })
           .then(function (r) { return r.json(); })
           .then(function (data) {
@@ -1606,30 +1636,19 @@
               toast('生成失败: ' + data.error, 'error');
               btn.textContent = '生成汇总';
               btn.style.pointerEvents = '';
+              btn.style.color = 'var(--accent)';
+              btn.classList.remove('generating');
             } else {
               toast('汇总正在后台生成', 'success');
-              // Poll for completion
-              var pollInterval = setInterval(function () {
-                fetch(BASE + '/api/chat/' + token + '/summary-status')
-                  .then(function (r) { return r.json(); })
-                  .then(function (s) {
-                    if (s.has_summary) {
-                      clearInterval(pollInterval);
-                      loadInterviews();
-                    } else if (!s.generating) {
-                      clearInterval(pollInterval);
-                      btn.textContent = '生成汇总';
-                      btn.style.pointerEvents = '';
-                      toast('汇总生成失败，请重试', 'error');
-                    }
-                  });
-              }, 3000);
+              pollSummary(token, btn);
             }
           })
           .catch(function (err) {
             toast('请求失败: ' + err.message, 'error');
             btn.textContent = '生成汇总';
             btn.style.pointerEvents = '';
+            btn.style.color = 'var(--accent)';
+            btn.classList.remove('generating');
           });
       });
     });

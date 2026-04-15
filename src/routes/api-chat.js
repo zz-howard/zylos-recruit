@@ -84,8 +84,8 @@ function buildSummaryPrompt(messages) {
 // In-flight lock to prevent concurrent messages on the same interview
 const chatLocks = new Set();
 
-// Track in-progress summary generation
-const summaryInProgress = new Set();
+// Track in-progress summary generation (exported for use by interview list API)
+export const summaryInProgress = new Set();
 
 function generateSummaryAsync(interviewId, messages) {
   if (summaryInProgress.has(interviewId)) return;

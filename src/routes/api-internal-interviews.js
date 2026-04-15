@@ -5,6 +5,7 @@ import {
   deleteInternalInterview, listInterviewMessages,
 } from '../lib/db.js';
 import { runClaude } from '../lib/ai-chat.js';
+import { summaryInProgress } from './api-chat.js';
 
 export function internalInterviewsRouter() {
   const router = express.Router();
@@ -17,6 +18,12 @@ export function internalInterviewsRouter() {
     const limit = Math.min(Number(req.query.limit) || 20, 100);
     const offset = Number(req.query.offset) || 0;
     const result = listInternalInterviews({ companyId, status, limit, offset });
+    // Annotate interviews with generating status
+    if (result.interviews) {
+      for (const iv of result.interviews) {
+        iv.summary_generating = summaryInProgress.has(iv.id);
+      }
+    }
     res.json(result);
   });
 
