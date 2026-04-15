@@ -26,16 +26,20 @@ export async function runClaude(prompt, scenario) {
   const model = aiCfg.model === 'auto' ? (DEFAULT_MODELS[runtime] || 'sonnet') : aiCfg.model;
   const effort = aiCfg.effort || 'medium';
 
+  // Security: all runtimes must have tool access disabled or sandboxed.
+  // Interview prompts include user-controlled content (prompt injection risk).
   let cmd, args;
   if (runtime === 'codex') {
     cmd = 'codex';
     args = ['exec', '--sandbox', 'read-only', '-c', `model="${model}"`, '-c', `model_reasoning_effort=${effort}`, prompt];
   } else if (runtime === 'gemini') {
     cmd = 'gemini';
-    args = ['-p', prompt, '--model', model, '-y', '-o', 'text'];
+    // --sandbox enables sandboxing; removed -y (yolo) to prevent auto-approving tool calls
+    args = ['-p', prompt, '--model', model, '-o', 'text', '--sandbox'];
   } else {
     cmd = 'claude';
-    args = ['-p', prompt, '--model', model, '--effort', effort];
+    // --tools "" disables all tool access (Bash, Read, Write, etc.)
+    args = ['-p', prompt, '--model', model, '--effort', effort, '--tools', ''];
   }
 
   const childEnv = { ...process.env, NO_COLOR: '1' };
