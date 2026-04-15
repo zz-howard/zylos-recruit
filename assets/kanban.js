@@ -1266,93 +1266,133 @@
   function openSettings() {
     var wrap = document.createElement('div');
     wrap.className = 'form-dialog';
-    wrap.innerHTML = ''
-      + '<h2>Settings</h2>'
-      + '<div class="meta">Loading...</div>';
+    wrap.innerHTML = '<h2>Settings</h2><div class="meta">Loading...</div>';
     openModal(wrap);
+
+    var SCENARIOS = [
+      { key: 'resume_eval', label: '简历评估' },
+      { key: 'auto_match', label: '智能匹配' },
+      { key: 'chat', label: '需求访谈' },
+      { key: 'chat_summary', label: '访谈汇总' },
+      { key: 'portrait', label: '岗位画像' },
+    ];
 
     api('GET', '/settings').then(function (r) {
       var ai = r.ai;
-
-      // Runtime options
-      var runtimeOptions = [{ value: 'auto', label: 'Auto (' + ai.envRuntime + ')' }];
-      ['claude', 'codex', 'gemini'].forEach(function (rt) {
-        var installed = ai.availableRuntimes.indexOf(rt) !== -1;
-        runtimeOptions.push({
-          value: rt,
-          label: rt.charAt(0).toUpperCase() + rt.slice(1) + (installed ? '' : ' (not installed)'),
-          disabled: !installed,
-        });
-      });
-      var runtimeHtml = runtimeOptions.map(function (o) {
-        return '<option value="' + o.value + '"'
-          + (o.disabled ? ' disabled' : '')
-          + (o.value === ai.runtime ? ' selected' : '')
-          + '>' + escapeHtml(o.label) + '</option>';
-      }).join('');
-
-      // Model options — show models for the effective runtime
-      var effectiveRt = ai.runtime === 'auto' ? ai.envRuntime : ai.runtime;
+      var raw = ai.raw || {};
       var defaultModelMap = { claude: 'sonnet', codex: 'gpt-5.4', gemini: 'gemini-2.5-flash' };
-      var defaultModel = defaultModelMap[effectiveRt] || 'sonnet';
-      var modelOptions = '<option value="auto"' + (ai.model === 'auto' ? ' selected' : '') + '>Auto (' + defaultModel + ')</option>';
-      var models = ai.validModels[effectiveRt] || [];
-      models.forEach(function (m) {
-        modelOptions += '<option value="' + m + '"' + (ai.model === m ? ' selected' : '') + '>' + escapeHtml(m) + '</option>';
+
+      function makeRuntimeOptions(selected) {
+        var opts = [{ value: '', label: '跟随默认' }, { value: 'auto', label: 'Auto (' + ai.envRuntime + ')' }];
+        ['claude', 'codex', 'gemini'].forEach(function (rt) {
+          var installed = ai.availableRuntimes.indexOf(rt) !== -1;
+          opts.push({ value: rt, label: rt.charAt(0).toUpperCase() + rt.slice(1) + (installed ? '' : ' (not installed)'), disabled: !installed });
+        });
+        return opts.map(function (o) {
+          return '<option value="' + o.value + '"' + (o.disabled ? ' disabled' : '') + (o.value === selected ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
+        }).join('');
+      }
+
+      function makeModelOptions(runtime, selected) {
+        var ert = (!runtime || runtime === 'auto') ? ai.envRuntime : runtime;
+        var dm = defaultModelMap[ert] || 'sonnet';
+        var opts = '<option value=""' + (!selected ? ' selected' : '') + '>跟随默认</option>';
+        opts += '<option value="auto"' + (selected === 'auto' ? ' selected' : '') + '>Auto (' + dm + ')</option>';
+        (ai.validModels[ert] || []).forEach(function (m) {
+          opts += '<option value="' + m + '"' + (selected === m ? ' selected' : '') + '>' + escapeHtml(m) + '</option>';
+        });
+        return opts;
+      }
+
+      function makeEffortOptions(runtime, selected) {
+        var ert = (!runtime || runtime === 'auto') ? ai.envRuntime : runtime;
+        var efList = ai.validEfforts[ert] || ai.validEfforts.claude || [];
+        var opts = '<option value=""' + (!selected ? ' selected' : '') + '>跟随默认</option>';
+        efList.forEach(function (e) {
+          opts += '<option value="' + e + '"' + (selected === e ? ' selected' : '') + '>' + e + '</option>';
+        });
+        return opts;
+      }
+
+      // Default row
+      var defCfg = raw.default || { runtime: raw.runtime || 'auto', model: raw.model || 'auto', effort: raw.effort || 'medium' };
+
+      var html = '<h2>Settings</h2>';
+      html += '<div class="meta" style="margin-bottom:12px;">Installed: ' + escapeHtml(ai.availableRuntimes.join(', ') || 'none') + '</div>';
+
+      // Table header
+      html += '<table class="settings-table" style="width:100%;border-collapse:collapse;font-size:13px;">';
+      html += '<thead><tr><th style="text-align:left;padding:6px 8px;">场景</th><th style="padding:6px 8px;">Runtime</th><th style="padding:6px 8px;">Model</th><th style="padding:6px 8px;">Effort</th></tr></thead>';
+      html += '<tbody>';
+
+      // Default row
+      html += '<tr style="background:var(--bg-secondary,#f5f5f5);font-weight:600;">';
+      html += '<td style="padding:6px 8px;">默认</td>';
+      html += '<td style="padding:4px 4px;"><select data-key="default" data-field="runtime" style="width:100%;">' + makeRuntimeOptions(defCfg.runtime).replace('跟随默认', '—') + '</select></td>';
+      html += '<td style="padding:4px 4px;"><select data-key="default" data-field="model" style="width:100%;">' + makeModelOptions(defCfg.runtime, defCfg.model).replace('跟随默认', '—') + '</select></td>';
+      html += '<td style="padding:4px 4px;"><select data-key="default" data-field="effort" style="width:100%;">' + makeEffortOptions(defCfg.runtime, defCfg.effort).replace('跟随默认', '—') + '</select></td>';
+      html += '</tr>';
+
+      // Scenario rows
+      SCENARIOS.forEach(function (s) {
+        var sCfg = raw[s.key] || {};
+        html += '<tr>';
+        html += '<td style="padding:6px 8px;">' + escapeHtml(s.label) + '</td>';
+        html += '<td style="padding:4px 4px;"><select data-key="' + s.key + '" data-field="runtime" style="width:100%;">' + makeRuntimeOptions(sCfg.runtime || '') + '</select></td>';
+        html += '<td style="padding:4px 4px;"><select data-key="' + s.key + '" data-field="model" style="width:100%;">' + makeModelOptions(sCfg.runtime || defCfg.runtime, sCfg.model || '') + '</select></td>';
+        html += '<td style="padding:4px 4px;"><select data-key="' + s.key + '" data-field="effort" style="width:100%;">' + makeEffortOptions(sCfg.runtime || defCfg.runtime, sCfg.effort || '') + '</select></td>';
+        html += '</tr>';
       });
 
-      // Effort options (per runtime)
-      var effortList = ai.validEfforts[effectiveRt] || ai.validEfforts.claude || [];
-      var effortHtml = effortList.map(function (e) {
-        return '<option value="' + e + '"' + (ai.effort === e ? ' selected' : '') + '>' + e + '</option>';
-      }).join('');
+      html += '</tbody></table>';
+      html += '<div class="actions" style="margin-top:16px;">';
+      html += '<button class="btn" id="f-close">Close</button>';
+      html += '<button class="btn btn-primary" id="f-save">Save</button>';
+      html += '</div>';
 
-      wrap.innerHTML = ''
-        + '<h2>Settings</h2>'
-        + '<div class="field"><label>Runtime</label>'
-        +   '<select id="f-runtime">' + runtimeHtml + '</select></div>'
-        + '<div class="field"><label>Model</label>'
-        +   '<select id="f-model">' + modelOptions + '</select></div>'
-        + '<div class="field"><label>Thinking Effort</label>'
-        +   '<select id="f-effort">' + effortHtml + '</select></div>'
-        + '<div class="meta">Effective: <strong>' + escapeHtml(ai.effective) + '</strong>'
-        +   ' · Installed: ' + (ai.availableRuntimes.length > 0 ? escapeHtml(ai.availableRuntimes.join(', ')) : 'none')
-        + '</div>'
-        + '<div class="actions">'
-        +   '<button class="btn" id="f-close">Close</button>'
-        +   '<button class="btn btn-primary" id="f-save">Save</button>'
-        + '</div>';
+      wrap.innerHTML = html;
 
-      // Update model and effort dropdowns when runtime changes
-      wrap.querySelector('#f-runtime').addEventListener('change', function () {
-        var rt = this.value;
-        var ert = rt === 'auto' ? ai.envRuntime : rt;
-        var dmMap = { claude: 'sonnet', codex: 'gpt-5.4', gemini: 'gemini-2.5-flash' };
-        var dm = dmMap[ert] || 'sonnet';
-        var ms = ai.validModels[ert] || [];
-        var sel = wrap.querySelector('#f-model');
-        sel.innerHTML = '<option value="auto">Auto (' + dm + ')</option>'
-          + ms.map(function (m) { return '<option value="' + m + '">' + escapeHtml(m) + '</option>'; }).join('');
-        var ef = ai.validEfforts[ert] || [];
-        var efSel = wrap.querySelector('#f-effort');
-        var curEffort = efSel.value;
-        efSel.innerHTML = ef.map(function (e) {
-          return '<option value="' + e + '"' + (e === curEffort ? ' selected' : '') + '>' + e + '</option>';
-        }).join('');
+      // When runtime changes, update model+effort options for that row
+      wrap.querySelectorAll('select[data-field="runtime"]').forEach(function (sel) {
+        sel.addEventListener('change', function () {
+          var key = this.getAttribute('data-key');
+          var rt = this.value || (key !== 'default' ? wrap.querySelector('select[data-key="default"][data-field="runtime"]').value : 'auto');
+          var row = this.closest('tr');
+          var modelSel = row.querySelector('select[data-field="model"]');
+          var effortSel = row.querySelector('select[data-field="effort"]');
+          var curModel = modelSel.value;
+          var curEffort = effortSel.value;
+          modelSel.innerHTML = makeModelOptions(rt, curModel);
+          effortSel.innerHTML = makeEffortOptions(rt, curEffort);
+        });
       });
 
       wrap.querySelector('#f-close').addEventListener('click', closeModal);
       wrap.querySelector('#f-save').addEventListener('click', function () {
-        var payload = {
-          runtime: wrap.querySelector('#f-runtime').value,
-          model: wrap.querySelector('#f-model').value,
-          effort: wrap.querySelector('#f-effort').value,
+        var payload = {};
+
+        // Read default row
+        payload.default = {
+          runtime: wrap.querySelector('select[data-key="default"][data-field="runtime"]').value || 'auto',
+          model: wrap.querySelector('select[data-key="default"][data-field="model"]').value || 'auto',
+          effort: wrap.querySelector('select[data-key="default"][data-field="effort"]').value || 'medium',
         };
+
+        // Read scenario rows — only include non-empty overrides
+        SCENARIOS.forEach(function (s) {
+          var rt = wrap.querySelector('select[data-key="' + s.key + '"][data-field="runtime"]').value;
+          var md = wrap.querySelector('select[data-key="' + s.key + '"][data-field="model"]').value;
+          var ef = wrap.querySelector('select[data-key="' + s.key + '"][data-field="effort"]').value;
+          if (rt || md || ef) {
+            payload[s.key] = {};
+            if (rt) payload[s.key].runtime = rt;
+            if (md) payload[s.key].model = md;
+            if (ef) payload[s.key].effort = ef;
+          }
+        });
+
         api('PUT', '/settings', { ai: payload })
-          .then(function () {
-            toast('Settings saved', 'success');
-            closeModal();
-          })
+          .then(function () { toast('Settings saved', 'success'); closeModal(); })
           .catch(function (err) { toast(err.message, 'error'); });
       });
     }).catch(function (err) {
