@@ -133,16 +133,19 @@ export function candidatesRouter() {
       return res.status(400).json({ error: '候选人暂无评估信息，请先进行 AI 评估' });
     }
 
-    // Get all active roles with portraits for this company
-    const activeRoles = listRoles({ companyId: cand.company_id, active: true })
-      .filter(r => r.expected_portrait);
+    // Get all active roles for this company
+    const activeRoles = listRoles({ companyId: cand.company_id, active: true });
     if (activeRoles.length === 0) {
-      return res.status(400).json({ error: '当前没有设置了岗位画像的活跃角色' });
+      return res.status(400).json({ error: '当前没有活跃角色' });
     }
 
-    const rolesText = activeRoles.map((r, i) =>
-      `### 角色 ${i + 1}: ${r.name} (ID: ${r.id})\n${r.expected_portrait}`
-    ).join('\n\n---\n\n');
+    const rolesText = activeRoles.map((r, i) => {
+      const parts = [`### 角色 ${i + 1}: ${r.name} (ID: ${r.id})`];
+      if (r.expected_portrait) parts.push(r.expected_portrait);
+      else if (r.description) parts.push(r.description);
+      else parts.push('（无详细描述）');
+      return parts.join('\n');
+    }).join('\n\n---\n\n');
 
     const prompt = `你是一位资深招聘专家。请根据候选人信息，对以下活跃岗位进行匹配度评估。
 
