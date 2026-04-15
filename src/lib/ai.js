@@ -294,10 +294,17 @@ export async function evaluateResume(candidateId) {
   const t0 = Date.now();
   console.log(`[recruit] AI evaluation started: candidate #${candidateId}`);
 
-  const candidate = getCandidate(candidateId);
+  let candidate = getCandidate(candidateId);
   if (!candidate) throw new Error('candidate not found');
   if (!candidate.resume_path) throw new Error('no resume uploaded — upload a PDF first');
-  if (!candidate.role_id) throw new Error('candidate has no assigned role');
+
+  // Auto-match role from resume if none assigned
+  if (!candidate.role_id) {
+    console.log(`[recruit] AI evaluation: no role assigned, auto-matching first...`);
+    await autoMatchFromResume(candidateId);
+    candidate = getCandidate(candidateId);
+    if (!candidate.role_id) throw new Error('auto-match failed to assign a role');
+  }
 
   const resumeAbsPath = path.resolve(RESUMES_DIR, candidate.resume_path);
   if (!fs.existsSync(resumeAbsPath)) {

@@ -29,7 +29,11 @@ export function runClaude(prompt) {
     const args = ['--model', 'sonnet', '--effort', 'medium', '--bare'];
     const childEnv = { ...process.env, NO_COLOR: '1' };
     const apiKey = getClaudeApiKey();
-    if (apiKey) childEnv.ANTHROPIC_API_KEY = apiKey;
+    if (apiKey) {
+      childEnv.ANTHROPIC_API_KEY = apiKey;
+    } else {
+      console.warn('[recruit] runClaude: no API key resolved (env unset, credentials read failed or token expired)');
+    }
 
     const child = spawn('claude', args, {
       env: childEnv,
@@ -43,7 +47,8 @@ export function runClaude(prompt) {
     child.on('error', err => reject(err));
     child.on('close', code => {
       if (code !== 0) {
-        reject(new Error(`claude exited with code ${code}: ${stderr.slice(0, 500)}`));
+        console.error(`[recruit] runClaude: exit ${code}, stdout(200): ${stdout.slice(0, 200)}, stderr(200): ${stderr.slice(0, 200)}, hadKey: ${!!apiKey}`);
+        reject(new Error(`claude exited with code ${code}: ${stderr.slice(0, 500) || stdout.slice(0, 500)}`));
       } else {
         resolve(stdout.trim());
       }

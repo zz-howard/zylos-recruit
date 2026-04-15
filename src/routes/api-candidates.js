@@ -189,7 +189,6 @@ ${rolesText}
     const cand = getCandidate(candidateId);
     if (!cand) return res.status(404).json({ error: 'not found' });
     if (!cand.resume_path) return res.status(400).json({ error: 'no resume uploaded — upload a PDF first' });
-    if (!cand.role_id) return res.status(400).json({ error: 'candidate has no assigned role' });
     if (isEvaluating(candidateId)) return res.status(409).json({ error: '该候选人正在评估中，请稍候' });
 
     evaluateResumeAsync(candidateId);

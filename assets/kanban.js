@@ -301,7 +301,6 @@
       + '</div>'
       + '<div class="field"><label>目标岗位</label>'
       +   '<select data-k="role_id">'
-      +     '<option value="">(无)</option>'
       +     state.roles.map(function (r) {
               var inactiveTag = r.active === 0 ? ' [停用]' : '';
               return '<option value="' + r.id + '"' + (r.id === c.role_id ? ' selected' : '') + '>' + escapeHtml(r.name) + inactiveTag + '</option>';
