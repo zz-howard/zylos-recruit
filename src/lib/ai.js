@@ -8,7 +8,7 @@
  * Defaults to 'claude'.
  */
 
-import { execFile, execFileSync, spawn } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,8 +18,6 @@ import { RESUMES_DIR, getConfig } from './config.js';
 const execFileAsync = promisify(execFile);
 
 const PROMPT_PATH = path.join(import.meta.dirname, '..', 'prompts', 'resume-eval.md');
-const CLAUDE_CREDENTIALS_PATH = path.join(process.env.HOME, '.claude', '.credentials.json');
-
 // Available runtimes detected at startup
 let availableRuntimes = [];
 let envRuntime = (process.env.ZYLOS_RUNTIME || 'claude').toLowerCase();
@@ -67,28 +65,6 @@ function getRuntime() {
     return envRuntime;
   }
   return setting;
-}
-
-/**
- * Read the Claude OAuth token from ~/.claude/.credentials.json.
- * Returns the access token string or null if unavailable/expired.
- */
-function getClaudeApiKey() {
-  // Prefer explicit env var
-  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
-  try {
-    const creds = JSON.parse(fs.readFileSync(CLAUDE_CREDENTIALS_PATH, 'utf8'));
-    const oauth = creds?.claudeAiOauth;
-    if (!oauth?.accessToken) return null;
-    // Check expiry (ms timestamp)
-    if (oauth.expiresAt && Date.now() > oauth.expiresAt) {
-      console.warn('[recruit] Claude OAuth token expired');
-      return null;
-    }
-    return oauth.accessToken;
-  } catch {
-    return null;
-  }
 }
 
 function loadPromptTemplate() {
@@ -150,7 +126,7 @@ async function runCli(prompt) {
   const runtime = getRuntime();
   const model = resolveModel(runtime);
   const effort = resolveEffort();
-  let cmd, args, useStdin = false;
+  let cmd, args;
 
   if (runtime === 'codex') {
     cmd = 'codex';
@@ -165,47 +141,16 @@ async function runCli(prompt) {
     cmd = 'gemini';
     args = ['-p', prompt, '--model', model, '-y', '-o', 'text'];
   } else {
-    // Claude: pipe prompt via stdin to avoid arg-length limits and stdin-wait warnings
+    // Claude: use -p (print mode) — --bare requires API billing auth
     cmd = 'claude';
-    args = ['--model', model, '--effort', effort, '--allowedTools', 'Read', '--bare'];
-    useStdin = true;
+    args = ['-p', prompt, '--model', model, '--effort', effort, '--allowedTools', 'Read'];
   }
 
   const effortStr = effort && VALID_EFFORTS[runtime]?.length ? `, effort: ${effort}` : '';
   console.log(`[recruit] AI evaluation: spawning CLI (runtime: ${runtime}, model: ${model}${effortStr})...`);
 
   const childEnv = { ...process.env, NO_COLOR: '1' };
-  if (runtime !== 'codex') {
-    const apiKey = getClaudeApiKey();
-    if (apiKey) childEnv.ANTHROPIC_API_KEY = apiKey;
-  }
-
-  if (useStdin) {
-    // Use spawn + stdin pipe for claude to avoid "no stdin data" warning
-    return new Promise((resolve, reject) => {
-      const child = spawn(cmd, args, {
-        env: childEnv,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 600_000,
-      });
-      let stdout = '', stderr = '';
-      child.stdout.on('data', d => { stdout += d; });
-      child.stderr.on('data', d => { stderr += d; });
-      child.on('error', err => reject(err));
-      child.on('close', code => {
-        if (code !== 0) {
-          const errMsg = `CLI exited with code ${code}. stderr: ${stderr.slice(0, 500)}`;
-          console.error(`[recruit] AI evaluation CLI error: ${errMsg}`);
-          if (stdout.length > 0) console.error(`[recruit] AI evaluation CLI stdout (partial): ${stdout.slice(0, 300)}`);
-          reject(new Error(errMsg));
-        } else {
-          resolve({ text: stdout, runtime, model, effort });
-        }
-      });
-      child.stdin.write(prompt);
-      child.stdin.end();
-    });
-  }
+  delete childEnv.ANTHROPIC_API_KEY;
 
   const { stdout } = await execFileAsync(cmd, args, {
     encoding: 'utf8',
@@ -254,14 +199,11 @@ async function repairAiResponse(rawText) {
     args = ['exec', '--sandbox', 'read-only', '-c', 'model="gpt-5.3-codex-spark"', repairPrompt];
   } else {
     cmd = 'claude';
-    args = ['-p', repairPrompt, '--model', 'haiku', '--effort', 'low', '--bare'];
+    args = ['-p', repairPrompt, '--model', 'haiku', '--effort', 'low'];
   }
 
   const childEnv = { ...process.env, NO_COLOR: '1' };
-  if (envRuntime !== 'codex') {
-    const apiKey = getClaudeApiKey();
-    if (apiKey) childEnv.ANTHROPIC_API_KEY = apiKey;
-  }
+  delete childEnv.ANTHROPIC_API_KEY;
 
   console.log(`[recruit] AI response repair: using ${envRuntime === 'codex' ? 'gpt-5.3-codex-spark' : 'haiku'} to extract JSON...`);
   const { stdout } = await execFileAsync(cmd, args, {
