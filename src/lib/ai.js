@@ -13,7 +13,7 @@ import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getCandidate, getRole, getCompany, addEvaluation, updateCandidate, listRoles } from './db.js';
-import { RESUMES_DIR, getConfig } from './config.js';
+import { RESUMES_DIR, getConfig, resolveAiConfig } from './config.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -53,18 +53,6 @@ export function getAvailableRuntimes() {
  */
 export function getEnvRuntime() {
   return envRuntime;
-}
-
-/**
- * Resolve the effective runtime: config.ai.runtime → env fallback → 'claude'.
- */
-function getRuntime() {
-  const config = getConfig();
-  const setting = config.ai?.runtime || 'auto';
-  if (setting === 'auto') {
-    return envRuntime;
-  }
-  return setting;
 }
 
 function loadPromptTemplate() {
@@ -110,22 +98,11 @@ const VALID_EFFORTS = {
 
 export { VALID_MODELS, VALID_EFFORTS };
 
-function resolveModel(runtime) {
-  const config = getConfig();
-  const setting = config.ai?.model || 'auto';
-  if (setting === 'auto') return DEFAULT_MODELS[runtime] || DEFAULT_MODELS.claude;
-  return setting;
-}
-
-function resolveEffort() {
-  const config = getConfig();
-  return config.ai?.effort || 'medium';
-}
-
-async function runCli(prompt) {
-  const runtime = getRuntime();
-  const model = resolveModel(runtime);
-  const effort = resolveEffort();
+async function runCli(prompt, scenario = 'resume_eval') {
+  const aiCfg = resolveAiConfig(scenario);
+  const runtime = aiCfg.runtime === 'auto' ? envRuntime : aiCfg.runtime;
+  const model = aiCfg.model === 'auto' ? (DEFAULT_MODELS[runtime] || DEFAULT_MODELS.claude) : aiCfg.model;
+  const effort = aiCfg.effort || 'medium';
   let cmd, args;
 
   if (runtime === 'codex') {
@@ -375,7 +352,7 @@ ${rolesText}
 只输出 JSON，不要其他文字。`;
 
   console.log(`[recruit] Auto-match from resume: candidate #${candidateId} against ${activeRoles.length} active roles...`);
-  const { text } = await runCli(prompt);
+  const { text } = await runCli(prompt, 'auto_match');
 
   let parsed;
   const jsonMatch = text.match(/\{[\s\S]*?\}/);

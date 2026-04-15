@@ -93,7 +93,7 @@ function generateSummaryAsync(interviewId, messages) {
   console.log(`[recruit] Chat: interview #${interviewId} — generating summary in background...`);
 
   const summaryPrompt = buildSummaryPrompt(messages);
-  runClaude(summaryPrompt)
+  runClaude(summaryPrompt, 'chat_summary')
     .then(summary => {
       console.log(`[recruit] Chat: interview #${interviewId} — summary generated (${summary.length} chars)`);
       updateInternalInterview(interviewId, { summary });
@@ -158,7 +158,7 @@ export function chatRouter() {
       const prompt = buildConversationPrompt(systemPrompt, history, userMessage);
 
       console.log(`[recruit] Chat: interview #${interview.id} — sending to claude (${allMessages.length} messages total)...`);
-      const aiResponse = await runClaude(prompt);
+      const aiResponse = await runClaude(prompt, 'chat');
       console.log(`[recruit] Chat: interview #${interview.id} — AI responded (${aiResponse.length} chars)`);
 
       // Store AI response

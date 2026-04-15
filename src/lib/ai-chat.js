@@ -7,19 +7,42 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { resolveAiConfig } from './config.js';
 
 const execFileAsync = promisify(execFile);
 
+// Default models per runtime
+const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-5.4', gemini: 'gemini-2.5-flash' };
+
 /**
  * Run a prompt through Claude CLI and return the response text.
+ * @param {string} prompt
+ * @param {string} [scenario] - AI scenario name for config resolution
  */
-export async function runClaude(prompt) {
-  const args = ['-p', prompt, '--model', 'sonnet', '--effort', 'medium'];
+export async function runClaude(prompt, scenario) {
+  const aiCfg = resolveAiConfig(scenario);
+  const envRuntime = (process.env.ZYLOS_RUNTIME || 'claude').toLowerCase();
+  const runtime = aiCfg.runtime === 'auto' ? envRuntime : aiCfg.runtime;
+  const model = aiCfg.model === 'auto' ? (DEFAULT_MODELS[runtime] || 'sonnet') : aiCfg.model;
+  const effort = aiCfg.effort || 'medium';
+
+  let cmd, args;
+  if (runtime === 'codex') {
+    cmd = 'codex';
+    args = ['exec', '--sandbox', 'read-only', '-c', `model="${model}"`, '-c', `model_reasoning_effort=${effort}`, prompt];
+  } else if (runtime === 'gemini') {
+    cmd = 'gemini';
+    args = ['-p', prompt, '--model', model, '-y', '-o', 'text'];
+  } else {
+    cmd = 'claude';
+    args = ['-p', prompt, '--model', model, '--effort', effort];
+  }
+
   const childEnv = { ...process.env, NO_COLOR: '1' };
   delete childEnv.ANTHROPIC_API_KEY;
 
   try {
-    const { stdout } = await execFileAsync('claude', args, {
+    const { stdout } = await execFileAsync(cmd, args, {
       env: childEnv,
       encoding: 'utf8',
       timeout: 300_000,
@@ -29,7 +52,7 @@ export async function runClaude(prompt) {
   } catch (err) {
     const stdout = err.stdout || '';
     const stderr = err.stderr || '';
-    console.error(`[recruit] runClaude: exit ${err.code}, stdout(200): ${stdout.slice(0, 200)}, stderr(200): ${stderr.slice(0, 200)}`);
+    console.error(`[recruit] runClaude(${scenario || 'default'}): exit ${err.code}, stdout(200): ${stdout.slice(0, 200)}, stderr(200): ${stderr.slice(0, 200)}`);
     throw new Error(`claude exited with code ${err.code}: ${stderr.slice(0, 500) || stdout.slice(0, 500)}`);
   }
 }

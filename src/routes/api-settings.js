@@ -6,28 +6,61 @@
  */
 
 import express, { Router } from 'express';
-import { getConfig, saveConfig } from '../lib/config.js';
+import { getConfig, saveConfig, resolveAiConfig } from '../lib/config.js';
 import { getAvailableRuntimes, getEnvRuntime, VALID_MODELS, VALID_EFFORTS } from '../lib/ai.js';
+
+const AI_SCENARIOS = ['resume_eval', 'auto_match', 'chat', 'chat_summary', 'portrait'];
 
 function buildResponse() {
   const config = getConfig();
   const available = getAvailableRuntimes();
   const envRt = getEnvRuntime();
-  const runtimeSetting = config.ai?.runtime || 'auto';
-  const effectiveRuntime = runtimeSetting === 'auto' ? envRt : runtimeSetting;
+
+  // Build per-scenario resolved config
+  const scenarios = {};
+  for (const s of AI_SCENARIOS) {
+    scenarios[s] = resolveAiConfig(s);
+  }
 
   return {
     ai: {
-      runtime: runtimeSetting,
-      effective: effectiveRuntime,
+      default: resolveAiConfig(),
+      scenarios,
       envRuntime: envRt,
       availableRuntimes: available,
-      model: config.ai?.model || 'auto',
       validModels: VALID_MODELS,
-      effort: config.ai?.effort || 'high',
       validEfforts: VALID_EFFORTS,
+      raw: config.ai || {},
     },
   };
+}
+
+function validateAiEntry(entry) {
+  const errors = [];
+  if (entry.runtime !== undefined) {
+    const valid = ['auto', 'claude', 'codex', 'gemini'];
+    if (!valid.includes(entry.runtime)) {
+      errors.push(`invalid runtime: ${entry.runtime}`);
+    } else if (entry.runtime !== 'auto') {
+      const available = getAvailableRuntimes();
+      if (!available.includes(entry.runtime)) {
+        errors.push(`runtime "${entry.runtime}" is not installed`);
+      }
+    }
+  }
+  if (entry.model !== undefined && entry.model !== 'auto') {
+    const allModels = [...VALID_MODELS.claude, ...VALID_MODELS.codex, ...(VALID_MODELS.gemini || [])];
+    if (!allModels.includes(entry.model)) {
+      errors.push(`invalid model: ${entry.model}`);
+    }
+  }
+  if (entry.effort !== undefined && entry.effort !== '') {
+    const allEfforts = [...new Set([...VALID_EFFORTS.claude, ...VALID_EFFORTS.codex])];
+    if (!allEfforts.includes(entry.effort)) {
+      errors.push(`invalid effort: ${entry.effort}`);
+    }
+  }
+  return errors;
 }
 
 export function settingsRouter() {
@@ -44,33 +77,28 @@ export function settingsRouter() {
       return res.status(400).json({ error: 'missing ai settings' });
     }
 
-    if (ai.runtime !== undefined) {
-      const valid = ['auto', 'claude', 'codex', 'gemini'];
-      if (!valid.includes(ai.runtime)) {
-        return res.status(400).json({ error: `invalid runtime: ${ai.runtime}. Must be one of: ${valid.join(', ')}` });
-      }
-      if (ai.runtime !== 'auto') {
-        const available = getAvailableRuntimes();
-        if (!available.includes(ai.runtime)) {
-          return res.status(400).json({ error: `runtime "${ai.runtime}" is not installed on this system` });
-        }
+    // Validate default
+    if (ai.default) {
+      const errs = validateAiEntry(ai.default);
+      if (errs.length) return res.status(400).json({ error: errs.join('; ') });
+    }
+
+    // Validate per-scenario overrides
+    for (const s of AI_SCENARIOS) {
+      if (ai[s]) {
+        const errs = validateAiEntry(ai[s]);
+        if (errs.length) return res.status(400).json({ error: `${s}: ${errs.join('; ')}` });
       }
     }
 
-    if (ai.model !== undefined) {
-      if (ai.model !== 'auto') {
-        const allModels = [...VALID_MODELS.claude, ...VALID_MODELS.codex, ...(VALID_MODELS.gemini || [])];
-        if (!allModels.includes(ai.model)) {
-          return res.status(400).json({ error: `invalid model: ${ai.model}` });
-        }
-      }
-    }
-
-    if (ai.effort !== undefined && ai.effort !== '') {
-      const allEfforts = [...new Set([...VALID_EFFORTS.claude, ...VALID_EFFORTS.codex])];
-      if (!allEfforts.includes(ai.effort)) {
-        return res.status(400).json({ error: `invalid effort: ${ai.effort}` });
-      }
+    // Backward compat: flat runtime/model/effort → convert to default
+    if (!ai.default && (ai.runtime || ai.model || ai.effort)) {
+      ai.default = {};
+      if (ai.runtime) { ai.default.runtime = ai.runtime; delete ai.runtime; }
+      if (ai.model) { ai.default.model = ai.model; delete ai.model; }
+      if (ai.effort) { ai.default.effort = ai.effort; delete ai.effort; }
+      const errs = validateAiEntry(ai.default);
+      if (errs.length) return res.status(400).json({ error: errs.join('; ') });
     }
 
     saveConfig({ ai });

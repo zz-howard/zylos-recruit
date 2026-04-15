@@ -112,7 +112,7 @@ ${parts.join('\n\n---\n\n')}
 
     try {
       console.log(`[recruit] Portrait generation: ${interview_ids.length} interviews selected...`);
-      const portrait = await runClaude(prompt);
+      const portrait = await runClaude(prompt, 'portrait');
       console.log(`[recruit] Portrait generated (${portrait.length} chars)`);
 
       // Extract suggested role name from the portrait
