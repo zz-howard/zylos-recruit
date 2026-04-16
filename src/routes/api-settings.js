@@ -22,10 +22,12 @@ function buildResponse() {
     scenarios[s] = resolveAiConfig(s);
   }
 
+  const aiCfg = config.ai || {};
   return {
     ai: {
       default: resolveAiConfig(),
       scenarios,
+      streaming: aiCfg.streaming !== false, // default true
       envRuntime: envRt,
       availableRuntimes: available,
       validModels: getValidModels(),
@@ -91,6 +93,11 @@ export function settingsRouter() {
         const errs = validateAiEntry(ai[s]);
         if (errs.length) return res.status(400).json({ error: `${s}: ${errs.join('; ')}` });
       }
+    }
+
+    // Streaming toggle (boolean)
+    if (ai.streaming !== undefined) {
+      ai.streaming = !!ai.streaming;
     }
 
     // Backward compat: flat runtime/model/effort → convert to default

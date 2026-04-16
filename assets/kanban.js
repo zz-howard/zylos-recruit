@@ -33,6 +33,7 @@
     candidates: [],
     filterRoleId: '',
     selectedCandidate: null,
+    streaming: true, // default; loaded from settings on init
   };
 
   // ─── HTTP helpers ─────────────────────────────────────────────
@@ -674,7 +675,7 @@
         .catch(function (err) { toast(err.message, 'error'); });
     });
 
-    // AI evaluate button — streaming via SSE
+    // AI evaluate button — streaming (SSE) or polling based on settings
     var aiBtn = wrap.querySelector('#btn-ai-eval');
     if (aiBtn) {
       aiBtn.addEventListener('click', function () {
@@ -683,67 +684,101 @@
         aiBtn.textContent = '⏳ 评估中...';
         statusEl.textContent = '';
 
-        // Create or reuse streaming output area
-        var streamArea = wrap.querySelector('.ai-stream-output');
-        if (!streamArea) {
-          streamArea = document.createElement('pre');
-          streamArea.className = 'ai-stream-output';
-          statusEl.parentNode.insertBefore(streamArea, statusEl.nextSibling);
-        }
-        streamArea.textContent = '';
-        streamArea.style.display = 'block';
+        if (state.streaming) {
+          // ── Streaming mode: real-time SSE ──
+          var streamArea = wrap.querySelector('.ai-stream-output');
+          if (!streamArea) {
+            streamArea = document.createElement('pre');
+            streamArea.className = 'ai-stream-output';
+            statusEl.parentNode.insertBefore(streamArea, statusEl.nextSibling);
+          }
+          streamArea.textContent = '';
+          streamArea.style.display = 'block';
 
-        fetch(API + '/candidates/' + c.id + '/ai-evaluate/stream', { method: 'POST' })
-          .then(function (response) {
-            if (!response.ok) {
-              return response.json().catch(function () { return { error: response.statusText }; })
-                .then(function (err) { throw new Error(err.error || ('HTTP ' + response.status)); });
-            }
-            var reader = response.body.getReader();
-            var decoder = new TextDecoder();
-            var buf = '';
+          fetch(API + '/candidates/' + c.id + '/ai-evaluate/stream', { method: 'POST' })
+            .then(function (response) {
+              if (!response.ok) {
+                return response.json().catch(function () { return { error: response.statusText }; })
+                  .then(function (err) { throw new Error(err.error || ('HTTP ' + response.status)); });
+              }
+              var reader = response.body.getReader();
+              var decoder = new TextDecoder();
+              var buf = '';
 
-            function pump() {
-              return reader.read().then(function (result) {
-                if (result.done) return;
-                buf += decoder.decode(result.value, { stream: true });
-                var parts = buf.split('\n\n');
-                buf = parts.pop();
-                parts.forEach(function (part) {
-                  var line = part.trim();
-                  if (!line.startsWith('data: ')) return;
-                  var evt;
-                  try { evt = JSON.parse(line.substring(6)); } catch (_) { return; }
-                  if (evt.type === 'chunk') {
-                    streamArea.textContent += evt.text;
-                    streamArea.scrollTop = streamArea.scrollHeight;
-                  } else if (evt.type === 'status') {
-                    statusEl.textContent = evt.text;
-                  } else if (evt.type === 'done') {
-                    toast('AI 评估完成', 'success');
-                    loadRolesAndCandidates().then(function () { openCandidate(c.id); });
-                  } else if (evt.type === 'error') {
-                    aiBtn.disabled = false;
-                    aiBtn.textContent = '🤖 AI 评估';
-                    statusEl.textContent = '❌ ' + evt.message;
-                    statusEl.className = 'meta error';
-                    streamArea.style.display = 'none';
-                    toast(evt.message, 'error');
-                  }
+              function pump() {
+                return reader.read().then(function (result) {
+                  if (result.done) return;
+                  buf += decoder.decode(result.value, { stream: true });
+                  var parts = buf.split('\n\n');
+                  buf = parts.pop();
+                  parts.forEach(function (part) {
+                    var line = part.trim();
+                    if (!line.startsWith('data: ')) return;
+                    var evt;
+                    try { evt = JSON.parse(line.substring(6)); } catch (_) { return; }
+                    if (evt.type === 'chunk') {
+                      streamArea.textContent += evt.text;
+                      streamArea.scrollTop = streamArea.scrollHeight;
+                    } else if (evt.type === 'status') {
+                      statusEl.textContent = evt.text;
+                    } else if (evt.type === 'done') {
+                      toast('AI 评估完成', 'success');
+                      loadRolesAndCandidates().then(function () { openCandidate(c.id); });
+                    } else if (evt.type === 'error') {
+                      aiBtn.disabled = false;
+                      aiBtn.textContent = '🤖 AI 评估';
+                      statusEl.textContent = '❌ ' + evt.message;
+                      statusEl.className = 'meta error';
+                      streamArea.style.display = 'none';
+                      toast(evt.message, 'error');
+                    }
+                  });
+                  return pump();
                 });
-                return pump();
-              });
-            }
-            return pump();
-          })
-          .catch(function (err) {
-            aiBtn.disabled = false;
-            aiBtn.textContent = '🤖 AI 评估';
-            statusEl.textContent = '❌ ' + err.message;
-            statusEl.className = 'meta error';
-            streamArea.style.display = 'none';
-            toast(err.message, 'error');
-          });
+              }
+              return pump();
+            })
+            .catch(function (err) {
+              aiBtn.disabled = false;
+              aiBtn.textContent = '🤖 AI 评估';
+              statusEl.textContent = '❌ ' + err.message;
+              statusEl.className = 'meta error';
+              streamArea.style.display = 'none';
+              toast(err.message, 'error');
+            });
+        } else {
+          // ── Polling mode: async + poll every 5s ──
+          var evalCountBefore = (c.evaluations || []).filter(function (e) { return e.kind === 'resume_ai'; }).length;
+          api('POST', '/candidates/' + c.id + '/ai-evaluate')
+            .then(function () {
+              toast('AI 评估已启动，请稍候...', 'success');
+              var pollCount = 0;
+              var maxPolls = 36;
+              var pollTimer = setInterval(function () {
+                pollCount++;
+                fetch(API + '/candidates/' + c.id + '?_t=' + Date.now()).then(function (r) { return r.json(); }).then(function (data) {
+                  var cand = data.candidate;
+                  var currentCount = (cand.evaluations || []).filter(function (e) { return e.kind === 'resume_ai'; }).length;
+                  if (currentCount > evalCountBefore || pollCount >= maxPolls) {
+                    clearInterval(pollTimer);
+                    if (currentCount > evalCountBefore) {
+                      toast('AI 评估完成', 'success');
+                    } else {
+                      toast('AI 评估超时，请刷新页面查看', 'warning');
+                    }
+                    loadRolesAndCandidates().then(function () { openCandidate(c.id); });
+                  }
+                }).catch(function () {});
+              }, 5000);
+            })
+            .catch(function (err) {
+              aiBtn.disabled = false;
+              aiBtn.textContent = '🤖 AI 评估';
+              statusEl.textContent = '❌ ' + err.message;
+              statusEl.className = 'meta error';
+              toast(err.message, 'error');
+            });
+        }
       });
     }
 
@@ -1378,6 +1413,10 @@
       });
 
       html += '</tbody></table>';
+      html += '<label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;cursor:pointer;">'
+        + '<input type="checkbox" id="f-streaming"' + (ai.streaming !== false ? ' checked' : '') + '>'
+        + '流式输出（实时显示 AI 评估过程）'
+        + '</label>';
       html += '<div class="actions" style="margin-top:16px;">';
       html += '<button class="btn" id="f-close">Close</button>';
       html += '<button class="btn btn-primary" id="f-save">Save</button>';
@@ -1424,8 +1463,14 @@
           }
         });
 
+        payload.streaming = wrap.querySelector('#f-streaming').checked;
+
         api('PUT', '/settings', { ai: payload })
-          .then(function () { toast('Settings saved', 'success'); closeModal(); })
+          .then(function () {
+            state.streaming = payload.streaming;
+            toast('Settings saved', 'success');
+            closeModal();
+          })
           .catch(function (err) { toast(err.message, 'error'); });
       });
     }).catch(function (err) {
@@ -1812,6 +1857,11 @@
   }
 
   // ─── Go ──────────────────────────────────────────────────────
+
+  // Load streaming preference from settings
+  api('GET', '/settings').then(function (r) {
+    state.streaming = r.ai.streaming !== false;
+  }).catch(function () {});
 
   loadAll().then(function () {
     if (state.companies.length === 0) {
