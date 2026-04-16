@@ -87,13 +87,13 @@ const chatLocks = new Set();
 // Track in-progress summary generation (exported for use by interview list API)
 export const summaryInProgress = new Set();
 
-function generateSummaryAsync(interviewId, messages) {
+function generateSummaryAsync(interviewId, messages, overrides) {
   if (summaryInProgress.has(interviewId)) return;
   summaryInProgress.add(interviewId);
   console.log(`[recruit] Chat: interview #${interviewId} — generating summary in background...`);
 
   const summaryPrompt = buildSummaryPrompt(messages);
-  runClaude(summaryPrompt, 'chat_summary')
+  runClaude(summaryPrompt, 'chat_summary', overrides)
     .then(summary => {
       console.log(`[recruit] Chat: interview #${interviewId} — summary generated (${summary.length} chars)`);
       updateInternalInterview(interviewId, { summary });
@@ -120,6 +120,9 @@ export function chatRouter() {
         id: interview.id,
         interviewee_name: interview.interviewee_name,
         status: interview.status,
+        runtime_type: interview.runtime_type,
+        model: interview.model,
+        effort: interview.effort,
         summary: interview.summary,
         created_at: interview.created_at,
         completed_at: interview.completed_at,
@@ -157,17 +160,19 @@ export function chatRouter() {
       const systemPrompt = loadSystemPrompt();
       const prompt = buildConversationPrompt(systemPrompt, history, userMessage);
 
-      console.log(`[recruit] Chat: interview #${interview.id} — sending to claude (${allMessages.length} messages total)...`);
-      const aiResponse = await runClaude(prompt, 'chat');
+      // Use interview's locked AI config if available, otherwise fall back to Settings
+      const overrides = interview.runtime_type ? {
+        runtime: interview.runtime_type,
+        model: interview.model,
+        effort: interview.effort,
+      } : undefined;
+
+      console.log(`[recruit] Chat: interview #${interview.id} — sending to AI (${allMessages.length} messages total)...`);
+      const aiResponse = await runClaude(prompt, 'chat', overrides);
       console.log(`[recruit] Chat: interview #${interview.id} — AI responded (${aiResponse.length} chars)`);
 
       // Store AI response
       addInterviewMessage(interview.id, { role: 'assistant', content: aiResponse });
-
-      // Update runtime_type if not set
-      if (!interview.runtime_type) {
-        updateInternalInterview(interview.id, { runtime_type: 'claude' });
-      }
 
       res.json({ text: aiResponse });
     } catch (err) {
@@ -192,10 +197,15 @@ export function chatRouter() {
       completed_at: new Date().toISOString(),
     });
 
-    // Generate summary in background (non-blocking)
+    // Generate summary in background using interview's locked AI config
     const messages = listInterviewMessages(interview.id);
+    const overrides = interview.runtime_type ? {
+      runtime: interview.runtime_type,
+      model: interview.model,
+      effort: interview.effort,
+    } : undefined;
     if (messages.length > 0) {
-      generateSummaryAsync(interview.id, messages);
+      generateSummaryAsync(interview.id, messages, overrides);
     }
 
     res.json({ interview: getInternalInterviewByToken(req.params.token) });
@@ -217,7 +227,12 @@ export function chatRouter() {
       return res.status(400).json({ error: 'no messages to summarize' });
     }
 
-    generateSummaryAsync(interview.id, messages);
+    const overrides = interview.runtime_type ? {
+      runtime: interview.runtime_type,
+      model: interview.model,
+      effort: interview.effort,
+    } : undefined;
+    generateSummaryAsync(interview.id, messages, overrides);
     res.json({ status: 'generating' });
   });
 

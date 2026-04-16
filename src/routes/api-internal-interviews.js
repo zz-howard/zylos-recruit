@@ -5,6 +5,7 @@ import {
   deleteInternalInterview, listInterviewMessages,
 } from '../lib/db.js';
 import { runClaude } from '../lib/ai-chat.js';
+import { resolveAiConfig } from '../lib/config.js';
 import { summaryInProgress } from './api-chat.js';
 
 export function internalInterviewsRouter() {
@@ -34,11 +35,16 @@ export function internalInterviewsRouter() {
       return res.status(400).json({ error: 'interviewee_name required' });
     }
     const token = crypto.randomBytes(16).toString('hex');
+    // Lock current AI config (chat scenario) into the interview record
+    const aiConfig = resolveAiConfig('chat');
     try {
       const interview = createInternalInterview({
         companyId: Number(company_id),
         intervieweeName: interviewee_name.trim(),
         token,
+        runtimeType: aiConfig.runtime,
+        model: aiConfig.model,
+        effort: aiConfig.effort,
       });
       res.status(201).json({ interview });
     } catch (err) {

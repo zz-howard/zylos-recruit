@@ -33,7 +33,7 @@
     candidates: [],
     filterRoleId: '',
     selectedCandidate: null,
-    streaming: true, // default; loaded from settings on init
+    streaming: false, // default; loaded from settings on init
   };
 
   // ─── HTTP helpers ─────────────────────────────────────────────

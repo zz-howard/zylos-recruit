@@ -16,10 +16,12 @@ import { call, stream } from './ai-gateway.js';
  * Run a prompt through the configured AI runtime (non-streaming).
  * @param {string} prompt
  * @param {string} [scenario] - AI scenario name for config resolution
+ * @param {{ runtime?: string, model?: string, effort?: string }} [overrides] -
+ *   bypass config resolution (e.g. interview-locked settings from DB)
  * @returns {Promise<string>} response text
  */
-export async function runClaude(prompt, scenario) {
-  const { text } = await call(scenario || 'chat', prompt);
+export async function runClaude(prompt, scenario, overrides) {
+  const { text } = await call(scenario || 'chat', prompt, { overrides });
   return text;
 }
 
@@ -27,8 +29,9 @@ export async function runClaude(prompt, scenario) {
  * Stream a prompt through the configured AI runtime.
  * @param {string} prompt
  * @param {string} [scenario]
+ * @param {{ runtime?: string, model?: string, effort?: string }} [overrides]
  * @yields {string} text chunks
  */
-export async function* streamChat(prompt, scenario) {
-  yield* stream(scenario || 'chat', prompt);
+export async function* streamChat(prompt, scenario, overrides) {
+  yield* stream(scenario || 'chat', prompt, { overrides });
 }

@@ -48,14 +48,18 @@ export function getAllAdapters() {
 
 /**
  * Resolve runtime config for a scenario → { adapter, model, effort }.
+ * @param {string} scenario - config scenario name
+ * @param {{ runtime?: string, model?: string, effort?: string }} [overrides] -
+ *   if provided, bypass config resolution and use these values directly.
+ *   Used by interview chat to lock AI config at creation time.
  */
-export function resolve(scenario) {
-  const cfg = resolveAiConfig(scenario);
+export function resolve(scenario, overrides) {
+  const cfg = overrides || resolveAiConfig(scenario);
   const runtimeName = cfg.runtime === 'auto' ? envRuntime() : cfg.runtime;
   const adapter = adapters[runtimeName];
   if (!adapter) throw new Error(`runtime "${runtimeName}" not registered`);
 
-  const model = cfg.model === 'auto' ? adapter.defaultModel : cfg.model;
+  const model = (!cfg.model || cfg.model === 'auto') ? adapter.defaultModel : cfg.model;
   const effort = cfg.effort || 'medium';
   return { adapter, runtimeName, model, effort };
 }
@@ -81,10 +85,11 @@ export function checkCapability(adapter, required) {
  * @param {string} prompt
  * @param {object} [opts]
  * @param {string[]} [opts.required] - required capabilities (default: ['text'])
+ * @param {{ runtime?: string, model?: string, effort?: string }} [opts.overrides] - bypass config
  * @returns {Promise<{ text: string, runtime: string, model: string, effort: string }>}
  */
-export async function call(scenario, prompt, { required = ['text'] } = {}) {
-  const { adapter, runtimeName, model, effort } = resolve(scenario);
+export async function call(scenario, prompt, { required = ['text'], overrides } = {}) {
+  const { adapter, runtimeName, model, effort } = resolve(scenario, overrides);
   checkCapability(adapter, required);
 
   console.log(`[recruit] AI call: scenario=${scenario}, runtime=${runtimeName}, model=${model}, effort=${effort}`);
@@ -99,10 +104,11 @@ export async function call(scenario, prompt, { required = ['text'] } = {}) {
  * @param {string} prompt
  * @param {object} [opts]
  * @param {string[]} [opts.required] - required capabilities
+ * @param {{ runtime?: string, model?: string, effort?: string }} [opts.overrides] - bypass config
  * @yields {string} text chunks
  */
-export async function* stream(scenario, prompt, { required = ['text'] } = {}) {
-  const { adapter, runtimeName, model, effort } = resolve(scenario);
+export async function* stream(scenario, prompt, { required = ['text'], overrides } = {}) {
+  const { adapter, runtimeName, model, effort } = resolve(scenario, overrides);
   checkCapability(adapter, required);
 
   console.log(`[recruit] AI stream: scenario=${scenario}, runtime=${runtimeName}, model=${model}, effort=${effort}`);

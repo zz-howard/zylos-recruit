@@ -117,6 +117,8 @@ function initSchema(db) {
       status            TEXT NOT NULL DEFAULT 'active'
                         CHECK (status IN ('active','completed')),
       runtime_type      TEXT,
+      model             TEXT,
+      effort            TEXT,
       session_id        TEXT,
       summary           TEXT,
       created_at        TEXT NOT NULL DEFAULT (datetime('now')),
@@ -206,6 +208,14 @@ function migrateFromV021(db) {
   // Add active column to roles (v0.3.0 — internal interviews feature)
   if (!columnExists('roles', 'active')) {
     db.exec('ALTER TABLE roles ADD COLUMN active INTEGER NOT NULL DEFAULT 1');
+  }
+
+  // Add model + effort to internal_interviews (v0.2.5 — lock AI config at creation)
+  if (tableExists('internal_interviews') && !columnExists('internal_interviews', 'model')) {
+    db.exec('ALTER TABLE internal_interviews ADD COLUMN model TEXT');
+  }
+  if (tableExists('internal_interviews') && !columnExists('internal_interviews', 'effort')) {
+    db.exec('ALTER TABLE internal_interviews ADD COLUMN effort TEXT');
   }
 
   // Add expected_portrait to roles, migrate eval_prompt content → expected_portrait (v0.2.4)
@@ -492,10 +502,11 @@ export function getInternalInterviewByToken(token) {
   return getDb().prepare('SELECT * FROM internal_interviews WHERE token = ?').get(token);
 }
 
-export function createInternalInterview({ companyId, intervieweeName, token }) {
+export function createInternalInterview({ companyId, intervieweeName, token, runtimeType, model, effort }) {
   const info = getDb().prepare(`
-    INSERT INTO internal_interviews (company_id, interviewee_name, token) VALUES (?, ?, ?)
-  `).run(companyId, intervieweeName, token);
+    INSERT INTO internal_interviews (company_id, interviewee_name, token, runtime_type, model, effort)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(companyId, intervieweeName, token, runtimeType || null, model || null, effort || null);
   return getInternalInterview(info.lastInsertRowid);
 }
 
@@ -504,6 +515,8 @@ export function updateInternalInterview(id, updates) {
   const params = [];
   if (updates.status !== undefined) { fields.push('status = ?'); params.push(updates.status); }
   if (updates.runtime_type !== undefined) { fields.push('runtime_type = ?'); params.push(updates.runtime_type); }
+  if (updates.model !== undefined) { fields.push('model = ?'); params.push(updates.model); }
+  if (updates.effort !== undefined) { fields.push('effort = ?'); params.push(updates.effort); }
   if (updates.session_id !== undefined) { fields.push('session_id = ?'); params.push(updates.session_id); }
   if (updates.summary !== undefined) { fields.push('summary = ?'); params.push(updates.summary); }
   if (updates.completed_at !== undefined) { fields.push('completed_at = ?'); params.push(updates.completed_at); }

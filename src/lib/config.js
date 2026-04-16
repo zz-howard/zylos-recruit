@@ -33,7 +33,7 @@ export const DEFAULT_CONFIG = {
   },
   ai: {
     default: { runtime: 'auto', model: 'auto', effort: 'medium' },
-    streaming: true, // Stream AI evaluation output in real-time via SSE
+    streaming: false, // Stream AI evaluation output in real-time via SSE
     // Per-scenario overrides (merge onto default):
     // resume_eval: {},
     // auto_match: {},
