@@ -9,10 +9,7 @@
  * then `codex exec resume <id> <prompt>` on subsequent calls.
  */
 
-import { execFile, execFileSync, spawn } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const execFileAsync = promisify(execFile);
+import { execFileSync, spawn } from 'node:child_process';
 
 /**
  * Parse Codex JSONL output. Returns { text, sessionId }.
@@ -71,11 +68,25 @@ export default {
     }
     const env = { ...process.env, NO_COLOR: '1' };
 
-    const { stdout } = await execFileAsync('codex', args, {
-      encoding: 'utf8',
-      timeout: 600_000,
-      maxBuffer: 2 * 1024 * 1024,
-      env,
+    const stdout = await new Promise((resolve, reject) => {
+      const child = spawn('codex', args, {
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let out = '';
+      let err = '';
+      const timer = setTimeout(() => {
+        child.kill('SIGTERM');
+        reject(new Error('codex call timed out after 600s'));
+      }, 600_000);
+      child.stdout.on('data', (d) => { out += d.toString('utf8'); });
+      child.stderr.on('data', (d) => { err += d.toString('utf8'); });
+      child.on('error', (e) => { clearTimeout(timer); reject(e); });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (code !== 0) reject(new Error(`codex exited with code ${code}: ${err.slice(0, 500)}`));
+        else resolve(out);
+      });
     });
     return parseCodexJsonl(stdout);
   },
