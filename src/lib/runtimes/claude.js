@@ -1,7 +1,10 @@
 /**
  * Claude CLI runtime adapter.
  *
- * Calls `claude -p` subprocess. Supports read_file via --allowedTools Read.
+ * Calls `claude -p` subprocess. All Claude tools (Read, WebSearch, Bash, etc.)
+ * remain enabled; filesystem-level safety is provided by the bwrap sandbox in
+ * sandbox.js, not by CLI flag restrictions.
+ *
  * Auth: Max subscription OAuth (~/.claude/).
  *
  * Session resume: uses --output-format json to capture session_id,
@@ -9,10 +12,11 @@
  * and hit the model's KV cache.
  */
 
-import { execFile, execFileSync, spawn } from 'node:child_process';
-import { promisify } from 'node:util';
+import { execFileSync } from 'node:child_process';
+import { homedir } from 'node:os';
+import { spawnSandboxed } from './sandbox.js';
 
-const execFileAsync = promisify(execFile);
+const CLAUDE_SANDBOX = { rwBinds: [`${homedir()}/.claude`] };
 
 export default {
   name: 'claude',
@@ -28,50 +32,53 @@ export default {
     } catch { return false; }
   },
 
-  async call(prompt, { model, effort, capabilities = [], sessionId }) {
+  async call(prompt, { model, effort, sessionId }) {
     const args = ['-p', prompt, '--output-format', 'json', '--model', model, '--effort', effort];
     if (sessionId) args.push('--resume', sessionId);
-    if (capabilities.includes('read_file')) {
-      args.push('--allowedTools', 'Read');
-    } else {
-      args.push('--tools', '');
-    }
     const env = { ...process.env, NO_COLOR: '1' };
     delete env.ANTHROPIC_API_KEY;
 
-    const { stdout } = await execFileAsync('claude', args, {
-      encoding: 'utf8',
-      timeout: 600_000,
-      maxBuffer: 2 * 1024 * 1024,
-      env,
+    const stdout = await new Promise((resolve, reject) => {
+      const child = spawnSandboxed('claude', args, {
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }, CLAUDE_SANDBOX);
+      let out = '';
+      let err = '';
+      const timer = setTimeout(() => {
+        child.kill('SIGTERM');
+        reject(new Error('claude call timed out after 600s'));
+      }, 600_000);
+      child.stdout.on('data', (d) => { out += d.toString('utf8'); });
+      child.stderr.on('data', (d) => { err += d.toString('utf8'); });
+      child.on('error', (e) => { clearTimeout(timer); reject(e); });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (code !== 0) reject(new Error(`claude exited with code ${code}: ${err.slice(0, 500)}`));
+        else resolve(out);
+      });
     });
 
     try {
       const json = JSON.parse(stdout);
       return { text: (json.result || '').trim(), sessionId: json.session_id || undefined };
     } catch {
-      // Fallback: if JSON parse fails, return raw text
       return { text: stdout.trim() };
     }
   },
 
-  async *stream(prompt, { model, effort, capabilities = [], sessionId }) {
+  async *stream(prompt, { model, effort, sessionId }) {
     const args = ['-p', prompt, '--output-format', 'stream-json', '--model', model, '--effort', effort];
     if (sessionId) args.push('--resume', sessionId);
-    if (capabilities.includes('read_file')) {
-      args.push('--allowedTools', 'Read');
-    } else {
-      args.push('--tools', '');
-    }
     const env = { ...process.env, NO_COLOR: '1' };
     delete env.ANTHROPIC_API_KEY;
 
-    const child = spawn('claude', args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawnSandboxed('claude', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, CLAUDE_SANDBOX);
     let buf = '';
     for await (const chunk of child.stdout) {
       buf += chunk.toString('utf8');
       const lines = buf.split('\n');
-      buf = lines.pop(); // keep incomplete line
+      buf = lines.pop();
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
@@ -80,9 +87,6 @@ export default {
             for (const block of evt.message.content) {
               if (block.type === 'text') yield block.text;
             }
-          } else if (evt.type === 'result') {
-            // Final result — sessionId available here but stream can't return metadata
-            // The caller should use call() if session tracking is needed
           }
         } catch {
           yield line + '\n';

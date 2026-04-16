@@ -1,17 +1,20 @@
 /**
  * Gemini CLI runtime adapter.
  *
- * Calls `gemini -p` subprocess. Supports read_file natively.
+ * Calls `gemini -p` subprocess. The -y flag auto-approves tool use; filesystem
+ * safety is provided by the bwrap sandbox in sandbox.js (defense-in-depth).
+ *
  * Auth: GEMINI_API_KEY (configured in the CLI).
  *
  * Session resume: uses `-o json` to capture session_id,
  * then `--resume <id>` on subsequent calls.
  */
 
-import { execFile, execFileSync, spawn } from 'node:child_process';
-import { promisify } from 'node:util';
+import { execFileSync } from 'node:child_process';
+import { homedir } from 'node:os';
+import { spawnSandboxed } from './sandbox.js';
 
-const execFileAsync = promisify(execFile);
+const GEMINI_SANDBOX = { rwBinds: [`${homedir()}/.gemini`] };
 
 export default {
   name: 'gemini',
@@ -32,11 +35,25 @@ export default {
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1' };
 
-    const { stdout } = await execFileAsync('gemini', args, {
-      encoding: 'utf8',
-      timeout: 600_000,
-      maxBuffer: 2 * 1024 * 1024,
-      env,
+    const stdout = await new Promise((resolve, reject) => {
+      const child = spawnSandboxed('gemini', args, {
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }, GEMINI_SANDBOX);
+      let out = '';
+      let err = '';
+      const timer = setTimeout(() => {
+        child.kill('SIGTERM');
+        reject(new Error('gemini call timed out after 600s'));
+      }, 600_000);
+      child.stdout.on('data', (d) => { out += d.toString('utf8'); });
+      child.stderr.on('data', (d) => { err += d.toString('utf8'); });
+      child.on('error', (e) => { clearTimeout(timer); reject(e); });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (code !== 0) reject(new Error(`gemini exited with code ${code}: ${err.slice(0, 500)}`));
+        else resolve(out);
+      });
     });
 
     try {
@@ -52,7 +69,7 @@ export default {
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1' };
 
-    const child = spawn('gemini', args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawnSandboxed('gemini', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, GEMINI_SANDBOX);
     let buf = '';
     for await (const chunk of child.stdout) {
       buf += chunk.toString('utf8');

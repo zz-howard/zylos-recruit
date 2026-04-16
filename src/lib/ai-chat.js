@@ -2,9 +2,12 @@
  * Shared AI chat helper — runs a prompt through the configured runtime.
  *
  * Security: interview prompts include user-controlled content (prompt injection
- * risk). All runtimes guarantee zero tool access:
- *   - CLI runtimes (Claude/Codex/Gemini): tools disabled via CLI flags
- *   - HTTP runtimes (ChatGPT): no tools defined in request body
+ * risk). Protection model:
+ *   - CLI runtimes (Claude/Codex/Gemini): wrapped in bwrap sandbox
+ *     (runtimes/sandbox.js) — filesystem read-only, secrets masked, tmpfs /tmp.
+ *     Tools remain enabled; filesystem exfiltration is blocked at the kernel
+ *     namespace layer rather than via CLI flag restrictions.
+ *   - HTTP runtimes (ChatGPT): no tools defined in request body.
  *
  * This module no longer handles runtime-specific logic — that lives in
  * the adapter layer (runtimes/*.js) dispatched via ai-gateway.
