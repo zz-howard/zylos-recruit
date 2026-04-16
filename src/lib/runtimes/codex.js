@@ -14,82 +14,11 @@
  * content (prompt injection risk), so this extra layer matters.
  */
 
-import { execFileSync, spawn } from 'node:child_process';
-import { statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
+import { spawnSandboxed } from './sandbox.js';
 
-const BWRAP_PATH = '/usr/bin/bwrap';
-
-let bwrapAvailable;
-function hasBwrap() {
-  if (bwrapAvailable !== undefined) return bwrapAvailable;
-  try {
-    execFileSync(BWRAP_PATH, ['--version'], { stdio: 'ignore', timeout: 2000 });
-    bwrapAvailable = true;
-  } catch { bwrapAvailable = false; }
-  return bwrapAvailable;
-}
-
-function statKind(path) {
-  try {
-    const s = statSync(path);
-    if (s.isDirectory()) return 'dir';
-    if (s.isFile()) return 'file';
-    return 'other';
-  } catch { return null; }
-}
-
-/**
- * Build bwrap args that wrap a command. Filesystem is read-only except /tmp
- * (tmpfs) and ~/.codex (rw, for auth + session state). Sensitive user paths
- * are masked: .ssh/.gnupg/.aws via tmpfs, secret files via ro-bind /dev/null.
- * Network is shared (codex needs to call OpenAI API).
- */
-function buildBwrapWrap(cmd, cmdArgs) {
-  const home = homedir();
-  const args = [
-    '--ro-bind', '/', '/',
-    '--tmpfs', '/tmp',
-    '--proc', '/proc',
-    '--dev', '/dev',
-    '--share-net',
-    '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--unshare-cgroup',
-    '--die-with-parent',
-    '--new-session',
-  ];
-
-  const codexDir = `${home}/.codex`;
-  if (statKind(codexDir) === 'dir') {
-    args.push('--bind', codexDir, codexDir);
-  }
-
-  const secretDirs = [`${home}/.ssh`, `${home}/.gnupg`, `${home}/.aws`, `${home}/.kube`];
-  for (const p of secretDirs) {
-    if (statKind(p) === 'dir') args.push('--tmpfs', p);
-  }
-
-  const secretFiles = [
-    `${home}/zylos/.env`,
-    `${home}/.netrc`,
-    `${home}/.pgpass`,
-    `${home}/.config/gh/hosts.yml`,
-    `${home}/.anthropic/api-key`,
-  ];
-  for (const p of secretFiles) {
-    if (statKind(p) === 'file') args.push('--ro-bind', '/dev/null', p);
-  }
-
-  args.push('--', cmd, ...cmdArgs);
-  return { cmd: BWRAP_PATH, args };
-}
-
-function spawnSandboxed(cmd, args, opts) {
-  if (hasBwrap()) {
-    const wrapped = buildBwrapWrap(cmd, args);
-    return spawn(wrapped.cmd, wrapped.args, opts);
-  }
-  return spawn(cmd, args, opts);
-}
+const CODEX_SANDBOX = { rwBinds: [`${homedir()}/.codex`] };
 
 /**
  * Parse Codex JSONL output. Returns { text, sessionId }.
@@ -152,7 +81,7 @@ export default {
       const child = spawnSandboxed('codex', args, {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
-      });
+      }, CODEX_SANDBOX);
       let out = '';
       let err = '';
       const timer = setTimeout(() => {
@@ -192,7 +121,7 @@ export default {
     }
     const env = { ...process.env, NO_COLOR: '1' };
 
-    const child = spawnSandboxed('codex', args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawnSandboxed('codex', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, CODEX_SANDBOX);
     let buf = '';
     for await (const chunk of child.stdout) {
       buf += chunk.toString('utf8');
