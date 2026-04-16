@@ -1,61 +1,39 @@
 /**
  * AI evaluation module for zylos-recruit.
  *
- * Shells out to the local CLI (claude or codex) to evaluate resumes.
- * The CLI can natively read PDFs, so no text extraction needed.
- *
- * Runtime detection: reads ZYLOS_RUNTIME env var ('claude' | 'codex').
- * Defaults to 'claude'.
+ * Uses ai-gateway to dispatch AI calls to runtime adapters.
+ * CLI runtimes can natively read PDFs, so no text extraction needed.
  */
 
-import { execFile, execFileSync } from 'node:child_process';
-import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getCandidate, getRole, getCompany, addEvaluation, updateCandidate, listRoles } from './db.js';
 import { RESUMES_DIR, getConfig, resolveAiConfig } from './config.js';
-import { callCodexOAuth, hasCodexOAuth } from './codex-oauth-client.js';
-
-const execFileAsync = promisify(execFile);
+import {
+  detectRuntimes as gwDetectRuntimes,
+  call as gwCall,
+  stream as gwStream,
+  resolve as gwResolve,
+  getAllAdapters,
+  getAdapter,
+} from './ai-gateway.js';
 
 const PROMPT_PATH = path.join(import.meta.dirname, '..', 'prompts', 'resume-eval.md');
-// Available runtimes detected at startup
-let availableRuntimes = [];
-let envRuntime = (process.env.ZYLOS_RUNTIME || 'claude').toLowerCase();
 
-/**
- * Detect which runtimes are installed on this system.
- * Called once at startup.
- */
+// Delegate to gateway
+let cachedRuntimes = { available: [], envRuntime: 'claude' };
+
 export function detectRuntimes() {
-  availableRuntimes = [];
-  for (const rt of ['claude', 'codex', 'gemini']) {
-    try {
-      execFileSync('which', [rt], { encoding: 'utf8', timeout: 5000 });
-      availableRuntimes.push(rt);
-    } catch {
-      // not installed
-    }
-  }
-  // chatgpt is HTTP-based (no CLI) — available iff ~/.codex/auth.json has a token.
-  if (hasCodexOAuth()) availableRuntimes.push('chatgpt');
-  envRuntime = (process.env.ZYLOS_RUNTIME || 'claude').toLowerCase();
-  console.log(`[recruit] Detected runtimes: [${availableRuntimes.join(', ')}], env: ${envRuntime}`);
-  return { available: availableRuntimes, envRuntime };
+  cachedRuntimes = gwDetectRuntimes();
+  return cachedRuntimes;
 }
 
-/**
- * Get the list of available runtimes (detected at startup).
- */
 export function getAvailableRuntimes() {
-  return availableRuntimes;
+  return cachedRuntimes.available;
 }
 
-/**
- * Get the current env runtime (ZYLOS_RUNTIME).
- */
 export function getEnvRuntime() {
-  return envRuntime;
+  return cachedRuntimes.envRuntime;
 }
 
 function loadPromptTemplate() {
@@ -85,77 +63,48 @@ function buildPrompt(resumeAbsPath, role, companyProfile, roleJd, expectedPortra
   return tpl;
 }
 
-// Default models per runtime
-const DEFAULT_MODELS = {
-  claude: 'sonnet',
-  codex: 'gpt-5.4',
-  chatgpt: 'gpt-5.4',
-  gemini: 'gemini-2.5-flash',
-};
-// Valid model choices per runtime
-const VALID_MODELS = {
-  claude: ['opus', 'sonnet', 'haiku'],
-  codex: ['gpt-5.4', 'gpt-5.3-codex'],
-  chatgpt: ['gpt-5.4', 'gpt-5.3-codex'],
-  gemini: ['gemini-3.1-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
-};
-const VALID_EFFORTS = {
-  claude: ['low', 'medium', 'high', 'max'],
-  codex: ['none', 'low', 'medium', 'high', 'xhigh'],
-  chatgpt: ['none', 'low', 'medium', 'high', 'xhigh'],
-  gemini: [],
-};
+// Derive VALID_MODELS and VALID_EFFORTS from registered adapters
+function buildValidMaps() {
+  const models = {};
+  const efforts = {};
+  for (const [name, a] of Object.entries(getAllAdapters())) {
+    models[name] = a.models;
+    efforts[name] = a.efforts;
+  }
+  return { models, efforts };
+}
 
-export { VALID_MODELS, VALID_EFFORTS };
+export function getValidModels() {
+  return buildValidMaps().models;
+}
 
+export function getValidEfforts() {
+  return buildValidMaps().efforts;
+}
+
+// Backward compat exports (used by api-settings.js)
+export const VALID_MODELS = new Proxy({}, {
+  get(_, key) { return getAdapter(key)?.models || []; },
+  ownKeys() { return Object.keys(getAllAdapters()); },
+  getOwnPropertyDescriptor(_, key) {
+    if (getAllAdapters()[key]) return { configurable: true, enumerable: true, value: getAdapter(key).models };
+  },
+});
+export const VALID_EFFORTS = new Proxy({}, {
+  get(_, key) { return getAdapter(key)?.efforts || []; },
+  ownKeys() { return Object.keys(getAllAdapters()); },
+  getOwnPropertyDescriptor(_, key) {
+    if (getAllAdapters()[key]) return { configurable: true, enumerable: true, value: getAdapter(key).efforts };
+  },
+});
+
+/**
+ * Run a prompt through the gateway. Evaluation scenarios require read_file.
+ */
 async function runCli(prompt, scenario = 'resume_eval') {
-  const aiCfg = resolveAiConfig(scenario);
-  const runtime = aiCfg.runtime === 'auto' ? envRuntime : aiCfg.runtime;
-  const model = aiCfg.model === 'auto' ? (DEFAULT_MODELS[runtime] || DEFAULT_MODELS.claude) : aiCfg.model;
-  const effort = aiCfg.effort || 'medium';
-  let cmd, args;
-
-  if (runtime === 'chatgpt') {
-    // HTTP-only path: no PDF/Read tool, so unsuitable for resume_eval/auto_match.
-    // Callers that need file reads should stick with claude/codex/gemini CLIs.
-    const effortStr = effort && VALID_EFFORTS.chatgpt.includes(effort) ? `, effort: ${effort}` : '';
-    console.log(`[recruit] AI evaluation: calling chatgpt OAuth (model: ${model}${effortStr})...`);
-    const text = await callCodexOAuth(prompt, model, effort);
-    return { text, runtime, model, effort };
-  }
-
-  if (runtime === 'codex') {
-    cmd = 'codex';
-    args = [
-      'exec',
-      '--sandbox', 'read-only',
-      '-c', `model="${model}"`,
-      '-c', `model_reasoning_effort=${effort}`,
-      prompt,
-    ];
-  } else if (runtime === 'gemini') {
-    cmd = 'gemini';
-    args = ['-p', prompt, '--model', model, '-y', '-o', 'text'];
-  } else {
-    // Claude: use -p (print mode) — --bare requires API billing auth
-    cmd = 'claude';
-    args = ['-p', prompt, '--model', model, '--effort', effort, '--allowedTools', 'Read'];
-  }
-
-  const effortStr = effort && VALID_EFFORTS[runtime]?.length ? `, effort: ${effort}` : '';
-  console.log(`[recruit] AI evaluation: spawning CLI (runtime: ${runtime}, model: ${model}${effortStr})...`);
-
-  const childEnv = { ...process.env, NO_COLOR: '1' };
-  delete childEnv.ANTHROPIC_API_KEY;
-
-  const { stdout } = await execFileAsync(cmd, args, {
-    encoding: 'utf8',
-    timeout: 600_000,
-    maxBuffer: 1024 * 1024,
-    env: childEnv,
-  });
-
-  return { text: stdout, runtime, model, effort };
+  const needsFile = ['resume_eval', 'auto_match'].includes(scenario);
+  const required = needsFile ? ['text', 'read_file'] : ['text'];
+  return gwCall(scenario, prompt, { required });
 }
 
 function parseAiResponse(text) {
@@ -183,33 +132,20 @@ const JSON_SCHEMA = `{
 }`;
 
 /**
- * Repair malformed AI response using a lightweight model.
- * Uses haiku (claude runtime) or gpt-5.3-codex-spark (codex runtime).
+ * Repair malformed AI response using a lightweight model via the gateway.
  */
 async function repairAiResponse(rawText) {
   const repairPrompt = `You are a JSON formatter. The following is an AI evaluation output that failed to parse as JSON. Extract the information and return ONLY a valid JSON object matching this schema:\n\n${JSON_SCHEMA}\n\nRaw AI output:\n\n${rawText}\n\nReturn ONLY the JSON object, no markdown, no explanation.`;
 
-  let cmd, args;
-  if (envRuntime === 'codex') {
-    cmd = 'codex';
-    args = ['exec', '--sandbox', 'read-only', '-c', 'model="gpt-5.3-codex-spark"', repairPrompt];
-  } else {
-    cmd = 'claude';
-    args = ['-p', repairPrompt, '--model', 'haiku', '--effort', 'low'];
-  }
+  // Use the default runtime with a lightweight model
+  const { adapter } = gwResolve('resume_eval');
+  const repairModel = adapter.name === 'codex' ? 'gpt-5.3-codex' :
+                      adapter.name === 'chatgpt' ? 'gpt-5.3-codex' :
+                      adapter.name === 'gemini' ? 'gemini-2.5-flash' : 'haiku';
 
-  const childEnv = { ...process.env, NO_COLOR: '1' };
-  delete childEnv.ANTHROPIC_API_KEY;
-
-  console.log(`[recruit] AI response repair: using ${envRuntime === 'codex' ? 'gpt-5.3-codex-spark' : 'haiku'} to extract JSON...`);
-  const { stdout } = await execFileAsync(cmd, args, {
-    encoding: 'utf8',
-    timeout: 30_000,
-    maxBuffer: 512 * 1024,
-    env: childEnv,
-  });
-
-  return parseAiResponse(stdout);
+  console.log(`[recruit] AI response repair: using ${adapter.name}/${repairModel}...`);
+  const text = await adapter.call(repairPrompt, { model: repairModel, effort: 'low' });
+  return parseAiResponse(text);
 }
 
 // In-flight evaluation lock: prevents duplicate evaluations for the same candidate
@@ -402,4 +338,136 @@ export function evaluateResumeAsync(candidateId) {
     evaluatingSet.delete(candidateId);
     console.error(`[recruit] AI evaluation failed for candidate #${candidateId}:`, err.message);
   });
+}
+
+/**
+ * Streaming AI resume evaluation.
+ * Runs the full evaluation pipeline, calling onEvent(event) for each streaming event.
+ * The evaluation always runs to completion and saves to DB, even if the caller disconnects.
+ *
+ * Events:
+ *   { type: 'status', text: '...' }  — progress status
+ *   { type: 'chunk',  text: '...' }  — streaming AI text
+ *   { type: 'done',   candidate: {...} } — evaluation saved
+ *   (errors are thrown, caller should catch)
+ *
+ * @param {number} candidateId
+ * @param {function} [onEvent] - callback for streaming events
+ * @returns {Promise<object>} the updated candidate
+ */
+export async function evaluateResumeStream(candidateId, onEvent) {
+  if (evaluatingSet.has(candidateId)) {
+    throw new Error('evaluation already in progress');
+  }
+  evaluatingSet.add(candidateId);
+  const t0 = Date.now();
+  const emit = (evt) => { try { onEvent?.(evt); } catch {} };
+
+  try {
+    emit({ type: 'status', text: '准备评估...' });
+    console.log(`[recruit] AI stream evaluation started: candidate #${candidateId}`);
+
+    let candidate = getCandidate(candidateId);
+    if (!candidate) throw new Error('candidate not found');
+    if (!candidate.resume_path) throw new Error('no resume uploaded — upload a PDF first');
+
+    // Auto-match role from resume if none assigned
+    if (!candidate.role_id) {
+      emit({ type: 'status', text: '正在匹配岗位...' });
+      console.log(`[recruit] AI stream evaluation: no role assigned, auto-matching first...`);
+      await autoMatchFromResume(candidateId);
+      candidate = getCandidate(candidateId);
+      if (!candidate.role_id) throw new Error('auto-match failed to assign a role');
+    }
+
+    const resumeAbsPath = path.resolve(RESUMES_DIR, candidate.resume_path);
+    if (!fs.existsSync(resumeAbsPath)) throw new Error('resume file missing on disk');
+
+    const role = getRole(candidate.role_id);
+    if (!role) throw new Error('role not found');
+
+    console.log(`[recruit] AI stream evaluation: "${candidate.name}" → role "${role.name}", resume: ${candidate.resume_path}`);
+
+    const company = getCompany(candidate.company_id);
+    const companyProfile = company?.profile?.content || null;
+    const roleJd = role?.description || null;
+    const expectedPortrait = role?.expected_portrait || null;
+
+    const prompt = buildPrompt(resumeAbsPath, role, companyProfile, roleJd, expectedPortrait, company?.eval_prompt, role?.eval_prompt, candidate.extra_info);
+
+    // Get runtime metadata for saving
+    const { runtimeName, model, effort } = gwResolve('resume_eval');
+
+    // Stream from gateway
+    emit({ type: 'status', text: '正在评估...' });
+    let fullText = '';
+    const required = ['text', 'read_file'];
+    for await (const chunk of gwStream('resume_eval', prompt, { required })) {
+      fullText += chunk;
+      emit({ type: 'chunk', text: chunk });
+    }
+
+    console.log(`[recruit] AI stream evaluation: stream complete (${((Date.now() - t0) / 1000).toFixed(1)}s), parsing response...`);
+
+    // Parse AI response (same logic as evaluateResume)
+    let parsed;
+    try {
+      parsed = parseAiResponse(fullText);
+    } catch (parseErr) {
+      console.warn(`[recruit] AI stream evaluation: JSON parse failed (${parseErr.message}), attempting repair...`);
+      if (!fullText || fullText.trim().length < 20) {
+        throw new Error(`AI returned empty/unusable output (${fullText.length} chars)`);
+      }
+      parsed = await repairAiResponse(fullText);
+      console.log(`[recruit] AI stream evaluation: repair successful`);
+    }
+    console.log(`[recruit] AI stream evaluation result: verdict=${parsed.verdict}, score=${parsed.score}`);
+
+    // Save metadata
+    const meta = JSON.stringify({
+      runtime: runtimeName,
+      role_profile_version: role?.profile?.version || null,
+      company_profile_version: company?.profile?.version || null,
+      score: parsed.score,
+      analysis: parsed.analysis,
+      recommendation: parsed.recommendation,
+    });
+
+    // Write back extracted contact info
+    const contact = parsed.contact || {};
+    const contactUpdate = {};
+    if (contact.name && (!candidate.name || candidate.name === '待识别')) contactUpdate.name = contact.name;
+    if (parsed.brief && !candidate.brief) contactUpdate.brief = parsed.brief;
+    if (contact.email && !candidate.email) contactUpdate.email = contact.email;
+    if (contact.phone && !candidate.phone) contactUpdate.phone = contact.phone;
+    if (Object.keys(contactUpdate).length > 0) {
+      updateCandidate(candidateId, contactUpdate);
+    }
+
+    const verdict = parsed.verdict === 'yes' ? 'yes' : 'no';
+    const content = [
+      parsed.summary || '',
+      '',
+      '**技术匹配：** ' + (parsed.analysis?.tech_match || ''),
+      '**经验水平：** ' + (parsed.analysis?.experience || ''),
+      '**成长潜力：** ' + (parsed.analysis?.potential || ''),
+      '**风险点：** ' + (parsed.analysis?.risks || ''),
+      '',
+      '**建议：** ' + (parsed.recommendation || ''),
+    ].join('\n');
+
+    const result = addEvaluation(candidateId, {
+      kind: 'resume_ai',
+      author: runtimeName,
+      verdict,
+      content,
+      meta,
+    });
+
+    console.log(`[recruit] AI stream evaluation complete: candidate #${candidateId} "${candidate.name}" → ${verdict} (${((Date.now() - t0) / 1000).toFixed(1)}s total)`);
+    emit({ type: 'done', candidate: result });
+    return result;
+  } finally {
+    evaluatingSet.delete(candidateId);
+  }
 }

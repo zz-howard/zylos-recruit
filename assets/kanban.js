@@ -674,7 +674,7 @@
         .catch(function (err) { toast(err.message, 'error'); });
     });
 
-    // AI evaluate button
+    // AI evaluate button — streaming via SSE
     var aiBtn = wrap.querySelector('#btn-ai-eval');
     if (aiBtn) {
       aiBtn.addEventListener('click', function () {
@@ -682,35 +682,66 @@
         aiBtn.disabled = true;
         aiBtn.textContent = '⏳ 评估中...';
         statusEl.textContent = '';
-        var evalCountBefore = (c.evaluations || []).filter(function (e) { return e.kind === 'resume_ai'; }).length;
-        api('POST', '/candidates/' + c.id + '/ai-evaluate')
-          .then(function () {
-            toast('AI 评估已启动，请稍候...', 'success');
-            // Poll for result every 5s, up to 3 minutes
-            var pollCount = 0;
-            var maxPolls = 36;
-            var pollTimer = setInterval(function () {
-              pollCount++;
-              fetch(API + '/candidates/' + c.id + '?_t=' + Date.now()).then(function (r) { return r.json(); }).then(function (data) {
-                var cand = data.candidate;
-                var currentCount = (cand.evaluations || []).filter(function (e) { return e.kind === 'resume_ai'; }).length;
-                if (currentCount > evalCountBefore || pollCount >= maxPolls) {
-                  clearInterval(pollTimer);
-                  if (currentCount > evalCountBefore) {
+
+        // Create or reuse streaming output area
+        var streamArea = wrap.querySelector('.ai-stream-output');
+        if (!streamArea) {
+          streamArea = document.createElement('pre');
+          streamArea.className = 'ai-stream-output';
+          statusEl.parentNode.insertBefore(streamArea, statusEl.nextSibling);
+        }
+        streamArea.textContent = '';
+        streamArea.style.display = 'block';
+
+        fetch(API + '/candidates/' + c.id + '/ai-evaluate/stream', { method: 'POST' })
+          .then(function (response) {
+            if (!response.ok) {
+              return response.json().catch(function () { return { error: response.statusText }; })
+                .then(function (err) { throw new Error(err.error || ('HTTP ' + response.status)); });
+            }
+            var reader = response.body.getReader();
+            var decoder = new TextDecoder();
+            var buf = '';
+
+            function pump() {
+              return reader.read().then(function (result) {
+                if (result.done) return;
+                buf += decoder.decode(result.value, { stream: true });
+                var parts = buf.split('\n\n');
+                buf = parts.pop();
+                parts.forEach(function (part) {
+                  var line = part.trim();
+                  if (!line.startsWith('data: ')) return;
+                  var evt;
+                  try { evt = JSON.parse(line.substring(6)); } catch (_) { return; }
+                  if (evt.type === 'chunk') {
+                    streamArea.textContent += evt.text;
+                    streamArea.scrollTop = streamArea.scrollHeight;
+                  } else if (evt.type === 'status') {
+                    statusEl.textContent = evt.text;
+                  } else if (evt.type === 'done') {
                     toast('AI 评估完成', 'success');
-                  } else {
-                    toast('AI 评估超时，请刷新页面查看', 'warning');
+                    loadRolesAndCandidates().then(function () { openCandidate(c.id); });
+                  } else if (evt.type === 'error') {
+                    aiBtn.disabled = false;
+                    aiBtn.textContent = '🤖 AI 评估';
+                    statusEl.textContent = '❌ ' + evt.message;
+                    statusEl.className = 'meta error';
+                    streamArea.style.display = 'none';
+                    toast(evt.message, 'error');
                   }
-                  loadRolesAndCandidates().then(function () { openCandidate(c.id); });
-                }
-              }).catch(function () {});
-            }, 5000);
+                });
+                return pump();
+              });
+            }
+            return pump();
           })
           .catch(function (err) {
             aiBtn.disabled = false;
             aiBtn.textContent = '🤖 AI 评估';
             statusEl.textContent = '❌ ' + err.message;
             statusEl.className = 'meta error';
+            streamArea.style.display = 'none';
             toast(err.message, 'error');
           });
       });

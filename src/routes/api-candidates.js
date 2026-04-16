@@ -3,7 +3,7 @@ import {
   listCandidates, getCandidate, createCandidate, updateCandidate,
   moveCandidate, addEvaluation, deleteCandidate, listRoles, STATES,
 } from '../lib/db.js';
-import { evaluateResumeAsync, isEvaluating, autoMatchFromResume } from '../lib/ai.js';
+import { evaluateResumeAsync, evaluateResumeStream, isEvaluating, autoMatchFromResume } from '../lib/ai.js';
 import { runClaude } from '../lib/ai-chat.js';
 
 export function candidatesRouter() {
@@ -196,6 +196,39 @@ ${rolesText}
 
     evaluateResumeAsync(candidateId);
     res.status(202).json({ message: 'AI evaluation started', candidate_id: candidateId });
+  });
+
+  // AI resume evaluation with SSE streaming — real-time AI output
+  router.post('/:id/ai-evaluate/stream', async (req, res) => {
+    const candidateId = Number(req.params.id);
+    const cand = getCandidate(candidateId);
+    if (!cand) return res.status(404).json({ error: 'not found' });
+    if (!cand.resume_path) return res.status(400).json({ error: 'no resume uploaded — upload a PDF first' });
+    if (isEvaluating(candidateId)) return res.status(409).json({ error: '该候选人正在评估中，请稍候' });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    let closed = false;
+    req.on('close', () => { closed = true; });
+
+    const send = (event) => {
+      if (!closed) {
+        try { res.write(`data: ${JSON.stringify(event)}\n\n`); } catch {}
+      }
+    };
+
+    try {
+      await evaluateResumeStream(candidateId, send);
+    } catch (err) {
+      console.error(`[recruit] AI stream evaluation failed for candidate #${candidateId}:`, err.message);
+      send({ type: 'error', message: err.message });
+    }
+
+    if (!closed) res.end();
   });
 
   return router;

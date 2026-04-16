@@ -7,7 +7,7 @@
 
 import express, { Router } from 'express';
 import { getConfig, saveConfig, resolveAiConfig } from '../lib/config.js';
-import { getAvailableRuntimes, getEnvRuntime, VALID_MODELS, VALID_EFFORTS } from '../lib/ai.js';
+import { getAvailableRuntimes, getEnvRuntime, getValidModels, getValidEfforts } from '../lib/ai.js';
 
 const AI_SCENARIOS = ['resume_eval', 'auto_match', 'chat', 'chat_summary', 'portrait'];
 
@@ -28,8 +28,8 @@ function buildResponse() {
       scenarios,
       envRuntime: envRt,
       availableRuntimes: available,
-      validModels: VALID_MODELS,
-      validEfforts: VALID_EFFORTS,
+      validModels: getValidModels(),
+      validEfforts: getValidEfforts(),
       raw: config.ai || {},
     },
   };
@@ -38,7 +38,7 @@ function buildResponse() {
 function validateAiEntry(entry) {
   const errors = [];
   if (entry.runtime !== undefined) {
-    const valid = ['auto', 'claude', 'codex', 'chatgpt', 'gemini'];
+    const valid = ['auto', ...Object.keys(getValidModels())];
     if (!valid.includes(entry.runtime)) {
       errors.push(`invalid runtime: ${entry.runtime}`);
     } else if (entry.runtime !== 'auto') {
@@ -49,22 +49,15 @@ function validateAiEntry(entry) {
     }
   }
   if (entry.model !== undefined && entry.model !== 'auto') {
-    const allModels = [
-      ...VALID_MODELS.claude,
-      ...VALID_MODELS.codex,
-      ...(VALID_MODELS.chatgpt || []),
-      ...(VALID_MODELS.gemini || []),
-    ];
+    const vm = getValidModels();
+    const allModels = [...new Set(Object.values(vm).flat())];
     if (!allModels.includes(entry.model)) {
       errors.push(`invalid model: ${entry.model}`);
     }
   }
   if (entry.effort !== undefined && entry.effort !== '') {
-    const allEfforts = [...new Set([
-      ...VALID_EFFORTS.claude,
-      ...VALID_EFFORTS.codex,
-      ...(VALID_EFFORTS.chatgpt || []),
-    ])];
+    const ve = getValidEfforts();
+    const allEfforts = [...new Set(Object.values(ve).flat())];
     if (!allEfforts.includes(entry.effort)) {
       errors.push(`invalid effort: ${entry.effort}`);
     }
