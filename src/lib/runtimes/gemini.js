@@ -3,6 +3,9 @@
  *
  * Calls `gemini -p` subprocess. Supports read_file natively.
  * Auth: GEMINI_API_KEY (configured in the CLI).
+ *
+ * Session resume: uses `-o json` to capture session_id,
+ * then `--resume <id>` on subsequent calls.
  */
 
 import { execFile, execFileSync, spawn } from 'node:child_process';
@@ -24,21 +27,29 @@ export default {
     } catch { return false; }
   },
 
-  async call(prompt, { model }) {
-    const args = ['-p', prompt, '--model', model, '-y', '-o', 'text'];
+  async call(prompt, { model, sessionId }) {
+    const args = ['-p', prompt, '--model', model, '-y', '-o', 'json'];
+    if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1' };
 
     const { stdout } = await execFileAsync('gemini', args, {
       encoding: 'utf8',
       timeout: 600_000,
-      maxBuffer: 1024 * 1024,
+      maxBuffer: 2 * 1024 * 1024,
       env,
     });
-    return { text: stdout.trim() };
+
+    try {
+      const json = JSON.parse(stdout);
+      return { text: (json.response || '').trim(), sessionId: json.session_id || undefined };
+    } catch {
+      return { text: stdout.trim() };
+    }
   },
 
-  async *stream(prompt, { model }) {
+  async *stream(prompt, { model, sessionId }) {
     const args = ['-p', prompt, '--model', model, '-y', '-o', 'text'];
+    if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1' };
 
     const child = spawn('gemini', args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
