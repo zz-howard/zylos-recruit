@@ -104,7 +104,8 @@ export const VALID_EFFORTS = new Proxy({}, {
 async function runCli(prompt, scenario = 'resume_eval') {
   const needsFile = ['resume_eval', 'auto_match'].includes(scenario);
   const required = needsFile ? ['text', 'read_file'] : ['text'];
-  return gwCall(scenario, prompt, { required });
+  const readOnlyBinds = needsFile ? [RESUMES_DIR] : undefined;
+  return gwCall(scenario, prompt, { required, readOnlyBinds });
 }
 
 function parseAiResponse(text) {
@@ -402,7 +403,7 @@ export async function evaluateResumeStream(candidateId, onEvent) {
     emit({ type: 'status', text: '正在评估...' });
     let fullText = '';
     const required = ['text', 'read_file'];
-    for await (const chunk of gwStream('resume_eval', prompt, { required })) {
+    for await (const chunk of gwStream('resume_eval', prompt, { required, readOnlyBinds: [RESUMES_DIR] })) {
       fullText += chunk;
       emit({ type: 'chunk', text: chunk });
     }

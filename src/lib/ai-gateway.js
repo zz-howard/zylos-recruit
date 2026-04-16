@@ -87,14 +87,17 @@ export function checkCapability(adapter, required) {
  * @param {string[]} [opts.required] - required capabilities (default: ['text'])
  * @param {{ runtime?: string, model?: string, effort?: string }} [opts.overrides] - bypass config
  * @param {string} [opts.sessionId] - session ID for conversation resume
+ * @param {string[]} [opts.readOnlyBinds] - extra read-only dirs to expose to the
+ *   sandboxed CLI (e.g. resumes dir for read_file scenarios). Adapters running
+ *   in bwrap minimalFS mode forward this to the sandbox; others ignore it.
  * @returns {Promise<{ text: string, runtime: string, model: string, effort: string, sessionId?: string }>}
  */
-export async function call(scenario, prompt, { required = ['text'], overrides, sessionId } = {}) {
+export async function call(scenario, prompt, { required = ['text'], overrides, sessionId, readOnlyBinds } = {}) {
   const { adapter, runtimeName, model, effort } = resolve(scenario, overrides);
   checkCapability(adapter, required);
 
   console.log(`[recruit] AI call: scenario=${scenario}, runtime=${runtimeName}, model=${model}, effort=${effort}${sessionId ? `, resume=${sessionId.slice(0, 8)}…` : ''}`);
-  const result = await adapter.call(prompt, { model, effort, capabilities: required, sessionId });
+  const result = await adapter.call(prompt, { model, effort, capabilities: required, sessionId, readOnlyBinds });
   return { text: result.text || result, runtime: runtimeName, model, effort, sessionId: result.sessionId };
 }
 
@@ -108,10 +111,10 @@ export async function call(scenario, prompt, { required = ['text'], overrides, s
  * @param {{ runtime?: string, model?: string, effort?: string }} [opts.overrides] - bypass config
  * @yields {string} text chunks
  */
-export async function* stream(scenario, prompt, { required = ['text'], overrides } = {}) {
+export async function* stream(scenario, prompt, { required = ['text'], overrides, readOnlyBinds } = {}) {
   const { adapter, runtimeName, model, effort } = resolve(scenario, overrides);
   checkCapability(adapter, required);
 
   console.log(`[recruit] AI stream: scenario=${scenario}, runtime=${runtimeName}, model=${model}, effort=${effort}`);
-  yield* adapter.stream(prompt, { model, effort, capabilities: required });
+  yield* adapter.stream(prompt, { model, effort, capabilities: required, readOnlyBinds });
 }

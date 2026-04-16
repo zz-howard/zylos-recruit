@@ -1,9 +1,10 @@
 /**
  * Claude CLI runtime adapter.
  *
- * Calls `claude -p` subprocess. All Claude tools (Read, WebSearch, Bash, etc.)
- * remain enabled; filesystem-level safety is provided by the bwrap sandbox in
- * sandbox.js, not by CLI flag restrictions.
+ * Calls `claude -p` subprocess. Filesystem-level safety is provided by the
+ * bwrap sandbox in sandbox.js running in minimalFS mode: $HOME is tmpfs,
+ * nothing visible except ~/.claude (auth) and caller-specified roBinds
+ * (scenario data like resumes/).
  *
  * Auth: Max subscription OAuth (~/.claude/).
  *
@@ -16,7 +17,13 @@ import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { spawnSandboxed } from './sandbox.js';
 
-const CLAUDE_SANDBOX = { rwBinds: [`${homedir()}/.claude`] };
+function buildSandbox(readOnlyBinds = []) {
+  return {
+    minimalFS: true,
+    rwBinds: [`${homedir()}/.claude`],
+    roBinds: readOnlyBinds,
+  };
+}
 
 export default {
   name: 'claude',
@@ -32,7 +39,7 @@ export default {
     } catch { return false; }
   },
 
-  async call(prompt, { model, effort, capabilities = [], sessionId }) {
+  async call(prompt, { model, effort, capabilities = [], sessionId, readOnlyBinds }) {
     const args = ['-p', prompt, '--output-format', 'json', '--model', model, '--effort', effort];
     if (capabilities.includes('read_file')) args.push('--allowedTools', 'Read');
     if (sessionId) args.push('--resume', sessionId);
@@ -43,7 +50,7 @@ export default {
       const child = spawnSandboxed('claude', args, {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
-      }, CLAUDE_SANDBOX);
+      }, buildSandbox(readOnlyBinds));
       let out = '';
       let err = '';
       const timer = setTimeout(() => {
@@ -68,14 +75,14 @@ export default {
     }
   },
 
-  async *stream(prompt, { model, effort, capabilities = [], sessionId }) {
+  async *stream(prompt, { model, effort, capabilities = [], sessionId, readOnlyBinds }) {
     const args = ['-p', prompt, '--output-format', 'stream-json', '--model', model, '--effort', effort];
     if (capabilities.includes('read_file')) args.push('--allowedTools', 'Read');
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1' };
     delete env.ANTHROPIC_API_KEY;
 
-    const child = spawnSandboxed('claude', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, CLAUDE_SANDBOX);
+    const child = spawnSandboxed('claude', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, buildSandbox(readOnlyBinds));
     let buf = '';
     for await (const chunk of child.stdout) {
       buf += chunk.toString('utf8');

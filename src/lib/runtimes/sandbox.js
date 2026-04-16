@@ -1,15 +1,23 @@
 /**
  * Shared bubblewrap (bwrap) sandbox for CLI runtimes.
  *
- * Wraps a subprocess in an unprivileged Linux namespace sandbox:
- *   - / read-only
- *   - /tmp tmpfs (isolated, dropped on exit)
- *   - Sensitive dirs masked with tmpfs (.ssh, .gnupg, .aws, .kube)
- *   - Sensitive files masked with ro-bind /dev/null (.env, .netrc, gh/hosts.yml, etc.)
- *   - Network shared (CLIs call remote APIs)
- *   - PID/IPC/UTS/cgroup namespaces isolated, --die-with-parent
+ * Two modes:
  *
- * Each CLI passes its own rwBinds for auth/state dirs (~/.codex, ~/.claude, ~/.gemini).
+ *   minimalFS=false (legacy, broad):
+ *     - / read-only, then tmpfs-mask sensitive dirs (.ssh/.gnupg/...)
+ *       and /dev/null-mask sensitive files (.env, .netrc, ...)
+ *     - Large blast radius: all of $HOME and the filesystem is visible.
+ *
+ *   minimalFS=true (recommended, least-privilege):
+ *     - Start empty. Bind only system paths (/usr, /lib*, /bin, /etc, ...),
+ *       CLI runtime paths (node via nvm, CLI binary), plus caller-provided
+ *       rwBinds (auth/state) and roBinds (scenario data, e.g. resumes/).
+ *     - $HOME is a tmpfs — nothing under it is visible unless explicitly bound.
+ *
+ * Every mode:
+ *   - /tmp tmpfs, --proc, --dev
+ *   - Network shared (CLIs call remote APIs)
+ *   - PID/IPC/UTS/cgroup namespaces isolated, --die-with-parent, --new-session
  *
  * Interview prompts contain user-controlled content (prompt injection risk).
  * This layer is defense-in-depth on top of each CLI's own sandbox/tool restrictions.
@@ -41,17 +49,13 @@ function statKind(path) {
   } catch { return null; }
 }
 
-function buildBwrapArgs(cmd, cmdArgs, { rwBinds = [] } = {}) {
+function buildLegacyArgs({ rwBinds }) {
   const home = homedir();
   const args = [
     '--ro-bind', '/', '/',
     '--tmpfs', '/tmp',
     '--proc', '/proc',
     '--dev', '/dev',
-    '--share-net',
-    '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--unshare-cgroup',
-    '--die-with-parent',
-    '--new-session',
   ];
 
   for (const p of rwBinds) {
@@ -74,9 +78,72 @@ function buildBwrapArgs(cmd, cmdArgs, { rwBinds = [] } = {}) {
   for (const p of secretFiles) {
     if (statKind(p) === 'file') args.push('--ro-bind', '/dev/null', p);
   }
-
-  args.push('--', cmd, ...cmdArgs);
   return args;
+}
+
+// System paths typically needed for dynamically-linked binaries + CLI behavior.
+const MINIMAL_SYSTEM_RO = [
+  '/usr', '/bin', '/sbin', '/lib', '/lib64', '/lib32', '/libx32',
+  '/etc', '/opt',
+];
+
+function buildMinimalArgs({ rwBinds, roBinds, extraSystemRo }) {
+  const home = homedir();
+  const args = [
+    '--tmpfs', '/',
+    '--tmpfs', '/tmp',
+    '--tmpfs', '/var',
+    '--tmpfs', home,
+    '--proc', '/proc',
+    '--dev', '/dev',
+    '--chdir', '/tmp',
+  ];
+
+  for (const p of [...MINIMAL_SYSTEM_RO, ...extraSystemRo]) {
+    if (statKind(p) === 'dir') args.push('--ro-bind', p, p);
+  }
+
+  // Runtime paths: best-effort (bound only if present).
+  const runtimeRo = [
+    `${home}/.nvm`,
+    `${home}/.local/bin`,
+    `${home}/.local/share/claude`,
+    `${home}/.local/share/pnpm`,
+    `${home}/.npm`,
+  ];
+  for (const p of runtimeRo) {
+    if (statKind(p) === 'dir') args.push('--ro-bind', p, p);
+  }
+
+  for (const p of roBinds) {
+    if (statKind(p) === 'dir') args.push('--ro-bind', p, p);
+  }
+
+  for (const p of rwBinds) {
+    if (statKind(p) === 'dir') args.push('--bind', p, p);
+  }
+
+  return args;
+}
+
+function buildBwrapArgs(cmd, cmdArgs, {
+  rwBinds = [],
+  roBinds = [],
+  extraSystemRo = [],
+  minimalFS = false,
+} = {}) {
+  const base = minimalFS
+    ? buildMinimalArgs({ rwBinds, roBinds, extraSystemRo })
+    : buildLegacyArgs({ rwBinds });
+
+  base.push(
+    '--share-net',
+    '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--unshare-cgroup',
+    '--die-with-parent',
+    '--new-session',
+    '--', cmd, ...cmdArgs,
+  );
+  return base;
 }
 
 /**
@@ -84,7 +151,12 @@ function buildBwrapArgs(cmd, cmdArgs, { rwBinds = [] } = {}) {
  * @param {string} cmd - executable name
  * @param {string[]} args - command arguments
  * @param {object} opts - spawn options (stdio, env, ...)
- * @param {{ rwBinds?: string[] }} [sandbox] - extra rw bind mounts (e.g. CLI config dirs)
+ * @param {object} [sandbox]
+ * @param {string[]} [sandbox.rwBinds]       - read-write bind mounts (CLI auth/state dirs)
+ * @param {string[]} [sandbox.roBinds]       - read-only bind mounts (scenario data dirs)
+ * @param {string[]} [sandbox.extraSystemRo] - extra system paths to ro-bind (minimalFS only)
+ * @param {boolean}  [sandbox.minimalFS]     - if true, start from empty FS and bind only
+ *                                             system/runtime/caller-specified paths
  */
 export function spawnSandboxed(cmd, args, opts, sandbox = {}) {
   if (hasBwrap()) {
