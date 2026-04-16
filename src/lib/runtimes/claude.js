@@ -32,8 +32,9 @@ export default {
     } catch { return false; }
   },
 
-  async call(prompt, { model, effort, sessionId }) {
+  async call(prompt, { model, effort, capabilities = [], sessionId }) {
     const args = ['-p', prompt, '--output-format', 'json', '--model', model, '--effort', effort];
+    if (capabilities.includes('read_file')) args.push('--allowedTools', 'Read');
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1' };
     delete env.ANTHROPIC_API_KEY;
@@ -67,8 +68,9 @@ export default {
     }
   },
 
-  async *stream(prompt, { model, effort, sessionId }) {
+  async *stream(prompt, { model, effort, capabilities = [], sessionId }) {
     const args = ['-p', prompt, '--output-format', 'stream-json', '--model', model, '--effort', effort];
+    if (capabilities.includes('read_file')) args.push('--allowedTools', 'Read');
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1' };
     delete env.ANTHROPIC_API_KEY;
