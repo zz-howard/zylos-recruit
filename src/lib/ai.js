@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getCandidate, getRole, getCompany, addEvaluation, updateCandidate, listRoles } from './db.js';
 import { RESUMES_DIR, getConfig, resolveAiConfig } from './config.js';
+import { callCodexOAuth, hasCodexOAuth } from './codex-oauth-client.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -36,6 +37,8 @@ export function detectRuntimes() {
       // not installed
     }
   }
+  // chatgpt is HTTP-based (no CLI) — available iff ~/.codex/auth.json has a token.
+  if (hasCodexOAuth()) availableRuntimes.push('chatgpt');
   envRuntime = (process.env.ZYLOS_RUNTIME || 'claude').toLowerCase();
   console.log(`[recruit] Detected runtimes: [${availableRuntimes.join(', ')}], env: ${envRuntime}`);
   return { available: availableRuntimes, envRuntime };
@@ -83,16 +86,23 @@ function buildPrompt(resumeAbsPath, role, companyProfile, roleJd, expectedPortra
 }
 
 // Default models per runtime
-const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-5.4', gemini: 'gemini-2.5-flash' };
+const DEFAULT_MODELS = {
+  claude: 'sonnet',
+  codex: 'gpt-5.4',
+  chatgpt: 'gpt-5.4',
+  gemini: 'gemini-2.5-flash',
+};
 // Valid model choices per runtime
 const VALID_MODELS = {
   claude: ['opus', 'sonnet', 'haiku'],
   codex: ['gpt-5.4', 'gpt-5.3-codex'],
+  chatgpt: ['gpt-5.4', 'gpt-5.3-codex'],
   gemini: ['gemini-3.1-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
 };
 const VALID_EFFORTS = {
   claude: ['low', 'medium', 'high', 'max'],
   codex: ['none', 'low', 'medium', 'high', 'xhigh'],
+  chatgpt: ['none', 'low', 'medium', 'high', 'xhigh'],
   gemini: [],
 };
 
@@ -104,6 +114,15 @@ async function runCli(prompt, scenario = 'resume_eval') {
   const model = aiCfg.model === 'auto' ? (DEFAULT_MODELS[runtime] || DEFAULT_MODELS.claude) : aiCfg.model;
   const effort = aiCfg.effort || 'medium';
   let cmd, args;
+
+  if (runtime === 'chatgpt') {
+    // HTTP-only path: no PDF/Read tool, so unsuitable for resume_eval/auto_match.
+    // Callers that need file reads should stick with claude/codex/gemini CLIs.
+    const effortStr = effort && VALID_EFFORTS.chatgpt.includes(effort) ? `, effort: ${effort}` : '';
+    console.log(`[recruit] AI evaluation: calling chatgpt OAuth (model: ${model}${effortStr})...`);
+    const text = await callCodexOAuth(prompt, model, effort);
+    return { text, runtime, model, effort };
+  }
 
   if (runtime === 'codex') {
     cmd = 'codex';

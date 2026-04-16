@@ -4,25 +4,33 @@
  * Security: interview prompts include user-controlled content (prompt injection
  * risk). All runtimes must have tool/shell access fully disabled:
  *   - Claude: uses CLI with --tools "" (no tools available)
- *   - Codex (OpenAI): uses Chat Completions API via curl (no tools defined)
- *   - Gemini: uses Generative Language API via curl (no tools defined)
+ *   - Codex (OpenAI): Chat Completions API via curl with API key (no tools)
+ *   - ChatGPT: ChatGPT backend Responses API via curl with Codex OAuth token
+ *              — consumes ChatGPT Pro subscription, no API cost (no tools)
+ *   - Gemini: Generative Language API via curl with API key (no tools)
  *
  * Claude uses CLI because it needs Max subscription OAuth auth.
- * Codex/Gemini use HTTP API (via curl, which respects HTTPS_PROXY) to
- * guarantee zero tool access.
+ * All others use HTTP (via curl, which respects HTTPS_PROXY) to guarantee
+ * zero tool access.
  */
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolveAiConfig } from './config.js';
+import { callCodexOAuth } from './codex-oauth-client.js';
 
 const execFileAsync = promisify(execFile);
 
 // Default models per runtime
-const DEFAULT_MODELS = { claude: 'sonnet', codex: 'gpt-4.1', gemini: 'gemini-2.5-flash' };
+const DEFAULT_MODELS = {
+  claude: 'sonnet',
+  codex: 'gpt-4.1',
+  chatgpt: 'gpt-5.4',
+  gemini: 'gemini-2.5-flash',
+};
 
 /**
- * Call OpenAI Chat Completions API directly (no tools, pure text).
+ * Call OpenAI Chat Completions API directly with an API key.
  */
 async function callOpenAI(prompt, model, effort) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -102,6 +110,8 @@ export async function runClaude(prompt, scenario) {
   try {
     if (runtime === 'codex') {
       return await callOpenAI(prompt, model, effort);
+    } else if (runtime === 'chatgpt') {
+      return await callCodexOAuth(prompt, model, effort);
     } else if (runtime === 'gemini') {
       return await callGemini(prompt, model);
     } else {

@@ -38,7 +38,7 @@ function buildResponse() {
 function validateAiEntry(entry) {
   const errors = [];
   if (entry.runtime !== undefined) {
-    const valid = ['auto', 'claude', 'codex', 'gemini'];
+    const valid = ['auto', 'claude', 'codex', 'chatgpt', 'gemini'];
     if (!valid.includes(entry.runtime)) {
       errors.push(`invalid runtime: ${entry.runtime}`);
     } else if (entry.runtime !== 'auto') {
@@ -49,13 +49,22 @@ function validateAiEntry(entry) {
     }
   }
   if (entry.model !== undefined && entry.model !== 'auto') {
-    const allModels = [...VALID_MODELS.claude, ...VALID_MODELS.codex, ...(VALID_MODELS.gemini || [])];
+    const allModels = [
+      ...VALID_MODELS.claude,
+      ...VALID_MODELS.codex,
+      ...(VALID_MODELS.chatgpt || []),
+      ...(VALID_MODELS.gemini || []),
+    ];
     if (!allModels.includes(entry.model)) {
       errors.push(`invalid model: ${entry.model}`);
     }
   }
   if (entry.effort !== undefined && entry.effort !== '') {
-    const allEfforts = [...new Set([...VALID_EFFORTS.claude, ...VALID_EFFORTS.codex])];
+    const allEfforts = [...new Set([
+      ...VALID_EFFORTS.claude,
+      ...VALID_EFFORTS.codex,
+      ...(VALID_EFFORTS.chatgpt || []),
+    ])];
     if (!allEfforts.includes(entry.effort)) {
       errors.push(`invalid effort: ${entry.effort}`);
     }

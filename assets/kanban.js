@@ -1280,13 +1280,15 @@
     api('GET', '/settings').then(function (r) {
       var ai = r.ai;
       var raw = ai.raw || {};
-      var defaultModelMap = { claude: 'sonnet', codex: 'gpt-5.4', gemini: 'gemini-2.5-flash' };
+      var defaultModelMap = { claude: 'sonnet', codex: 'gpt-5.4', chatgpt: 'gpt-5.4', gemini: 'gemini-2.5-flash' };
+      var runtimeLabels = { claude: 'Claude CLI', codex: 'Codex CLI', chatgpt: 'ChatGPT (Pro subscription)', gemini: 'Gemini CLI' };
 
       function makeRuntimeOptions(selected) {
         var opts = [{ value: '', label: '跟随默认' }, { value: 'auto', label: 'Auto (' + ai.envRuntime + ')' }];
-        ['claude', 'codex', 'gemini'].forEach(function (rt) {
+        ['claude', 'codex', 'chatgpt', 'gemini'].forEach(function (rt) {
           var installed = ai.availableRuntimes.indexOf(rt) !== -1;
-          opts.push({ value: rt, label: rt.charAt(0).toUpperCase() + rt.slice(1) + (installed ? '' : ' (not installed)'), disabled: !installed });
+          var label = runtimeLabels[rt] || rt;
+          opts.push({ value: rt, label: label + (installed ? '' : ' (not installed)'), disabled: !installed });
         });
         return opts.map(function (o) {
           return '<option value="' + o.value + '"' + (o.disabled ? ' disabled' : '') + (o.value === selected ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
