@@ -18,11 +18,12 @@ import { call, stream } from './ai-gateway.js';
  * @param {string} [scenario] - AI scenario name for config resolution
  * @param {{ runtime?: string, model?: string, effort?: string }} [overrides] -
  *   bypass config resolution (e.g. interview-locked settings from DB)
- * @returns {Promise<string>} response text
+ * @param {string} [sessionId] - session ID for conversation resume (Claude only)
+ * @returns {Promise<{ text: string, sessionId?: string }>}
  */
-export async function runClaude(prompt, scenario, overrides) {
-  const { text } = await call(scenario || 'chat', prompt, { overrides });
-  return text;
+export async function runClaude(prompt, scenario, overrides, sessionId) {
+  const result = await call(scenario || 'chat', prompt, { overrides, sessionId });
+  return { text: result.text, sessionId: result.sessionId };
 }
 
 /**

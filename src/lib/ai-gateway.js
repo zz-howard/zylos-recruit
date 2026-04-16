@@ -86,15 +86,16 @@ export function checkCapability(adapter, required) {
  * @param {object} [opts]
  * @param {string[]} [opts.required] - required capabilities (default: ['text'])
  * @param {{ runtime?: string, model?: string, effort?: string }} [opts.overrides] - bypass config
- * @returns {Promise<{ text: string, runtime: string, model: string, effort: string }>}
+ * @param {string} [opts.sessionId] - session ID for conversation resume
+ * @returns {Promise<{ text: string, runtime: string, model: string, effort: string, sessionId?: string }>}
  */
-export async function call(scenario, prompt, { required = ['text'], overrides } = {}) {
+export async function call(scenario, prompt, { required = ['text'], overrides, sessionId } = {}) {
   const { adapter, runtimeName, model, effort } = resolve(scenario, overrides);
   checkCapability(adapter, required);
 
-  console.log(`[recruit] AI call: scenario=${scenario}, runtime=${runtimeName}, model=${model}, effort=${effort}`);
-  const text = await adapter.call(prompt, { model, effort, capabilities: required });
-  return { text, runtime: runtimeName, model, effort };
+  console.log(`[recruit] AI call: scenario=${scenario}, runtime=${runtimeName}, model=${model}, effort=${effort}${sessionId ? `, resume=${sessionId.slice(0, 8)}…` : ''}`);
+  const result = await adapter.call(prompt, { model, effort, capabilities: required, sessionId });
+  return { text: result.text || result, runtime: runtimeName, model, effort, sessionId: result.sessionId };
 }
 
 /**

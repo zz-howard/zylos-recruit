@@ -170,7 +170,7 @@ ${rolesText}
 
     try {
       console.log(`[recruit] Auto-match: candidate #${candidateId} against ${activeRoles.length} active roles...`);
-      const raw = await runClaude(prompt, 'auto_match');
+      const { text: raw } = await runClaude(prompt, 'auto_match');
 
       // Parse JSON from response (handle markdown code blocks)
       let jsonStr = raw.trim();

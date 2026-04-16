@@ -186,7 +186,7 @@ export default {
 
     const text = parseResponsesSSE(raw);
     if (!text) throw new Error(`chatgpt returned empty; raw=${raw.slice(0, 400)}`);
-    return text.trim();
+    return { text: text.trim() };
   },
 
   async *stream(prompt, { model, effort }) {

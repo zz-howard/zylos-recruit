@@ -34,7 +34,7 @@ export default {
       maxBuffer: 1024 * 1024,
       env,
     });
-    return stdout.trim();
+    return { text: stdout.trim() };
   },
 
   async *stream(prompt, { model }) {

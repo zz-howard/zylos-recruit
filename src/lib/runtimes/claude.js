@@ -3,6 +3,10 @@
  *
  * Calls `claude -p` subprocess. Supports read_file via --allowedTools Read.
  * Auth: Max subscription OAuth (~/.claude/).
+ *
+ * Session resume: uses --output-format json to capture session_id,
+ * then --resume <id> on subsequent calls to reuse the conversation
+ * and hit the model's KV cache.
  */
 
 import { execFile, execFileSync, spawn } from 'node:child_process';
@@ -24,8 +28,9 @@ export default {
     } catch { return false; }
   },
 
-  async call(prompt, { model, effort, capabilities = [] }) {
-    const args = ['-p', prompt, '--model', model, '--effort', effort];
+  async call(prompt, { model, effort, capabilities = [], sessionId }) {
+    const args = ['-p', prompt, '--output-format', 'json', '--model', model, '--effort', effort];
+    if (sessionId) args.push('--resume', sessionId);
     if (capabilities.includes('read_file')) {
       args.push('--allowedTools', 'Read');
     } else {
@@ -37,14 +42,22 @@ export default {
     const { stdout } = await execFileAsync('claude', args, {
       encoding: 'utf8',
       timeout: 600_000,
-      maxBuffer: 1024 * 1024,
+      maxBuffer: 2 * 1024 * 1024,
       env,
     });
-    return stdout.trim();
+
+    try {
+      const json = JSON.parse(stdout);
+      return { text: (json.result || '').trim(), sessionId: json.session_id || undefined };
+    } catch {
+      // Fallback: if JSON parse fails, return raw text
+      return { text: stdout.trim() };
+    }
   },
 
-  async *stream(prompt, { model, effort, capabilities = [] }) {
-    const args = ['-p', prompt, '--model', model, '--effort', effort];
+  async *stream(prompt, { model, effort, capabilities = [], sessionId }) {
+    const args = ['-p', prompt, '--output-format', 'stream-json', '--model', model, '--effort', effort];
+    if (sessionId) args.push('--resume', sessionId);
     if (capabilities.includes('read_file')) {
       args.push('--allowedTools', 'Read');
     } else {
@@ -60,10 +73,34 @@ export default {
       const lines = buf.split('\n');
       buf = lines.pop(); // keep incomplete line
       for (const line of lines) {
-        yield line + '\n';
+        if (!line.trim()) continue;
+        try {
+          const evt = JSON.parse(line);
+          if (evt.type === 'assistant' && evt.message?.content) {
+            for (const block of evt.message.content) {
+              if (block.type === 'text') yield block.text;
+            }
+          } else if (evt.type === 'result') {
+            // Final result — sessionId available here but stream can't return metadata
+            // The caller should use call() if session tracking is needed
+          }
+        } catch {
+          yield line + '\n';
+        }
       }
     }
-    if (buf) yield buf;
+    if (buf) {
+      try {
+        const evt = JSON.parse(buf);
+        if (evt.type === 'assistant' && evt.message?.content) {
+          for (const block of evt.message.content) {
+            if (block.type === 'text') yield block.text;
+          }
+        }
+      } catch {
+        if (buf.trim()) yield buf;
+      }
+    }
 
     await new Promise((resolve, reject) => {
       child.on('close', (code) => {

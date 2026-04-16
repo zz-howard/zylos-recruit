@@ -24,6 +24,7 @@ function loadSystemPrompt() {
 
 /**
  * Build a full conversation prompt including system instructions + all prior messages.
+ * Used for the first message (no session to resume) or non-resumable runtimes.
  */
 function buildConversationPrompt(systemPrompt, messages, newUserMessage) {
   let prompt = systemPrompt + '\n\n';
@@ -41,6 +42,14 @@ function buildConversationPrompt(systemPrompt, messages, newUserMessage) {
   prompt += '请作为AI访谈专家回复。注意：只回复你的回答内容，不要加角色标签前缀。';
 
   return prompt;
+}
+
+/**
+ * Build a resume prompt — only the new user message.
+ * Used when resuming a session (the AI already has full context).
+ */
+function buildResumePrompt(newUserMessage) {
+  return `被访谈人：${newUserMessage}\n\n请作为AI访谈专家回复。注意：只回复你的回答内容，不要加角色标签前缀。`;
 }
 
 /**
@@ -94,7 +103,7 @@ function generateSummaryAsync(interviewId, messages, overrides) {
 
   const summaryPrompt = buildSummaryPrompt(messages);
   runClaude(summaryPrompt, 'chat_summary', overrides)
-    .then(summary => {
+    .then(({ text: summary }) => {
       console.log(`[recruit] Chat: interview #${interviewId} — summary generated (${summary.length} chars)`);
       updateInternalInterview(interviewId, { summary });
     })
@@ -153,28 +162,42 @@ export function chatRouter() {
       // Store user message
       addInterviewMessage(interview.id, { role: 'user', content: userMessage });
 
-      // Build conversation and get AI response
-      const allMessages = listInterviewMessages(interview.id);
-      // allMessages includes the just-added user message; exclude it for the history
-      const history = allMessages.slice(0, -1);
-      const systemPrompt = loadSystemPrompt();
-      const prompt = buildConversationPrompt(systemPrompt, history, userMessage);
-
-      // Use interview's locked AI config if available, otherwise fall back to Settings
-      const overrides = interview.runtime_type ? {
+      // Use interview's locked AI config
+      const overrides = {
         runtime: interview.runtime_type,
         model: interview.model,
         effort: interview.effort,
-      } : undefined;
+      };
 
-      console.log(`[recruit] Chat: interview #${interview.id} — sending to AI (${allMessages.length} messages total)...`);
-      const aiResponse = await runClaude(prompt, 'chat', overrides);
-      console.log(`[recruit] Chat: interview #${interview.id} — AI responded (${aiResponse.length} chars)`);
+      let prompt;
+      let sessionId = interview.session_id || undefined;
+
+      if (sessionId) {
+        // Resume session — send only the new message (AI has full context)
+        prompt = buildResumePrompt(userMessage);
+        console.log(`[recruit] Chat: interview #${interview.id} — resuming session ${sessionId.slice(0, 8)}…`);
+      } else {
+        // First message or no session — send full conversation prompt
+        const allMessages = listInterviewMessages(interview.id);
+        const history = allMessages.slice(0, -1);
+        const systemPrompt = loadSystemPrompt();
+        prompt = buildConversationPrompt(systemPrompt, history, userMessage);
+        console.log(`[recruit] Chat: interview #${interview.id} — new session (${allMessages.length} messages total)...`);
+      }
+
+      const result = await runClaude(prompt, 'chat', overrides, sessionId);
+      console.log(`[recruit] Chat: interview #${interview.id} — AI responded (${result.text.length} chars)`);
+
+      // Store session_id if newly returned
+      if (result.sessionId && result.sessionId !== interview.session_id) {
+        updateInternalInterview(interview.id, { session_id: result.sessionId });
+        console.log(`[recruit] Chat: interview #${interview.id} — session saved: ${result.sessionId.slice(0, 8)}…`);
+      }
 
       // Store AI response
-      addInterviewMessage(interview.id, { role: 'assistant', content: aiResponse });
+      addInterviewMessage(interview.id, { role: 'assistant', content: result.text });
 
-      res.json({ text: aiResponse });
+      res.json({ text: result.text });
     } catch (err) {
       console.error(`[recruit] Chat error (interview #${interview.id}):`, err.message);
       res.status(500).json({ error: 'AI service error: ' + err.message });
