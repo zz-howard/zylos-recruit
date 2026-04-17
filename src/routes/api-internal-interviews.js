@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import express from 'express';
+import { jsonrepair } from 'jsonrepair';
 import {
   listInternalInterviews, getInternalInterview, createInternalInterview,
   deleteInternalInterview, listInterviewMessages,
@@ -7,6 +8,27 @@ import {
 import { runClaude } from '../lib/ai-chat.js';
 import { resolveAiConfig } from '../lib/config.js';
 import { summaryInProgress } from './api-chat.js';
+
+function parsePortraitsResponse(raw) {
+  if (typeof raw !== 'string') return [];
+  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const bracket = raw.match(/\[[\s\S]*\]/);
+  const candidate = (fence ? fence[1] : bracket ? bracket[0] : raw).trim();
+  let data;
+  try {
+    data = JSON.parse(candidate);
+  } catch {
+    try { data = JSON.parse(jsonrepair(candidate)); } catch { return []; }
+  }
+  if (!Array.isArray(data)) data = [data];
+  return data
+    .filter(x => x && typeof x === 'object')
+    .map(x => ({
+      name: typeof x.name === 'string' ? x.name.trim() : '',
+      portrait: typeof x.portrait === 'string' ? x.portrait.trim() : '',
+    }))
+    .filter(x => x.portrait);
+}
 
 export function internalInterviewsRouter() {
   const router = express.Router();
@@ -86,16 +108,31 @@ export function internalInterviewsRouter() {
       return res.status(400).json({ error: 'selected interviews have no content' });
     }
 
-    const prompt = `你是一位资深招聘专家。以下是多位团队成员关于同一个岗位需求的访谈记录/汇总。请综合所有人的输入，生成一份完整的岗位画像（expected portrait）。
+    const prompt = `你是一位资深招聘专家。以下是多位团队成员关于岗位需求的访谈记录/汇总。请综合输入，生成岗位画像（expected portrait）。
 
 ${parts.join('\n\n---\n\n')}
 
 ---
 
-请输出以下格式的岗位画像（Markdown 格式）：
+**多岗位判断**：先判断访谈内容是否涉及多个**明显不同**的岗位。判定"明显不同"的标准（需同时满足至少两条）：
+- 岗位名称/职级方向完全不同（如"产品总监" vs "运营专员"）
+- 核心职责没有显著重叠
+- 汇报线或协作对象不同
 
-## 岗位名称
-（基于访谈内容推断最合适的岗位名称）
+如果不满足，就合成一份画像，不要过度拆分。同一岗位的不同侧面（例如"对内沟通"和"对外协调"）属于一份画像内的不同能力项。
+
+**输出格式**：严格输出 JSON 数组，放在 \`\`\`json 代码块中，不要有任何其它文字：
+
+\`\`\`json
+[
+  {
+    "name": "岗位名称",
+    "portrait": "完整的岗位画像 Markdown 内容（包含下列所有 section）"
+  }
+]
+\`\`\`
+
+每个 portrait 字段内必须包含以下 Markdown sections（不要写 \`## 岗位名称\`，name 已独立成字段）：
 
 ## 岗位定位
 （在团队中的角色定位、汇报关系、协作对象）
@@ -119,20 +156,22 @@ ${parts.join('\n\n---\n\n')}
 （面试时重点验证什么、如何判断候选人是否达标）
 
 注意：
-1. 如果不同访谈者的意见有矛盾，指出矛盾并给出你的建议
-2. 保持务实——不要堆砌不切实际的要求
-3. 输出要具体可操作，能直接用于候选人筛选`;
+1. 如果不同访谈者意见矛盾，在对应 section 指出并给出你的建议
+2. 务实——不堆砌不切实际的要求
+3. 输出具体可操作，能直接用于候选人筛选
+4. JSON 必须合法、可解析；portrait 字段中的换行用 \\n 转义`;
 
     try {
       console.log(`[recruit] Portrait generation: ${interview_ids.length} interviews selected...`);
-      const { text: portrait } = await runClaude(prompt, 'portrait');
-      console.log(`[recruit] Portrait generated (${portrait.length} chars)`);
+      const { text: raw } = await runClaude(prompt, 'portrait');
+      console.log(`[recruit] Portrait generated (${raw.length} chars)`);
 
-      // Extract suggested role name from the portrait
-      const nameMatch = portrait.match(/## 岗位名称\s*\n+([^\n#]+)/);
-      const suggestedName = nameMatch ? nameMatch[1].trim() : '';
+      const portraits = parsePortraitsResponse(raw);
+      if (!portraits.length) {
+        return res.status(500).json({ error: 'portrait generation returned empty result', raw });
+      }
 
-      res.json({ portrait, suggested_name: suggestedName });
+      res.json({ portraits });
     } catch (err) {
       console.error('[recruit] Portrait generation failed:', err.message);
       res.status(500).json({ error: 'portrait generation failed: ' + err.message });

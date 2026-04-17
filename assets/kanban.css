@@ -786,3 +786,21 @@
     padding-left: 26px;
   }
 }
+
+.portrait-tab {
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 13px;
+  margin-bottom: -1px;
+  white-space: nowrap;
+}
+.portrait-tab:hover { color: #111827; }
+.portrait-tab.active {
+  color: #4f46e5;
+  border-bottom-color: #4f46e5;
+  font-weight: 500;
+}
