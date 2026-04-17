@@ -1755,15 +1755,22 @@
       btnGenerate.disabled = true;
       btnGenerate.textContent = '正在生成...';
 
+      openModal('<div class="portrait-loading">' +
+        '<div class="portrait-loading-spinner"></div>' +
+        '<div class="portrait-loading-text">正在分析 ' + ids.length + ' 份访谈，生成岗位画像…</div>' +
+        '<div class="portrait-loading-hint">通常需要 15-30 秒</div>' +
+        '</div>');
+
       api('POST', '/internal-interviews/generate-portrait', { interview_ids: ids })
         .then(function (r) {
           btnGenerate.disabled = false;
           updateGenerateBtn();
           var portraits = r.portraits || [];
-          if (!portraits.length) { toast('生成结果为空', 'error'); return; }
+          if (!portraits.length) { closeModal(); toast('生成结果为空', 'error'); return; }
           showPortraitResult(portraits);
         })
         .catch(function (err) {
+          closeModal();
           btnGenerate.disabled = false;
           updateGenerateBtn();
           toast('生成失败: ' + err.message, 'error');
