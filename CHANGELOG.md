@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-04-17
+
+### Added
+- **AI config lock per interview.** Runtime / model / effort are now snapshotted
+  into the DB row at interview creation; later model/effort changes in Settings
+  no longer retroactively change a running interview.
+- **Session resume for all three CLI runtimes** (Claude / Codex / Gemini) via
+  `--resume <session_id>`. First call captures the session id from JSON output
+  and persists it; subsequent calls reuse the session to hit the model's KV
+  cache (~10× token savings verified on long resume-eval flows).
+- **Streaming toggle** in Settings (`stream_enabled` per scenario).
+
+### Security
+- **Bubblewrap sandbox around every CLI adapter.** All three adapters
+  (claude/codex/gemini) now spawn through the shared `sandbox.js` helper in
+  **minimalFS mode**: `$HOME` is a tmpfs, only the CLI's own auth/state
+  directory is rw-bound, and scenario data (e.g. `resumes/`) is exposed via
+  caller-declared `readOnlyBinds` — deny-by-default filesystem.
+- **Gateway-level read-only bind declaration.** Scenarios declare what they
+  need (`needsFile` → `[RESUMES_DIR]`); the gateway forwards to the adapter,
+  which assembles the sandbox. Prompt injection that escapes the CLI's own
+  tool allowlist still cannot reach `~/.ssh`, `~/zylos/memory`, other
+  components' data, or `~/.env` — the host FS is not in the sandbox's
+  mount namespace.
+- **Codex CLI stdin hang fix.** Switched from `execFileAsync` to `spawn` with
+  `stdio: ['ignore','pipe','pipe']` to prevent Codex blocking on unfixed stdin.
+
+### Changed
+- Claude adapter `--allowedTools Read` restored for `read_file` scenarios
+  (the bwrap minimalFS layer now provides the hard filesystem boundary;
+  the CLI flag is defense-in-depth on top).
+
+### Upgrade
+
+```bash
+zylos upgrade recruit
+```
+
+Requires `bubblewrap` (bwrap) on the host for sandbox enforcement — the
+adapter transparently falls back to direct spawn if bwrap is absent, but
+running in production without bwrap means **no filesystem isolation**.
+Install via `sudo apt install bubblewrap` on Debian/Ubuntu.
+
 ## [0.2.4] - 2026-04-12
 
 ### Changed
