@@ -831,3 +831,15 @@
   font-size: 13px;
   color: #9ca3af;
 }
+
+.interview-select-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  font-size: 13px;
+  color: #6b7280;
+  border-bottom: 1px solid #f3f4f6;
+}
+.interview-select-all input { cursor: pointer; }
+.interview-select-all label { cursor: pointer; user-select: none; }

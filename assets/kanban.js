@@ -1585,7 +1585,17 @@
       return;
     }
 
+    var selectableIds = interviews.filter(function (iv) {
+      return iv.status === 'completed' || (iv.message_count || 0) > 0;
+    }).map(function (iv) { return iv.id; });
+
     var html = '';
+    if (selectableIds.length > 1) {
+      var allChecked = selectableIds.every(function (id) { return selectedInterviewIds.has(id); });
+      html += '<div class="interview-select-all">' +
+        '<input type="checkbox" id="interview-select-all-cb"' + (allChecked ? ' checked' : '') + '>' +
+        '<label for="interview-select-all-cb">全选</label></div>';
+    }
     interviews.forEach(function (iv) {
       var statusClass = iv.status === 'active' ? 'active' : 'completed';
       var statusLabel = iv.status === 'active' ? '进行中' : '已完成';
@@ -1631,6 +1641,21 @@
 
     container.innerHTML = html;
 
+    // Bind select-all
+    var selectAllCb = document.getElementById('interview-select-all-cb');
+    if (selectAllCb) {
+      selectAllCb.addEventListener('change', function () {
+        var checked = selectAllCb.checked;
+        selectableIds.forEach(function (id) {
+          if (checked) { selectedInterviewIds.add(id); } else { selectedInterviewIds.delete(id); }
+        });
+        container.querySelectorAll('.interview-checkbox').forEach(function (cb) {
+          cb.checked = checked;
+        });
+        updateGenerateBtn();
+      });
+    }
+
     // Bind checkbox events
     container.querySelectorAll('.interview-checkbox').forEach(function (cb) {
       cb.addEventListener('change', function () {
@@ -1639,6 +1664,10 @@
           selectedInterviewIds.add(id);
         } else {
           selectedInterviewIds.delete(id);
+        }
+        // Sync select-all state
+        if (selectAllCb) {
+          selectAllCb.checked = selectableIds.every(function (sid) { return selectedInterviewIds.has(sid); });
         }
         updateGenerateBtn();
       });
