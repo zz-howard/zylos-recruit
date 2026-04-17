@@ -45,8 +45,17 @@ function buildPrompt(resumeAbsPath, role, companyProfile, roleJd, expectedPortra
   let tpl = loadPromptTemplate();
   tpl = tpl.replace('{{company_profile}}', companyProfile || '（未提供公司背景）');
   tpl = tpl.replace('{{role_name}}', role?.name || '未知岗位');
-  tpl = tpl.replace('{{role_jd}}', roleJd || '（未提供岗位描述）');
-  tpl = tpl.replace('{{expected_portrait}}', expectedPortrait || '');
+
+  // Hard fallback: portrait if present, else JD. Only one source, no duplication.
+  let requirements;
+  if (expectedPortrait) {
+    requirements = `### 期望画像\n\n${expectedPortrait}`;
+  } else if (roleJd) {
+    requirements = `### 岗位描述 (JD)\n\n${roleJd}`;
+  } else {
+    requirements = '### 岗位要求\n\n（未提供岗位描述）';
+  }
+  tpl = tpl.replace('{{role_requirements}}', requirements);
   tpl = tpl.replace('{{resume_file}}', resumeAbsPath);
   tpl = tpl.replace('{{extra_info_section}}', extraInfo
     ? '## 候选人额外信息\n\n以下是提交者补充的额外信息，请在评估时参考：\n\n' + extraInfo
@@ -291,8 +300,9 @@ export async function autoMatchFromResume(candidateId) {
 
   const rolesText = activeRoles.map(r => {
     const parts = [`### ${r.name} (ID: ${r.id})`];
-    if (r.description) parts.push(r.description);
+    // Hard fallback: portrait if present, else JD.
     if (r.expected_portrait) parts.push(`**岗位画像：**\n${r.expected_portrait}`);
+    else if (r.description) parts.push(r.description);
     return parts.join('\n');
   }).join('\n\n---\n\n');
 
@@ -332,6 +342,78 @@ ${rolesText}
   updateCandidate(candidateId, { role_id: parsed.role_id });
   console.log(`[recruit] Auto-match: candidate #${candidateId} → "${parsed.role_name}" (ID: ${parsed.role_id}): ${parsed.reason}`);
   return parsed;
+}
+
+/**
+ * Rank all active roles for a candidate based on their resume content.
+ * Unlike autoMatchFromResume (single best match, auto-assigns), this returns
+ * a ranked list with scores so the UI can let the user pick. No role_id change.
+ * @param {number} candidateId
+ * @returns {Promise<Array<{role_id, role_name, score, reason}>>}
+ */
+export async function rankRolesFromResume(candidateId) {
+  const candidate = getCandidate(candidateId);
+  if (!candidate) throw new Error('candidate not found');
+  if (!candidate.resume_path) throw new Error('no resume uploaded');
+
+  const resumeAbsPath = path.resolve(RESUMES_DIR, candidate.resume_path);
+  if (!fs.existsSync(resumeAbsPath)) throw new Error('resume file missing on disk');
+
+  const activeRoles = listRoles({ companyId: candidate.company_id, active: true });
+  if (activeRoles.length === 0) throw new Error('没有活跃的岗位可供匹配');
+
+  const rolesText = activeRoles.map((r, i) => {
+    const parts = [`### 岗位 ${i + 1}: ${r.name} (ID: ${r.id})`];
+    // Hard fallback: portrait if present, else JD.
+    if (r.expected_portrait) parts.push(`**岗位画像：**\n${r.expected_portrait}`);
+    else if (r.description) parts.push(r.description);
+    return parts.join('\n');
+  }).join('\n\n---\n\n');
+
+  const prompt = `你是一位资深招聘专家。请阅读以下简历文件，并与所有可匹配的岗位逐一比对，给出匹配度评分和原因。
+
+请先使用 Read 工具阅读简历文件：${resumeAbsPath}
+
+## 可匹配的岗位
+
+${rolesText}
+
+---
+
+请对**每一个**岗位都给出评估结果，按匹配度从高到低排序，以 JSON 格式输出（外层用 matches 字段包裹数组）：
+{"matches": [{"role_id": <数字>, "role_name": "<岗位名称>", "score": <0-100 整数>, "reason": "<一句话说明匹配/不匹配原因>"}]}
+
+只输出 JSON，不要其他文字。`;
+
+  console.log(`[recruit] Rank roles from resume: candidate #${candidateId} against ${activeRoles.length} active roles...`);
+  const { text } = await runCli(prompt, 'auto_match');
+
+  let parsed;
+  try {
+    parsed = parseAiResponse(text);
+  } catch (err) {
+    console.warn(`[recruit] Rank-roles-from-resume: parse failed (${err.message}), raw output (first 500 chars): ${typeof text === 'string' ? text.slice(0, 500) : `<non-string: ${typeof text}>`}`);
+    throw err;
+  }
+
+  const matches = Array.isArray(parsed) ? parsed : parsed.matches;
+  if (!Array.isArray(matches)) {
+    throw new Error('AI response missing matches array');
+  }
+
+  // Validate each match — drop entries with invalid role_id, patch role_name from DB
+  const roleById = new Map(activeRoles.map(r => [r.id, r]));
+  const validated = matches
+    .filter(m => roleById.has(Number(m.role_id)))
+    .map(m => ({
+      role_id: Number(m.role_id),
+      role_name: roleById.get(Number(m.role_id)).name,
+      score: Number(m.score) || 0,
+      reason: String(m.reason || ''),
+    }));
+
+  console.log(`[recruit] Rank roles: candidate #${candidateId} — ${validated.length} valid results`);
+  return validated;
 }
 
 /**
