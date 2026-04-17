@@ -7,6 +7,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { jsonrepair } from 'jsonrepair';
 import { getCandidate, getRole, getCompany, addEvaluation, updateCandidate, listRoles } from './db.js';
 import { RESUMES_DIR, getConfig, resolveAiConfig } from './config.js';
 import {
@@ -109,17 +110,22 @@ async function runCli(prompt, scenario = 'resume_eval') {
 }
 
 function parseAiResponse(text) {
-  // Extract JSON from CLI output (may contain markdown code blocks or other text)
-  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (jsonMatch) {
-    return JSON.parse(jsonMatch[1].trim());
+  if (typeof text !== 'string') {
+    throw new Error(`parseAiResponse expected string, got ${typeof text}`);
   }
-  // Try to find a raw JSON object
-  const braceMatch = text.match(/\{[\s\S]*\}/);
-  if (braceMatch) {
-    return JSON.parse(braceMatch[0]);
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const brace = text.match(/\{[\s\S]*\}/);
+  const candidate = (fence ? fence[1] : brace ? brace[0] : null)?.trim();
+  if (!candidate) throw new Error('Failed to parse AI response as JSON');
+  try {
+    return JSON.parse(candidate);
+  } catch (strictErr) {
+    try {
+      return JSON.parse(jsonrepair(candidate));
+    } catch {
+      throw strictErr;
+    }
   }
-  throw new Error('Failed to parse AI response as JSON');
 }
 
 const JSON_SCHEMA = `{
@@ -135,17 +141,15 @@ const JSON_SCHEMA = `{
 /**
  * Repair malformed AI response using a lightweight model via the gateway.
  */
-async function repairAiResponse(rawText) {
+async function repairAiResponse(rawText, scenario = 'resume_eval') {
   const repairPrompt = `You are a JSON formatter. The following is an AI evaluation output that failed to parse as JSON. Extract the information and return ONLY a valid JSON object matching this schema:\n\n${JSON_SCHEMA}\n\nRaw AI output:\n\n${rawText}\n\nReturn ONLY the JSON object, no markdown, no explanation.`;
 
-  // Use the default runtime with a lightweight model
-  const { adapter } = gwResolve('resume_eval');
-  const repairModel = adapter.name === 'codex' ? 'gpt-5.3-codex' :
-                      adapter.name === 'chatgpt' ? 'gpt-5.3-codex' :
-                      adapter.name === 'gemini' ? 'gemini-2.5-flash' : 'haiku';
-
-  console.log(`[recruit] AI response repair: using ${adapter.name}/${repairModel}...`);
-  const text = await adapter.call(repairPrompt, { model: repairModel, effort: 'low' });
+  // Follow the scenario's selected model for repair — matching capability is more
+  // reliable than dropping to a lightweight model, which tends to echo dirty input.
+  const { runtimeName, model, effort } = gwResolve(scenario);
+  console.log(`[recruit] AI response repair: using ${runtimeName}/${model} (effort=${effort})...`);
+  const { text } = await gwCall(scenario, repairPrompt, { overrides: { runtime: runtimeName, model, effort } });
+  console.log(`[recruit] AI response repair: raw output (first 500 chars): ${typeof text === 'string' ? text.slice(0, 500) : `<non-string: ${typeof text}>`}`);
   return parseAiResponse(text);
 }
 
@@ -311,11 +315,11 @@ ${rolesText}
   const { text } = await runCli(prompt, 'auto_match');
 
   let parsed;
-  const jsonMatch = text.match(/\{[\s\S]*?\}/);
-  if (jsonMatch) {
-    parsed = JSON.parse(jsonMatch[0]);
-  } else {
-    throw new Error('Failed to parse auto-match response');
+  try {
+    parsed = parseAiResponse(text);
+  } catch (err) {
+    console.warn(`[recruit] Auto-match-resume: parse failed (${err.message}), raw output (first 500 chars): ${typeof text === 'string' ? text.slice(0, 500) : `<non-string: ${typeof text}>`}`);
+    throw err;
   }
 
   // Validate — fall back to first active role if AI returned invalid ID
