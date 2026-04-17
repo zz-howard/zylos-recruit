@@ -1585,7 +1585,17 @@
       return;
     }
 
+    var selectableIds = interviews.filter(function (iv) {
+      return iv.status === 'completed' || (iv.message_count || 0) > 0;
+    }).map(function (iv) { return iv.id; });
+
     var html = '';
+    if (selectableIds.length > 1) {
+      var allChecked = selectableIds.every(function (id) { return selectedInterviewIds.has(id); });
+      html += '<div class="interview-select-all">' +
+        '<input type="checkbox" id="interview-select-all-cb"' + (allChecked ? ' checked' : '') + '>' +
+        '<label for="interview-select-all-cb">全选</label></div>';
+    }
     interviews.forEach(function (iv) {
       var statusClass = iv.status === 'active' ? 'active' : 'completed';
       var statusLabel = iv.status === 'active' ? '进行中' : '已完成';
@@ -1631,6 +1641,21 @@
 
     container.innerHTML = html;
 
+    // Bind select-all
+    var selectAllCb = document.getElementById('interview-select-all-cb');
+    if (selectAllCb) {
+      selectAllCb.addEventListener('change', function () {
+        var checked = selectAllCb.checked;
+        selectableIds.forEach(function (id) {
+          if (checked) { selectedInterviewIds.add(id); } else { selectedInterviewIds.delete(id); }
+        });
+        container.querySelectorAll('.interview-checkbox').forEach(function (cb) {
+          cb.checked = checked;
+        });
+        updateGenerateBtn();
+      });
+    }
+
     // Bind checkbox events
     container.querySelectorAll('.interview-checkbox').forEach(function (cb) {
       cb.addEventListener('change', function () {
@@ -1639,6 +1664,10 @@
           selectedInterviewIds.add(id);
         } else {
           selectedInterviewIds.delete(id);
+        }
+        // Sync select-all state
+        if (selectAllCb) {
+          selectAllCb.checked = selectableIds.every(function (sid) { return selectedInterviewIds.has(sid); });
         }
         updateGenerateBtn();
       });
@@ -1755,13 +1784,22 @@
       btnGenerate.disabled = true;
       btnGenerate.textContent = '正在生成...';
 
+      openModal('<div class="portrait-loading">' +
+        '<div class="portrait-loading-spinner"></div>' +
+        '<div class="portrait-loading-text">正在分析 ' + ids.length + ' 份访谈，生成岗位画像…</div>' +
+        '<div class="portrait-loading-hint">通常需要 30-60 秒</div>' +
+        '</div>');
+
       api('POST', '/internal-interviews/generate-portrait', { interview_ids: ids })
         .then(function (r) {
           btnGenerate.disabled = false;
           updateGenerateBtn();
-          showPortraitResult(r.portrait, r.suggested_name);
+          var portraits = r.portraits || [];
+          if (!portraits.length) { closeModal(); toast('生成结果为空', 'error'); return; }
+          showPortraitResult(portraits);
         })
         .catch(function (err) {
+          closeModal();
           btnGenerate.disabled = false;
           updateGenerateBtn();
           toast('生成失败: ' + err.message, 'error');
@@ -1769,37 +1807,89 @@
     });
   }
 
-  function showPortraitResult(portrait, suggestedName) {
-    var html = '<div class="form-dialog" style="max-width:800px">' +
-      '<h2>岗位画像建议</h2>' +
-      '<div class="field"><label>岗位名称</label>' +
-      '<input type="text" id="portrait-role-name" value="' + escapeHtml(suggestedName) + '" placeholder="输入岗位名称"></div>' +
-      '<div class="field"><label>岗位画像（Expected Portrait）</label>' +
-      '<textarea id="portrait-content" rows="20" style="font-size:13px;line-height:1.6">' + escapeHtml(portrait) + '</textarea></div>' +
-      '<div class="actions">' +
-      '<button class="btn" id="portrait-cancel">取消</button>' +
-      '<button class="btn btn-primary" id="portrait-save">收录为新角色</button>' +
+  function showPortraitResult(portraits) {
+    var multi = portraits.length > 1;
+    var tabsHtml = '';
+    var panelsHtml = '';
+    portraits.forEach(function (p, i) {
+      var label = (p.name || '未命名') + (multi ? '' : '');
+      if (multi) {
+        tabsHtml += '<button class="portrait-tab' + (i === 0 ? ' active' : '') + '" data-tab="' + i + '">'
+          + '岗位 ' + (i + 1) + '：' + escapeHtml(p.name || '未命名') + '</button>';
+      }
+      panelsHtml += '<div class="portrait-panel" data-panel="' + i + '"' + (i === 0 ? '' : ' style="display:none"') + '>' +
+        '<div class="field"><label>岗位名称</label>' +
+        '<input type="text" class="portrait-role-name" value="' + escapeHtml(p.name || '') + '" placeholder="输入岗位名称"></div>' +
+        '<div class="field"><label>岗位画像（Expected Portrait）</label>' +
+        '<textarea class="portrait-content" rows="18" style="font-size:13px;line-height:1.6">' + escapeHtml(p.portrait || '') + '</textarea></div>' +
+        '<div class="actions" style="justify-content:flex-end">' +
+        '<button class="btn btn-primary portrait-save" data-idx="' + i + '">收录为新角色</button>' +
+        '</div></div>';
+    });
+
+    var headerHint = multi
+      ? '<div class="meta" style="margin-bottom:10px">AI 判断访谈涉及多个岗位，已拆成 ' + portraits.length + ' 份画像，请逐个确认并收录。</div>'
+      : '';
+    var tabsBar = multi
+      ? '<div class="portrait-tabs" style="display:flex;gap:6px;border-bottom:1px solid #e5e7eb;margin-bottom:12px;flex-wrap:wrap">' + tabsHtml + '</div>'
+      : '';
+
+    var html = '<div class="form-dialog" style="max-width:820px">' +
+      '<h2>岗位画像建议' + (multi ? '（' + portraits.length + ' 个岗位）' : '') + '</h2>' +
+      headerHint +
+      tabsBar +
+      '<div class="portrait-panels">' + panelsHtml + '</div>' +
+      '<div class="actions" style="margin-top:12px">' +
+      '<button class="btn" id="portrait-cancel">关闭</button>' +
       '</div></div>';
 
     openModal(html);
 
     document.getElementById('portrait-cancel').addEventListener('click', closeModal);
-    document.getElementById('portrait-save').addEventListener('click', function () {
-      var roleName = document.getElementById('portrait-role-name').value.trim();
-      var content = document.getElementById('portrait-content').value.trim();
-      if (!roleName) { toast('请输入岗位名称', 'error'); return; }
-      if (!content) { toast('画像内容不能为空', 'error'); return; }
 
-      api('POST', '/roles', {
-        company_id: Number(state.activeCompanyId),
-        name: roleName,
-        expected_portrait: content,
-      }).then(function () {
-        closeModal();
-        toast('已收录为新角色: ' + roleName, 'success');
-        loadRolesAndCandidates();
-      }).catch(function (err) {
-        toast('收录失败: ' + err.message, 'error');
+    var tabs = document.querySelectorAll('.portrait-tab');
+    var panels = document.querySelectorAll('.portrait-panel');
+    tabs.forEach(function (t) {
+      t.addEventListener('click', function () {
+        var idx = t.getAttribute('data-tab');
+        tabs.forEach(function (x) { x.classList.remove('active'); });
+        t.classList.add('active');
+        panels.forEach(function (p) {
+          p.style.display = p.getAttribute('data-panel') === idx ? '' : 'none';
+        });
+      });
+    });
+
+    document.querySelectorAll('.portrait-save').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var idx = btn.getAttribute('data-idx');
+        var panel = document.querySelector('.portrait-panel[data-panel="' + idx + '"]');
+        var roleName = panel.querySelector('.portrait-role-name').value.trim();
+        var content = panel.querySelector('.portrait-content').value.trim();
+        if (!roleName) { toast('请输入岗位名称', 'error'); return; }
+        if (!content) { toast('画像内容不能为空', 'error'); return; }
+
+        btn.disabled = true;
+        btn.textContent = '收录中...';
+        api('POST', '/roles', {
+          company_id: Number(state.activeCompanyId),
+          name: roleName,
+          expected_portrait: content,
+        }).then(function () {
+          toast('已收录为新角色: ' + roleName, 'success');
+          btn.textContent = '已收录 ✓';
+          btn.classList.remove('btn-primary');
+          loadRolesAndCandidates();
+          // Update tab label to reflect saved state
+          if (multi) {
+            var tab = document.querySelector('.portrait-tab[data-tab="' + idx + '"]');
+            if (tab) tab.textContent = tab.textContent + ' ✓';
+          }
+        }).catch(function (err) {
+          btn.disabled = false;
+          btn.textContent = '收录为新角色';
+          toast('收录失败: ' + err.message, 'error');
+        });
       });
     });
   }

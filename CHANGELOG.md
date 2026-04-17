@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-04-17
+
+### Added
+- **Multi-portrait generation.** When internal interviews cover multiple
+  clearly distinct roles, the AI now returns an array of portraits and the
+  suggestion modal renders tabs (one per role). Each tab has its own name
+  input, portrait textarea, and "收录为新角色" button, so the user can save
+  one, some, or all roles in a single session. Single-role case degrades to
+  the previous single-form UI. Conservative split threshold in the prompt
+  prevents over-splitting of one role's different facets.
+
+### Changed
+- `POST /internal-interviews/generate-portrait` response shape:
+  `{ portrait, suggested_name }` → `{ portraits: [{name, portrait}, ...] }`.
+
 ## [0.2.5] - 2026-04-17
 
 ### Added
