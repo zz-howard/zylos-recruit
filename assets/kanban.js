@@ -1787,7 +1787,7 @@
       openModal('<div class="portrait-loading">' +
         '<div class="portrait-loading-spinner"></div>' +
         '<div class="portrait-loading-text">正在分析 ' + ids.length + ' 份访谈，生成岗位画像…</div>' +
-        '<div class="portrait-loading-hint">通常需要 15-30 秒</div>' +
+        '<div class="portrait-loading-hint">通常需要 30-60 秒</div>' +
         '</div>');
 
       api('POST', '/internal-interviews/generate-portrait', { interview_ids: ids })
