@@ -33,6 +33,7 @@
     candidates: [],
     filterRoleId: '',
     selectedCandidate: null,
+    streaming: false, // default; loaded from settings on init
   };
 
   // ─── HTTP helpers ─────────────────────────────────────────────
@@ -165,7 +166,8 @@
     state.roles.forEach(function (r) {
       var opt = document.createElement('option');
       opt.value = String(r.id);
-      opt.textContent = r.name + ' (' + r.candidate_count + ')';
+      var inactiveTag = r.active === 0 ? ' [停用]' : '';
+      opt.textContent = r.name + inactiveTag + ' (' + r.candidate_count + ')';
       sel.appendChild(opt);
     });
     if (cur && !state.roles.some(function (r) { return String(r.id) === cur; })) {
@@ -300,11 +302,14 @@
       + '</div>'
       + '<div class="field"><label>目标岗位</label>'
       +   '<select data-k="role_id">'
-      +     '<option value="">(无)</option>'
       +     state.roles.map(function (r) {
-              return '<option value="' + r.id + '"' + (r.id === c.role_id ? ' selected' : '') + '>' + escapeHtml(r.name) + '</option>';
+              var inactiveTag = r.active === 0 ? ' [停用]' : '';
+              return '<option value="' + r.id + '"' + (r.id === c.role_id ? ' selected' : '') + '>' + escapeHtml(r.name) + inactiveTag + '</option>';
             }).join('')
-      +   '</select></div>'
+      +   '</select>'
+      +   '<button class="btn btn-ghost" id="btn-auto-match" style="margin-top:6px;font-size:12px">智能匹配岗位</button>'
+      +   '<div id="auto-match-results"></div>'
+      + '</div>'
       + inlineField('email', 'Email', c.email)
       + inlineField('phone', 'Phone', c.phone)
       + inlineField('source', 'Source', c.source)
@@ -499,6 +504,57 @@
       });
     }
 
+    // Auto-match button
+    var autoMatchBtn = wrap.querySelector('#btn-auto-match');
+    if (autoMatchBtn) {
+      autoMatchBtn.addEventListener('click', function () {
+        var resultsEl = wrap.querySelector('#auto-match-results');
+        autoMatchBtn.disabled = true;
+        autoMatchBtn.textContent = '匹配中...';
+        resultsEl.innerHTML = '';
+        api('POST', '/candidates/' + c.id + '/auto-match')
+          .then(function (r) {
+            autoMatchBtn.disabled = false;
+            autoMatchBtn.textContent = '智能匹配岗位';
+            if (!r.matches || r.matches.length === 0) {
+              resultsEl.innerHTML = '<div class="meta">未找到匹配的岗位</div>';
+              return;
+            }
+            var html = '<div class="match-results">';
+            r.matches.forEach(function (m) {
+              var scoreClass = m.score >= 70 ? 'high' : (m.score >= 40 ? 'medium' : 'low');
+              html += '<div class="match-item" data-role-id="' + m.role_id + '">'
+                + '<div class="match-score ' + scoreClass + '">' + m.score + '</div>'
+                + '<div class="match-info">'
+                + '<div class="match-name">' + escapeHtml(m.role_name) + '</div>'
+                + '<div class="match-reason">' + escapeHtml(m.reason) + '</div>'
+                + '</div>'
+                + '<button class="match-assign" data-role-id="' + m.role_id + '">分配</button>'
+                + '</div>';
+            });
+            html += '</div>';
+            resultsEl.innerHTML = html;
+            resultsEl.querySelectorAll('.match-assign').forEach(function (btn) {
+              btn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                var rid = btn.dataset.roleId;
+                api('PUT', '/candidates/' + c.id, { role_id: Number(rid) })
+                  .then(function () {
+                    toast('已分配岗位', 'success');
+                    return loadRolesAndCandidates().then(function () { openCandidate(c.id); });
+                  })
+                  .catch(function (err) { toast(err.message, 'error'); });
+              });
+            });
+          })
+          .catch(function (err) {
+            autoMatchBtn.disabled = false;
+            autoMatchBtn.textContent = '智能匹配岗位';
+            toast('匹配失败: ' + err.message, 'error');
+          });
+      });
+    }
+
     // Render PDF with pdf.js
     var pdfViewer = wrap.querySelector('.pdf-viewer');
     if (pdfViewer) {
@@ -619,7 +675,7 @@
         .catch(function (err) { toast(err.message, 'error'); });
     });
 
-    // AI evaluate button
+    // AI evaluate button — streaming (SSE) or polling based on settings
     var aiBtn = wrap.querySelector('#btn-ai-eval');
     if (aiBtn) {
       aiBtn.addEventListener('click', function () {
@@ -627,37 +683,102 @@
         aiBtn.disabled = true;
         aiBtn.textContent = '⏳ 评估中...';
         statusEl.textContent = '';
-        var evalCountBefore = (c.evaluations || []).filter(function (e) { return e.kind === 'resume_ai'; }).length;
-        api('POST', '/candidates/' + c.id + '/ai-evaluate')
-          .then(function () {
-            toast('AI 评估已启动，请稍候...', 'success');
-            // Poll for result every 5s, up to 3 minutes
-            var pollCount = 0;
-            var maxPolls = 36;
-            var pollTimer = setInterval(function () {
-              pollCount++;
-              fetch(API + '/candidates/' + c.id + '?_t=' + Date.now()).then(function (r) { return r.json(); }).then(function (data) {
-                var cand = data.candidate;
-                var currentCount = (cand.evaluations || []).filter(function (e) { return e.kind === 'resume_ai'; }).length;
-                if (currentCount > evalCountBefore || pollCount >= maxPolls) {
-                  clearInterval(pollTimer);
-                  if (currentCount > evalCountBefore) {
-                    toast('AI 评估完成', 'success');
-                  } else {
-                    toast('AI 评估超时，请刷新页面查看', 'warning');
+
+        if (state.streaming) {
+          // ── Streaming mode: real-time SSE ──
+          var streamArea = wrap.querySelector('.ai-stream-output');
+          if (!streamArea) {
+            streamArea = document.createElement('pre');
+            streamArea.className = 'ai-stream-output';
+            statusEl.parentNode.insertBefore(streamArea, statusEl.nextSibling);
+          }
+          streamArea.textContent = '';
+          streamArea.style.display = 'block';
+
+          fetch(API + '/candidates/' + c.id + '/ai-evaluate/stream', { method: 'POST' })
+            .then(function (response) {
+              if (!response.ok) {
+                return response.json().catch(function () { return { error: response.statusText }; })
+                  .then(function (err) { throw new Error(err.error || ('HTTP ' + response.status)); });
+              }
+              var reader = response.body.getReader();
+              var decoder = new TextDecoder();
+              var buf = '';
+
+              function pump() {
+                return reader.read().then(function (result) {
+                  if (result.done) return;
+                  buf += decoder.decode(result.value, { stream: true });
+                  var parts = buf.split('\n\n');
+                  buf = parts.pop();
+                  parts.forEach(function (part) {
+                    var line = part.trim();
+                    if (!line.startsWith('data: ')) return;
+                    var evt;
+                    try { evt = JSON.parse(line.substring(6)); } catch (_) { return; }
+                    if (evt.type === 'chunk') {
+                      streamArea.textContent += evt.text;
+                      streamArea.scrollTop = streamArea.scrollHeight;
+                    } else if (evt.type === 'status') {
+                      statusEl.textContent = evt.text;
+                    } else if (evt.type === 'done') {
+                      toast('AI 评估完成', 'success');
+                      loadRolesAndCandidates().then(function () { openCandidate(c.id); });
+                    } else if (evt.type === 'error') {
+                      aiBtn.disabled = false;
+                      aiBtn.textContent = '🤖 AI 评估';
+                      statusEl.textContent = '❌ ' + evt.message;
+                      statusEl.className = 'meta error';
+                      streamArea.style.display = 'none';
+                      toast(evt.message, 'error');
+                    }
+                  });
+                  return pump();
+                });
+              }
+              return pump();
+            })
+            .catch(function (err) {
+              aiBtn.disabled = false;
+              aiBtn.textContent = '🤖 AI 评估';
+              statusEl.textContent = '❌ ' + err.message;
+              statusEl.className = 'meta error';
+              streamArea.style.display = 'none';
+              toast(err.message, 'error');
+            });
+        } else {
+          // ── Polling mode: async + poll every 5s ──
+          var evalCountBefore = (c.evaluations || []).filter(function (e) { return e.kind === 'resume_ai'; }).length;
+          api('POST', '/candidates/' + c.id + '/ai-evaluate')
+            .then(function () {
+              toast('AI 评估已启动，请稍候...', 'success');
+              var pollCount = 0;
+              var maxPolls = 36;
+              var pollTimer = setInterval(function () {
+                pollCount++;
+                fetch(API + '/candidates/' + c.id + '?_t=' + Date.now()).then(function (r) { return r.json(); }).then(function (data) {
+                  var cand = data.candidate;
+                  var currentCount = (cand.evaluations || []).filter(function (e) { return e.kind === 'resume_ai'; }).length;
+                  if (currentCount > evalCountBefore || pollCount >= maxPolls) {
+                    clearInterval(pollTimer);
+                    if (currentCount > evalCountBefore) {
+                      toast('AI 评估完成', 'success');
+                    } else {
+                      toast('AI 评估超时，请刷新页面查看', 'warning');
+                    }
+                    loadRolesAndCandidates().then(function () { openCandidate(c.id); });
                   }
-                  loadRolesAndCandidates().then(function () { openCandidate(c.id); });
-                }
-              }).catch(function () {});
-            }, 5000);
-          })
-          .catch(function (err) {
-            aiBtn.disabled = false;
-            aiBtn.textContent = '🤖 AI 评估';
-            statusEl.textContent = '❌ ' + err.message;
-            statusEl.className = 'meta error';
-            toast(err.message, 'error');
-          });
+                }).catch(function () {});
+              }, 5000);
+            })
+            .catch(function (err) {
+              aiBtn.disabled = false;
+              aiBtn.textContent = '🤖 AI 评估';
+              statusEl.textContent = '❌ ' + err.message;
+              statusEl.className = 'meta error';
+              toast(err.message, 'error');
+            });
+        }
       });
     }
 
@@ -761,18 +882,14 @@
       toast('Please create/select a company first', 'error');
       return;
     }
-    if (state.roles.length === 0) {
-      toast('Please create a role first', 'error');
-      return;
-    }
     var wrap = document.createElement('div');
     wrap.className = 'form-dialog';
-    var roleOptions = state.roles.map(function (r) {
+    var roleOptions = '<option value="auto">Auto (自动匹配)</option>' + state.roles.map(function (r) {
       return '<option value="' + r.id + '">' + escapeHtml(r.name) + '</option>';
     }).join('');
     wrap.innerHTML = ''
       + '<h2>New Candidate</h2>'
-      + '<div class="field"><label>Role *</label><select id="f-role">' + roleOptions + '</select></div>'
+      + '<div class="field"><label>Role</label><select id="f-role">' + roleOptions + '</select></div>'
       + '<div class="field"><label>Resume *</label>'
       +   '<div class="drop-zone" id="f-drop-zone">'
       +     '<input type="file" id="f-resume" accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">'
@@ -813,9 +930,9 @@
     wrap.querySelector('#f-cancel').addEventListener('click', closeModal);
     wrap.querySelector('#f-save').addEventListener('click', function () {
       var roleId = wrap.querySelector('#f-role').value;
+      var isAuto = roleId === 'auto';
       var file = wrap.querySelector('#f-resume').files[0];
       var extraInfo = wrap.querySelector('#f-extra-info').value.trim();
-      if (!roleId) { toast('Please select a role', 'error'); return; }
       if (!file) { toast('请上传简历文件（PDF 或 DOCX）', 'error'); return; }
       var btn = wrap.querySelector('#f-save');
       var statusEl = wrap.querySelector('#f-status');
@@ -823,24 +940,30 @@
       btn.textContent = 'Submitting...';
       statusEl.textContent = '';
       // 1) Create candidate (name auto-filled by AI later)
-      var body = {
-        company_id: Number(state.activeCompanyId),
-        role_id: Number(roleId),
-      };
+      var body = { company_id: Number(state.activeCompanyId) };
+      if (!isAuto) body.role_id = Number(roleId);
       if (extraInfo) body.extra_info = extraInfo;
       api('POST', '/candidates', body)
         .then(function (r) {
           var candId = r.candidate.id;
-          statusEl.textContent = 'Uploading resume...';
+          statusEl.textContent = '上传简历中...';
           // 2) Upload resume
           return upload('/candidates/' + candId + '/resume', file).then(function () {
-            statusEl.textContent = 'Starting AI evaluation...';
-            // 3) Auto-trigger AI evaluation
-            return api('POST', '/candidates/' + candId + '/ai-evaluate').then(function () {
-              toast('Submitted — AI evaluation in progress', 'success');
-              closeModal();
-              return loadRolesAndCandidates();
-            });
+            // 3) Auto-match if needed, then AI evaluation
+            if (isAuto) {
+              statusEl.textContent = '自动匹配岗位中...';
+              return api('POST', '/candidates/' + candId + '/auto-match-resume').then(function (match) {
+                statusEl.textContent = '已匹配「' + match.role_name + '」，AI 评估中...';
+                return api('POST', '/candidates/' + candId + '/ai-evaluate');
+              });
+            } else {
+              statusEl.textContent = 'AI 评估中...';
+              return api('POST', '/candidates/' + candId + '/ai-evaluate');
+            }
+          }).then(function () {
+            toast('已提交，AI 评估进行中', 'success');
+            closeModal();
+            return loadRolesAndCandidates();
           });
         })
         .catch(function (err) {
@@ -881,13 +1004,20 @@
         return;
       }
       list.innerHTML = state.roles.map(function (r) {
+        var isActive = r.active !== 0;
+        var badgeClass = isActive ? 'active' : 'inactive';
+        var badgeLabel = isActive ? '活跃' : '停用';
+        var toggleLabel = isActive ? '停用' : '启用';
+        var toggleClass = isActive ? 'btn-ghost' : 'btn-primary';
         return ''
-          + '<div class="company-row" data-id="' + r.id + '">'
+          + '<div class="company-row' + (isActive ? '' : ' role-inactive') + '" data-id="' + r.id + '">'
           +   '<div class="company-row-head">'
           +     '<strong>' + escapeHtml(r.name) + '</strong>'
+          +     '<span class="role-active-badge ' + badgeClass + '">' + badgeLabel + '</span>'
           +     '<span class="meta"> · ' + (r.candidate_count || 0) + ' candidates</span>'
           +   '</div>'
           +   '<div class="company-row-actions">'
+          +     '<button class="btn ' + toggleClass + '" data-act="toggle" style="min-width:48px">' + toggleLabel + '</button>'
           +     '<button class="btn btn-ghost" data-act="edit">Edit</button>'
           +     '<button class="btn btn-ghost" data-act="jd">JD</button>'
           +     '<button class="btn btn-ghost" data-act="portrait">Portrait</button>'
@@ -899,6 +1029,17 @@
 
       list.querySelectorAll('.company-row').forEach(function (row) {
         var id = Number(row.dataset.id);
+        row.querySelector('[data-act="toggle"]').addEventListener('click', function () {
+          var role = state.roles.find(function (r) { return r.id === id; });
+          if (!role) return;
+          var newActive = role.active === 0;
+          api('PUT', '/roles/' + id, { active: newActive })
+            .then(function () {
+              toast(newActive ? '已启用' : '已停用', 'success');
+              return loadRolesAndCandidates().then(rerender);
+            })
+            .catch(function (err) { toast(err.message, 'error'); });
+        });
         row.querySelector('[data-act="edit"]').addEventListener('click', function () {
           openRoleEditor(id);
         });
@@ -1191,90 +1332,142 @@
   function openSettings() {
     var wrap = document.createElement('div');
     wrap.className = 'form-dialog';
-    wrap.innerHTML = ''
-      + '<h2>Settings</h2>'
-      + '<div class="meta">Loading...</div>';
+    wrap.innerHTML = '<h2>Settings</h2><div class="meta">Loading...</div>';
     openModal(wrap);
+
+    var SCENARIOS = [
+      { key: 'resume_eval', label: '简历评估' },
+      { key: 'auto_match', label: '智能匹配' },
+      { key: 'chat', label: '需求访谈' },
+      { key: 'chat_summary', label: '访谈汇总' },
+      { key: 'portrait', label: '岗位画像' },
+    ];
 
     api('GET', '/settings').then(function (r) {
       var ai = r.ai;
+      var raw = ai.raw || {};
+      var defaultModelMap = { claude: 'sonnet', codex: 'gpt-5.4', chatgpt: 'gpt-5.4', gemini: 'gemini-2.5-flash' };
+      var runtimeLabels = { claude: 'Claude CLI', codex: 'Codex CLI', chatgpt: 'ChatGPT (Pro subscription)', gemini: 'Gemini CLI' };
 
-      // Runtime options
-      var runtimeOptions = [{ value: 'auto', label: 'Auto (' + ai.envRuntime + ')' }];
-      ['claude', 'codex', 'gemini'].forEach(function (rt) {
-        var installed = ai.availableRuntimes.indexOf(rt) !== -1;
-        runtimeOptions.push({
-          value: rt,
-          label: rt.charAt(0).toUpperCase() + rt.slice(1) + (installed ? '' : ' (not installed)'),
-          disabled: !installed,
+      function makeRuntimeOptions(selected) {
+        var opts = [{ value: '', label: '跟随默认' }, { value: 'auto', label: 'Auto (' + ai.envRuntime + ')' }];
+        ['claude', 'codex', 'chatgpt', 'gemini'].forEach(function (rt) {
+          var installed = ai.availableRuntimes.indexOf(rt) !== -1;
+          var label = runtimeLabels[rt] || rt;
+          opts.push({ value: rt, label: label + (installed ? '' : ' (not installed)'), disabled: !installed });
         });
-      });
-      var runtimeHtml = runtimeOptions.map(function (o) {
-        return '<option value="' + o.value + '"'
-          + (o.disabled ? ' disabled' : '')
-          + (o.value === ai.runtime ? ' selected' : '')
-          + '>' + escapeHtml(o.label) + '</option>';
-      }).join('');
-
-      // Model options — show models for the effective runtime
-      var effectiveRt = ai.runtime === 'auto' ? ai.envRuntime : ai.runtime;
-      var defaultModelMap = { claude: 'sonnet', codex: 'gpt-5.4', gemini: 'gemini-2.5-flash' };
-      var defaultModel = defaultModelMap[effectiveRt] || 'sonnet';
-      var modelOptions = '<option value="auto"' + (ai.model === 'auto' ? ' selected' : '') + '>Auto (' + defaultModel + ')</option>';
-      var models = ai.validModels[effectiveRt] || [];
-      models.forEach(function (m) {
-        modelOptions += '<option value="' + m + '"' + (ai.model === m ? ' selected' : '') + '>' + escapeHtml(m) + '</option>';
-      });
-
-      // Effort options (per runtime)
-      var effortList = ai.validEfforts[effectiveRt] || ai.validEfforts.claude || [];
-      var effortHtml = effortList.map(function (e) {
-        return '<option value="' + e + '"' + (ai.effort === e ? ' selected' : '') + '>' + e + '</option>';
-      }).join('');
-
-      wrap.innerHTML = ''
-        + '<h2>Settings</h2>'
-        + '<div class="field"><label>Runtime</label>'
-        +   '<select id="f-runtime">' + runtimeHtml + '</select></div>'
-        + '<div class="field"><label>Model</label>'
-        +   '<select id="f-model">' + modelOptions + '</select></div>'
-        + '<div class="field"><label>Thinking Effort</label>'
-        +   '<select id="f-effort">' + effortHtml + '</select></div>'
-        + '<div class="meta">Effective: <strong>' + escapeHtml(ai.effective) + '</strong>'
-        +   ' · Installed: ' + (ai.availableRuntimes.length > 0 ? escapeHtml(ai.availableRuntimes.join(', ')) : 'none')
-        + '</div>'
-        + '<div class="actions">'
-        +   '<button class="btn" id="f-close">Close</button>'
-        +   '<button class="btn btn-primary" id="f-save">Save</button>'
-        + '</div>';
-
-      // Update model and effort dropdowns when runtime changes
-      wrap.querySelector('#f-runtime').addEventListener('change', function () {
-        var rt = this.value;
-        var ert = rt === 'auto' ? ai.envRuntime : rt;
-        var dmMap = { claude: 'sonnet', codex: 'gpt-5.4', gemini: 'gemini-2.5-flash' };
-        var dm = dmMap[ert] || 'sonnet';
-        var ms = ai.validModels[ert] || [];
-        var sel = wrap.querySelector('#f-model');
-        sel.innerHTML = '<option value="auto">Auto (' + dm + ')</option>'
-          + ms.map(function (m) { return '<option value="' + m + '">' + escapeHtml(m) + '</option>'; }).join('');
-        var ef = ai.validEfforts[ert] || [];
-        var efSel = wrap.querySelector('#f-effort');
-        var curEffort = efSel.value;
-        efSel.innerHTML = ef.map(function (e) {
-          return '<option value="' + e + '"' + (e === curEffort ? ' selected' : '') + '>' + e + '</option>';
+        return opts.map(function (o) {
+          return '<option value="' + o.value + '"' + (o.disabled ? ' disabled' : '') + (o.value === selected ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
         }).join('');
+      }
+
+      function makeModelOptions(runtime, selected) {
+        var ert = (!runtime || runtime === 'auto') ? ai.envRuntime : runtime;
+        var dm = defaultModelMap[ert] || 'sonnet';
+        var opts = '<option value=""' + (!selected ? ' selected' : '') + '>跟随默认</option>';
+        opts += '<option value="auto"' + (selected === 'auto' ? ' selected' : '') + '>Auto (' + dm + ')</option>';
+        (ai.validModels[ert] || []).forEach(function (m) {
+          opts += '<option value="' + m + '"' + (selected === m ? ' selected' : '') + '>' + escapeHtml(m) + '</option>';
+        });
+        return opts;
+      }
+
+      function makeEffortOptions(runtime, selected) {
+        var ert = (!runtime || runtime === 'auto') ? ai.envRuntime : runtime;
+        var efList = ai.validEfforts[ert] || ai.validEfforts.claude || [];
+        var opts = '<option value=""' + (!selected ? ' selected' : '') + '>跟随默认</option>';
+        efList.forEach(function (e) {
+          opts += '<option value="' + e + '"' + (selected === e ? ' selected' : '') + '>' + e + '</option>';
+        });
+        return opts;
+      }
+
+      // Default row
+      var defCfg = raw.default || { runtime: raw.runtime || 'auto', model: raw.model || 'auto', effort: raw.effort || 'medium' };
+
+      var html = '<h2>Settings</h2>';
+      html += '<div class="meta" style="margin-bottom:12px;">Installed: ' + escapeHtml(ai.availableRuntimes.join(', ') || 'none') + '</div>';
+
+      // Table header
+      html += '<table class="settings-table" style="width:100%;border-collapse:collapse;font-size:13px;">';
+      html += '<thead><tr><th style="text-align:left;padding:6px 8px;">场景</th><th style="padding:6px 8px;">Runtime</th><th style="padding:6px 8px;">Model</th><th style="padding:6px 8px;">Effort</th></tr></thead>';
+      html += '<tbody>';
+
+      // Default row
+      html += '<tr style="background:var(--bg-secondary,#f5f5f5);font-weight:600;">';
+      html += '<td style="padding:6px 8px;">默认</td>';
+      html += '<td style="padding:4px 4px;"><select data-key="default" data-field="runtime" style="width:100%;">' + makeRuntimeOptions(defCfg.runtime).replace('跟随默认', '—') + '</select></td>';
+      html += '<td style="padding:4px 4px;"><select data-key="default" data-field="model" style="width:100%;">' + makeModelOptions(defCfg.runtime, defCfg.model).replace('跟随默认', '—') + '</select></td>';
+      html += '<td style="padding:4px 4px;"><select data-key="default" data-field="effort" style="width:100%;">' + makeEffortOptions(defCfg.runtime, defCfg.effort).replace('跟随默认', '—') + '</select></td>';
+      html += '</tr>';
+
+      // Scenario rows
+      SCENARIOS.forEach(function (s) {
+        var sCfg = raw[s.key] || {};
+        html += '<tr>';
+        html += '<td style="padding:6px 8px;">' + escapeHtml(s.label) + '</td>';
+        html += '<td style="padding:4px 4px;"><select data-key="' + s.key + '" data-field="runtime" style="width:100%;">' + makeRuntimeOptions(sCfg.runtime || '') + '</select></td>';
+        html += '<td style="padding:4px 4px;"><select data-key="' + s.key + '" data-field="model" style="width:100%;">' + makeModelOptions(sCfg.runtime || defCfg.runtime, sCfg.model || '') + '</select></td>';
+        html += '<td style="padding:4px 4px;"><select data-key="' + s.key + '" data-field="effort" style="width:100%;">' + makeEffortOptions(sCfg.runtime || defCfg.runtime, sCfg.effort || '') + '</select></td>';
+        html += '</tr>';
+      });
+
+      html += '</tbody></table>';
+      html += '<label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;cursor:pointer;">'
+        + '<input type="checkbox" id="f-streaming"' + (ai.streaming !== false ? ' checked' : '') + '>'
+        + '流式输出（实时显示 AI 评估过程）'
+        + '</label>';
+      html += '<div class="actions" style="margin-top:16px;">';
+      html += '<button class="btn" id="f-close">Close</button>';
+      html += '<button class="btn btn-primary" id="f-save">Save</button>';
+      html += '</div>';
+
+      wrap.innerHTML = html;
+
+      // When runtime changes, update model+effort options for that row
+      wrap.querySelectorAll('select[data-field="runtime"]').forEach(function (sel) {
+        sel.addEventListener('change', function () {
+          var key = this.getAttribute('data-key');
+          var rt = this.value || (key !== 'default' ? wrap.querySelector('select[data-key="default"][data-field="runtime"]').value : 'auto');
+          var row = this.closest('tr');
+          var modelSel = row.querySelector('select[data-field="model"]');
+          var effortSel = row.querySelector('select[data-field="effort"]');
+          var curModel = modelSel.value;
+          var curEffort = effortSel.value;
+          modelSel.innerHTML = makeModelOptions(rt, curModel);
+          effortSel.innerHTML = makeEffortOptions(rt, curEffort);
+        });
       });
 
       wrap.querySelector('#f-close').addEventListener('click', closeModal);
       wrap.querySelector('#f-save').addEventListener('click', function () {
-        var payload = {
-          runtime: wrap.querySelector('#f-runtime').value,
-          model: wrap.querySelector('#f-model').value,
-          effort: wrap.querySelector('#f-effort').value,
+        var payload = {};
+
+        // Read default row
+        payload.default = {
+          runtime: wrap.querySelector('select[data-key="default"][data-field="runtime"]').value || 'auto',
+          model: wrap.querySelector('select[data-key="default"][data-field="model"]').value || 'auto',
+          effort: wrap.querySelector('select[data-key="default"][data-field="effort"]').value || 'medium',
         };
+
+        // Read scenario rows — only include non-empty overrides
+        SCENARIOS.forEach(function (s) {
+          var rt = wrap.querySelector('select[data-key="' + s.key + '"][data-field="runtime"]').value;
+          var md = wrap.querySelector('select[data-key="' + s.key + '"][data-field="model"]').value;
+          var ef = wrap.querySelector('select[data-key="' + s.key + '"][data-field="effort"]').value;
+          if (rt || md || ef) {
+            payload[s.key] = {};
+            if (rt) payload[s.key].runtime = rt;
+            if (md) payload[s.key].model = md;
+            if (ef) payload[s.key].effort = ef;
+          }
+        });
+
+        payload.streaming = wrap.querySelector('#f-streaming').checked;
+
         api('PUT', '/settings', { ai: payload })
           .then(function () {
+            state.streaming = payload.streaming;
             toast('Settings saved', 'success');
             closeModal();
           })
@@ -1331,7 +1524,344 @@
     if (hasEvaluating) startBoardPolling();
   };
 
+  // ─── Sidebar Tab Switching ────────────────────────────────────
+
+  var sidebarTabs = document.querySelectorAll('.sidebar-tab');
+  var topbarKanban = document.getElementById('topbar-right-kanban');
+  var topbarInterviews = document.getElementById('topbar-right-interviews');
+  var interviewsView = document.getElementById('interviews-view');
+  var currentTab = 'kanban';
+
+  sidebarTabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      var tabName = tab.dataset.tab;
+      if (tabName === currentTab) return;
+      currentTab = tabName;
+      sidebarTabs.forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+
+      if (tabName === 'kanban') {
+        board.classList.remove('hidden');
+        interviewsView.classList.add('hidden');
+        topbarKanban.classList.remove('hidden');
+        topbarInterviews.classList.add('hidden');
+      } else if (tabName === 'interviews') {
+        board.classList.add('hidden');
+        interviewsView.classList.remove('hidden');
+        topbarKanban.classList.add('hidden');
+        topbarInterviews.classList.remove('hidden');
+        loadInterviews();
+      }
+    });
+  });
+
+  // ─── Internal Interviews ─────────────────────────────────────
+
+  var interviewsData = [];
+  var selectedInterviewIds = new Set();
+
+  function loadInterviews() {
+    if (!state.activeCompanyId) {
+      interviewsData = [];
+      renderInterviewsList([]);
+      return;
+    }
+    api('GET', '/internal-interviews?company_id=' + state.activeCompanyId)
+      .then(function (r) {
+        interviewsData = r.interviews || [];
+        selectedInterviewIds.clear();
+        renderInterviewsList(interviewsData);
+      })
+      .catch(function (err) {
+        toast('加载访谈列表失败: ' + err.message, 'error');
+      });
+  }
+
+  function renderInterviewsList(interviews) {
+    var container = document.getElementById('interviews-list');
+    if (!interviews || interviews.length === 0) {
+      container.innerHTML = '<div class="interviews-empty">暂无访谈记录，点击右上角"+ 新建访谈"开始</div>';
+      updateGenerateBtn();
+      return;
+    }
+
+    var html = '';
+    interviews.forEach(function (iv) {
+      var statusClass = iv.status === 'active' ? 'active' : 'completed';
+      var statusLabel = iv.status === 'active' ? '进行中' : '已完成';
+      var date = iv.created_at ? new Date(iv.created_at + 'Z').toLocaleString('zh-CN') : '';
+      var msgCount = iv.message_count || 0;
+      var chatUrl = BASE + '/chat/' + iv.token;
+      var checked = selectedInterviewIds.has(iv.id) ? ' checked' : '';
+      var hasContent = iv.status === 'completed' || msgCount > 0;
+
+      html += '<div class="interview-card" data-id="' + iv.id + '">';
+      if (hasContent) {
+        html += '<input type="checkbox" class="interview-checkbox" data-id="' + iv.id + '"' + checked + '>';
+      } else {
+        html += '<div style="width:18px"></div>';
+      }
+      html += '<div class="interview-card-info">';
+      html += '<div class="interview-card-name">' + escapeHtml(iv.interviewee_name) + '</div>';
+      html += '<div class="interview-card-meta">';
+      html += '<span>' + date + '</span>';
+      html += '<span>' + msgCount + ' 条消息</span>';
+      html += '</div>';
+      if (iv.summary) {
+        html += '<div class="interview-summary-preview" id="summary-' + iv.id + '">' + escapeHtml(iv.summary) + '</div>';
+      }
+      html += '</div>';
+      html += '<div class="interview-card-actions">';
+      html += '<span class="interview-status ' + statusClass + '">' + statusLabel + '</span>';
+      if (iv.status === 'active') {
+        html += '<a class="interview-link" href="' + chatUrl + '" target="_blank">打开访谈</a>';
+      }
+      if (iv.summary) {
+        html += '<span class="interview-link btn-view-summary" data-id="' + iv.id + '">查看汇总</span>';
+      } else if (iv.summary_generating) {
+        html += '<span class="interview-link btn-gen-summary generating" data-token="' + iv.token + '" style="color:var(--muted);pointer-events:none">生成中...</span>';
+      } else if (iv.status === 'completed' && msgCount > 0) {
+        html += '<span class="interview-link btn-gen-summary" data-token="' + iv.token + '" style="color:var(--accent)">生成汇总</span>';
+      }
+      html += '<span class="interview-link btn-copy-link" data-url="' + escapeHtml(chatUrl) + '">复制链接</span>';
+      html += '<span class="interview-link btn-delete-interview" style="color:var(--danger)" data-id="' + iv.id + '">删除</span>';
+      html += '</div>';
+      html += '</div>';
+    });
+
+    container.innerHTML = html;
+
+    // Bind checkbox events
+    container.querySelectorAll('.interview-checkbox').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var id = Number(cb.dataset.id);
+        if (cb.checked) {
+          selectedInterviewIds.add(id);
+        } else {
+          selectedInterviewIds.delete(id);
+        }
+        updateGenerateBtn();
+      });
+    });
+
+    // Bind action buttons (CSP blocks inline onclick — use addEventListener)
+    container.querySelectorAll('.btn-view-summary').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var el = document.getElementById('summary-' + btn.dataset.id);
+        if (el) el.classList.toggle('visible');
+      });
+    });
+    container.querySelectorAll('.btn-copy-link').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var fullUrl = window.location.origin + btn.dataset.url;
+        navigator.clipboard.writeText(fullUrl).then(function () {
+          toast('链接已复制', 'success');
+        }).catch(function () {
+          prompt('复制此链接:', fullUrl);
+        });
+      });
+    });
+    container.querySelectorAll('.btn-delete-interview').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = Number(btn.dataset.id);
+        if (!confirm('确认删除此访谈？')) return;
+        api('DELETE', '/internal-interviews/' + id).then(function () {
+          toast('已删除', 'success');
+          loadInterviews();
+        }).catch(function (err) {
+          toast('删除失败: ' + err.message, 'error');
+        });
+      });
+    });
+
+    // Poll helper for summary generation
+    function pollSummary(token, btn) {
+      var pollInterval = setInterval(function () {
+        fetch(BASE + '/api/chat/' + token + '/summary-status')
+          .then(function (r) { return r.json(); })
+          .then(function (s) {
+            if (s.has_summary) {
+              clearInterval(pollInterval);
+              loadInterviews();
+            } else if (!s.generating) {
+              clearInterval(pollInterval);
+              btn.textContent = '生成汇总';
+              btn.style.pointerEvents = '';
+              btn.style.color = 'var(--accent)';
+              btn.classList.remove('generating');
+              toast('汇总生成失败，请重试', 'error');
+            }
+          });
+      }, 3000);
+    }
+
+    // Auto-poll for interviews already generating on page load
+    container.querySelectorAll('.btn-gen-summary.generating').forEach(function (btn) {
+      pollSummary(btn.dataset.token, btn);
+    });
+
+    container.querySelectorAll('.btn-gen-summary:not(.generating)').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var token = btn.dataset.token;
+        btn.textContent = '生成中...';
+        btn.style.pointerEvents = 'none';
+        btn.style.color = 'var(--muted)';
+        btn.classList.add('generating');
+        fetch(BASE + '/api/chat/' + token + '/generate-summary', { method: 'POST' })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.error) {
+              toast('生成失败: ' + data.error, 'error');
+              btn.textContent = '生成汇总';
+              btn.style.pointerEvents = '';
+              btn.style.color = 'var(--accent)';
+              btn.classList.remove('generating');
+            } else {
+              toast('汇总正在后台生成', 'success');
+              pollSummary(token, btn);
+            }
+          })
+          .catch(function (err) {
+            toast('请求失败: ' + err.message, 'error');
+            btn.textContent = '生成汇总';
+            btn.style.pointerEvents = '';
+            btn.style.color = 'var(--accent)';
+            btn.classList.remove('generating');
+          });
+      });
+    });
+
+    updateGenerateBtn();
+  }
+
+  function updateGenerateBtn() {
+    var btn = document.getElementById('btn-generate-portrait');
+    if (!btn) return;
+    var count = selectedInterviewIds.size;
+    if (count > 0) {
+      btn.style.display = '';
+      btn.textContent = '生成岗位画像 (' + count + ')';
+    } else {
+      btn.style.display = 'none';
+    }
+  }
+
+  // Portrait generation
+  var btnGenerate = document.getElementById('btn-generate-portrait');
+  if (btnGenerate) {
+    btnGenerate.addEventListener('click', function () {
+      if (selectedInterviewIds.size === 0) return;
+      var ids = Array.from(selectedInterviewIds);
+      btnGenerate.disabled = true;
+      btnGenerate.textContent = '正在生成...';
+
+      api('POST', '/internal-interviews/generate-portrait', { interview_ids: ids })
+        .then(function (r) {
+          btnGenerate.disabled = false;
+          updateGenerateBtn();
+          showPortraitResult(r.portrait, r.suggested_name);
+        })
+        .catch(function (err) {
+          btnGenerate.disabled = false;
+          updateGenerateBtn();
+          toast('生成失败: ' + err.message, 'error');
+        });
+    });
+  }
+
+  function showPortraitResult(portrait, suggestedName) {
+    var html = '<div class="form-dialog" style="max-width:800px">' +
+      '<h2>岗位画像建议</h2>' +
+      '<div class="field"><label>岗位名称</label>' +
+      '<input type="text" id="portrait-role-name" value="' + escapeHtml(suggestedName) + '" placeholder="输入岗位名称"></div>' +
+      '<div class="field"><label>岗位画像（Expected Portrait）</label>' +
+      '<textarea id="portrait-content" rows="20" style="font-size:13px;line-height:1.6">' + escapeHtml(portrait) + '</textarea></div>' +
+      '<div class="actions">' +
+      '<button class="btn" id="portrait-cancel">取消</button>' +
+      '<button class="btn btn-primary" id="portrait-save">收录为新角色</button>' +
+      '</div></div>';
+
+    openModal(html);
+
+    document.getElementById('portrait-cancel').addEventListener('click', closeModal);
+    document.getElementById('portrait-save').addEventListener('click', function () {
+      var roleName = document.getElementById('portrait-role-name').value.trim();
+      var content = document.getElementById('portrait-content').value.trim();
+      if (!roleName) { toast('请输入岗位名称', 'error'); return; }
+      if (!content) { toast('画像内容不能为空', 'error'); return; }
+
+      api('POST', '/roles', {
+        company_id: Number(state.activeCompanyId),
+        name: roleName,
+        expected_portrait: content,
+      }).then(function () {
+        closeModal();
+        toast('已收录为新角色: ' + roleName, 'success');
+        loadRolesAndCandidates();
+      }).catch(function (err) {
+        toast('收录失败: ' + err.message, 'error');
+      });
+    });
+  }
+
+
+  // New interview
+  var btnNewInterview = document.getElementById('btn-new-interview');
+  if (btnNewInterview) {
+    btnNewInterview.addEventListener('click', function () {
+      if (!state.activeCompanyId) {
+        toast('请先选择一家公司', 'error');
+        return;
+      }
+      showNewInterviewDialog();
+    });
+  }
+
+  function showNewInterviewDialog() {
+    var html = '<div class="form-dialog">' +
+      '<h2>新建需求访谈</h2>' +
+      '<div class="field"><label>被访谈人姓名</label>' +
+      '<input type="text" id="ii-name" placeholder="例：Kevin" autofocus></div>' +
+      '<div class="actions">' +
+      '<button class="btn" id="ii-cancel">取消</button>' +
+      '<button class="btn btn-primary" id="ii-create">创建</button>' +
+      '</div></div>';
+
+    openModal(html);
+
+    document.getElementById('ii-cancel').addEventListener('click', closeModal);
+    document.getElementById('ii-create').addEventListener('click', function () {
+      var name = document.getElementById('ii-name').value.trim();
+      if (!name) { toast('请输入姓名', 'error'); return; }
+
+      api('POST', '/internal-interviews', {
+        company_id: Number(state.activeCompanyId),
+        interviewee_name: name,
+      }).then(function (r) {
+        closeModal();
+        toast('访谈已创建', 'success');
+        loadInterviews();
+        var chatUrl = BASE + '/chat/' + r.interview.token;
+        window.open(chatUrl, '_blank');
+      }).catch(function (err) {
+        toast('创建失败: ' + err.message, 'error');
+      });
+    });
+
+    document.getElementById('ii-name').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('ii-create').click();
+      }
+    });
+  }
+
   // ─── Go ──────────────────────────────────────────────────────
+
+  // Load streaming preference from settings
+  api('GET', '/settings').then(function (r) {
+    state.streaming = r.ai.streaming !== false;
+  }).catch(function () {});
 
   loadAll().then(function () {
     if (state.companies.length === 0) {

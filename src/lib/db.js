@@ -2,12 +2,14 @@
  * SQLite database layer for zylos-recruit.
  *
  * Tables:
- *   companies          — companies being recruited for (first-level entity)
- *   company_profiles   — versioned markdown company background
- *   roles              — job roles, scoped to a company (description=JD, expected_portrait=internal hiring criteria)
- *   role_profiles      — versioned expected_portrait history per role
- *   candidates         — individuals (scoped to a company via role.company_id)
- *   evaluations        — AI resume screening + human interview feedback
+ *   companies                   — companies being recruited for (first-level entity)
+ *   company_profiles            — versioned markdown company background
+ *   roles                       — job roles, scoped to a company (description=JD, expected_portrait=internal hiring criteria)
+ *   role_profiles               — versioned expected_portrait history per role
+ *   candidates                  — individuals (scoped to a company via role.company_id)
+ *   evaluations                 — AI resume screening + human interview feedback
+ *   internal_interviews         — internal stakeholder interviews for building role portraits
+ *   internal_interview_messages — chat messages within an internal interview session
  *
  * Candidate state machine:
  *   pending → scheduled → interviewed → passed | rejected
@@ -106,6 +108,35 @@ function initSchema(db) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_evals_candidate ON evaluations(candidate_id);
+
+    CREATE TABLE IF NOT EXISTS internal_interviews (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      company_id        INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      interviewee_name  TEXT NOT NULL,
+      token             TEXT NOT NULL UNIQUE,
+      status            TEXT NOT NULL DEFAULT 'active'
+                        CHECK (status IN ('active','completed')),
+      runtime_type      TEXT,
+      model             TEXT,
+      effort            TEXT,
+      session_id        TEXT,
+      summary           TEXT,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at      TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ii_company ON internal_interviews(company_id);
+    CREATE INDEX IF NOT EXISTS idx_ii_token   ON internal_interviews(token);
+
+    CREATE TABLE IF NOT EXISTS internal_interview_messages (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      interview_id    INTEGER NOT NULL REFERENCES internal_interviews(id) ON DELETE CASCADE,
+      role            TEXT NOT NULL CHECK (role IN ('user','assistant')),
+      content         TEXT NOT NULL,
+      created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_iim_interview ON internal_interview_messages(interview_id);
   `);
 }
 
@@ -172,6 +203,19 @@ function migrateFromV021(db) {
   // Add extra_info to candidates (v0.2.5)
   if (!columnExists('candidates', 'extra_info')) {
     db.exec('ALTER TABLE candidates ADD COLUMN extra_info TEXT');
+  }
+
+  // Add active column to roles (v0.3.0 — internal interviews feature)
+  if (!columnExists('roles', 'active')) {
+    db.exec('ALTER TABLE roles ADD COLUMN active INTEGER NOT NULL DEFAULT 1');
+  }
+
+  // Add model + effort to internal_interviews (v0.2.5 — lock AI config at creation)
+  if (tableExists('internal_interviews') && !columnExists('internal_interviews', 'model')) {
+    db.exec('ALTER TABLE internal_interviews ADD COLUMN model TEXT');
+  }
+  if (tableExists('internal_interviews') && !columnExists('internal_interviews', 'effort')) {
+    db.exec('ALTER TABLE internal_interviews ADD COLUMN effort TEXT');
   }
 
   // Add expected_portrait to roles, migrate eval_prompt content → expected_portrait (v0.2.4)
@@ -250,10 +294,11 @@ export function deleteCompany(id) {
 
 // ─── Roles ────────────────────────────────────────────────────────────
 
-export function listRoles({ companyId } = {}) {
+export function listRoles({ companyId, active } = {}) {
   const where = [];
   const params = [];
   if (companyId) { where.push('r.company_id = ?'); params.push(companyId); }
+  if (active !== undefined) { where.push('r.active = ?'); params.push(active ? 1 : 0); }
   const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
   return getDb().prepare(`
     SELECT r.*, (
@@ -281,7 +326,7 @@ export function createRole({ companyId, name, description, expected_portrait }) 
   return getRole(info.lastInsertRowid);
 }
 
-export function updateRole(id, { name, description, expected_portrait, eval_prompt }) {
+export function updateRole(id, { name, description, expected_portrait, eval_prompt, active }) {
   const fields = [];
   const params = [];
   if (typeof name === 'string') { fields.push('name = ?'); params.push(name); }
@@ -291,6 +336,7 @@ export function updateRole(id, { name, description, expected_portrait, eval_prom
   }
   if (expected_portrait !== undefined) { fields.push('expected_portrait = ?'); params.push(expected_portrait || null); }
   if (eval_prompt !== undefined) { fields.push('eval_prompt = ?'); params.push(eval_prompt || null); }
+  if (active !== undefined) { fields.push('active = ?'); params.push(active ? 1 : 0); }
   if (fields.length === 0) return getRole(id);
   fields.push(`updated_at = datetime('now')`);
   params.push(id);
@@ -423,4 +469,77 @@ export function addEvaluation(candidateId, { kind, author, verdict, content, met
 
 export function deleteCandidate(id) {
   getDb().prepare('DELETE FROM candidates WHERE id = ?').run(id);
+}
+
+// ─── Internal Interviews ─────────────────────────────────────────────
+
+export function listInternalInterviews({ companyId, status, limit = 20, offset = 0 } = {}) {
+  const where = [];
+  const params = [];
+  if (companyId) { where.push('ii.company_id = ?'); params.push(companyId); }
+  if (status) { where.push('ii.status = ?'); params.push(status); }
+  const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const rows = getDb().prepare(`
+    SELECT ii.*, (
+      SELECT COUNT(*) FROM internal_interview_messages m WHERE m.interview_id = ii.id
+    ) AS message_count
+    FROM internal_interviews ii
+    ${whereClause}
+    ORDER BY ii.created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(...params, limit, offset);
+  const total = getDb().prepare(`
+    SELECT COUNT(*) AS cnt FROM internal_interviews ii ${whereClause}
+  `).get(...params);
+  return { interviews: rows, total: total.cnt };
+}
+
+export function getInternalInterview(id) {
+  return getDb().prepare('SELECT * FROM internal_interviews WHERE id = ?').get(id);
+}
+
+export function getInternalInterviewByToken(token) {
+  return getDb().prepare('SELECT * FROM internal_interviews WHERE token = ?').get(token);
+}
+
+export function createInternalInterview({ companyId, intervieweeName, token, runtimeType, model, effort }) {
+  const info = getDb().prepare(`
+    INSERT INTO internal_interviews (company_id, interviewee_name, token, runtime_type, model, effort)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(companyId, intervieweeName, token, runtimeType || null, model || null, effort || null);
+  return getInternalInterview(info.lastInsertRowid);
+}
+
+export function updateInternalInterview(id, updates) {
+  const fields = [];
+  const params = [];
+  if (updates.status !== undefined) { fields.push('status = ?'); params.push(updates.status); }
+  if (updates.runtime_type !== undefined) { fields.push('runtime_type = ?'); params.push(updates.runtime_type); }
+  if (updates.model !== undefined) { fields.push('model = ?'); params.push(updates.model); }
+  if (updates.effort !== undefined) { fields.push('effort = ?'); params.push(updates.effort); }
+  if (updates.session_id !== undefined) { fields.push('session_id = ?'); params.push(updates.session_id); }
+  if (updates.summary !== undefined) { fields.push('summary = ?'); params.push(updates.summary); }
+  if (updates.completed_at !== undefined) { fields.push('completed_at = ?'); params.push(updates.completed_at); }
+  if (fields.length === 0) return getInternalInterview(id);
+  params.push(id);
+  getDb().prepare(`UPDATE internal_interviews SET ${fields.join(', ')} WHERE id = ?`).run(...params);
+  return getInternalInterview(id);
+}
+
+export function deleteInternalInterview(id) {
+  getDb().prepare('DELETE FROM internal_interviews WHERE id = ?').run(id);
+}
+
+// ─── Internal Interview Messages ─────────────────────────────────────
+
+export function listInterviewMessages(interviewId) {
+  return getDb().prepare(`
+    SELECT * FROM internal_interview_messages WHERE interview_id = ? ORDER BY created_at ASC
+  `).all(interviewId);
+}
+
+export function addInterviewMessage(interviewId, { role, content }) {
+  getDb().prepare(`
+    INSERT INTO internal_interview_messages (interview_id, role, content) VALUES (?, ?, ?)
+  `).run(interviewId, role, content);
 }

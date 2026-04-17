@@ -307,7 +307,8 @@ export function setupAuth(app, authConfig, baseUrl) {
   app.use((req, res, next) => {
     if (!authConfig.enabled || !authConfig.password) return next();
 
-    if (req.path.startsWith('/_assets') || req.path === '/login' || req.path === '/logout') {
+    if (req.path.startsWith('/_assets') || req.path === '/login' || req.path === '/logout'
+        || req.path.startsWith('/chat/') || req.path.startsWith('/api/chat/')) {
       return next();
     }
 

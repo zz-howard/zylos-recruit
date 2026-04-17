@@ -1,12 +1,163 @@
 /* zylos-recruit · Kanban board — v2 Modern */
 
+/* ─── App layout with sidebar ─── */
+.app-layout {
+  display: flex;
+  height: calc(100vh - 56px);
+  overflow: hidden;
+}
+.sidebar {
+  width: 64px;
+  background: var(--bg-alt);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 12px;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.sidebar-tab {
+  width: 52px;
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 500;
+  transition: all var(--transition);
+  user-select: none;
+}
+.sidebar-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.sidebar-tab.active {
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+.sidebar-tab svg {
+  width: 20px;
+  height: 20px;
+}
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .board {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 14px;
   padding: 18px 20px;
-  min-height: calc(100vh - 60px);
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
 }
+
+/* ─── Interviews view ─── */
+.interviews-view {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+.interviews-view.hidden { display: none; }
+.interviews-list {
+  max-width: 800px;
+}
+.interview-card {
+  display: flex;
+  align-items: center;
+  padding: 14px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  transition: all var(--transition);
+  gap: 12px;
+}
+.interview-checkbox {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+.interview-card:hover {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-sm);
+}
+.interview-card-info {
+  flex: 1;
+  min-width: 0;
+}
+.interview-card-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+.interview-card-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  display: flex;
+  gap: 10px;
+}
+.interview-card-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.interview-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.interview-status.active { background: rgba(34,197,94,0.15); color: #22c55e; }
+.interview-status.completed { background: rgba(99,102,241,0.12); color: #6366f1; }
+.interviews-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.interview-link {
+  font-size: 12px;
+  color: var(--link);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  transition: background var(--transition);
+}
+.interview-link:hover {
+  background: var(--bg-hover);
+}
+.interview-summary-preview {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+  display: none;
+}
+.interview-summary-preview.visible { display: block; }
+
+.hidden { display: none !important; }
 
 .col {
   background: var(--bg-alt);
@@ -216,6 +367,22 @@
 .ai-eval {
   background: var(--bg-alt);
   border-radius: var(--radius);
+}
+.ai-stream-output {
+  display: none;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  color: var(--text-secondary, #666);
 }
 .eval-tabs {
   display: flex;
@@ -462,6 +629,72 @@
   margin-top: 18px;
 }
 
+/* ─── Role active/inactive indicators ─── */
+.company-row.role-inactive {
+  opacity: 0.55;
+  border-style: dashed;
+}
+.role-active-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: 6px;
+}
+.role-active-badge.active { background: rgba(34,197,94,0.15); color: #22c55e; }
+.role-active-badge.inactive { background: rgba(156,163,175,0.15); color: #9ca3af; }
+
+/* ─── Auto-match results ─── */
+.match-results {
+  margin-top: 10px;
+}
+.match-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+  transition: border-color var(--transition);
+  cursor: pointer;
+}
+.match-item:hover {
+  border-color: var(--primary);
+  background: var(--primary-glow);
+}
+.match-score {
+  font-size: 18px;
+  font-weight: 700;
+  min-width: 44px;
+  text-align: center;
+  border-radius: var(--radius);
+  padding: 4px 6px;
+}
+.match-score.high { color: #22c55e; }
+.match-score.medium { color: #f59e0b; }
+.match-score.low { color: #ef4444; }
+.match-info { flex: 1; min-width: 0; }
+.match-name { font-weight: 600; font-size: 14px; }
+.match-reason { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.match-assign {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius);
+  border: 1px solid var(--primary);
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  transition: all var(--transition);
+  flex-shrink: 0;
+}
+.match-assign:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
 /* ─── Toast notifications ─── */
 .toast {
   position: fixed;
@@ -495,6 +728,15 @@
   .detail { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
+  .sidebar {
+    width: 48px;
+    padding-top: 8px;
+  }
+  .sidebar-tab {
+    width: 40px;
+    padding: 8px 0;
+  }
+  .sidebar-tab span { display: none; }
   .board {
     display: flex;
     overflow-x: auto;
@@ -528,4 +770,19 @@
     align-items: flex-start;
   }
   .company-row-head { min-width: 0; }
+  .interviews-view { padding: 14px; }
+  .interview-card {
+    flex-wrap: wrap;
+    padding: 12px 14px;
+    gap: 8px;
+  }
+  .interview-card-info {
+    flex: 1 1 0;
+    min-width: calc(100% - 36px);
+  }
+  .interview-card-actions {
+    flex-wrap: wrap;
+    width: 100%;
+    padding-left: 26px;
+  }
 }

@@ -12,7 +12,8 @@ export function rolesRouter() {
     if (!companyId) {
       return res.status(400).json({ error: 'company_id required' });
     }
-    res.json({ roles: listRoles({ companyId }) });
+    const active = req.query.active !== undefined ? req.query.active === '1' : undefined;
+    res.json({ roles: listRoles({ companyId, active }) });
   });
 
   router.post('/', (req, res) => {
@@ -49,7 +50,7 @@ export function rolesRouter() {
   });
 
   router.put('/:id', (req, res) => {
-    const { name, description, expected_portrait, eval_prompt } = req.body || {};
+    const { name, description, expected_portrait, eval_prompt, active } = req.body || {};
     if (name !== undefined && (typeof name !== 'string' || !name.trim())) {
       return res.status(400).json({ error: 'name must be a non-empty string' });
     }
@@ -62,6 +63,7 @@ export function rolesRouter() {
         description: description !== undefined ? (description || null) : undefined,
         expected_portrait,
         eval_prompt,
+        active,
       });
       res.json({ role });
     } catch (err) {

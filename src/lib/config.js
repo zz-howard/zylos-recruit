@@ -32,9 +32,14 @@ export const DEFAULT_CONFIG = {
     max: 120,
   },
   ai: {
-    runtime: 'auto', // 'auto' | 'claude' | 'codex' | 'gemini'
-    model: 'auto',   // 'auto' or specific model name
-    effort: 'high', // claude: low|medium|high|max, codex: none|low|medium|high|xhigh, gemini: N/A
+    default: { runtime: 'auto', model: 'auto', effort: 'medium' },
+    streaming: false, // Stream AI evaluation output in real-time via SSE
+    // Per-scenario overrides (merge onto default):
+    // resume_eval: {},
+    // auto_match: {},
+    // chat: {},
+    // chat_summary: {},
+    // portrait: {},
   },
 };
 
@@ -105,6 +110,31 @@ export function saveConfig(updates) {
   // Reload in memory
   loadConfig();
   return config;
+}
+
+/**
+ * Resolve AI config for a given scenario.
+ * Merges: default ← scenario override ← legacy flat fields (backward compat).
+ * @param {string} scenario - 'resume_eval' | 'auto_match' | 'chat' | 'chat_summary' | 'portrait'
+ * @returns {{ runtime: string, model: string, effort: string }}
+ */
+export function resolveAiConfig(scenario) {
+  const cfg = getConfig();
+  const ai = cfg.ai || {};
+
+  // Support both new nested format and legacy flat format
+  const defaults = ai.default || {
+    runtime: ai.runtime || 'auto',
+    model: ai.model || 'auto',
+    effort: ai.effort || 'medium',
+  };
+  const override = (scenario && ai[scenario]) || {};
+
+  return {
+    runtime: override.runtime || defaults.runtime || 'auto',
+    model: override.model || defaults.model || 'auto',
+    effort: override.effort || defaults.effort || 'medium',
+  };
 }
 
 export function stopWatching() {
