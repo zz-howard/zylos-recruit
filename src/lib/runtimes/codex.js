@@ -8,17 +8,24 @@
  * Session resume: uses --json to capture thread_id from JSONL output,
  * then `codex exec resume <id> <prompt>` on subsequent calls.
  *
- * Defense-in-depth: if bubblewrap (bwrap) is available, wraps codex in a
- * namespace sandbox that masks host secrets (~/.ssh, ~/zylos/.env, etc.)
- * on top of codex's own Landlock sandbox. Prompts include user-controlled
- * content (prompt injection risk), so this extra layer matters.
+ * Filesystem-level safety is provided by sandbox.js in minimalFS mode:
+ * $HOME is tmpfs, only ~/.codex (auth/state) is rw-bound, and caller-
+ * supplied roBinds (e.g. resumes/) are the only readable scenario data.
+ * This sits on top of codex's own Landlock sandbox; prompt injection
+ * that escapes the CLI layer still cannot reach the host filesystem.
  */
 
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { spawnSandboxed } from './sandbox.js';
 
-const CODEX_SANDBOX = { rwBinds: [`${homedir()}/.codex`] };
+function buildSandbox(readOnlyBinds = []) {
+  return {
+    minimalFS: true,
+    rwBinds: [`${homedir()}/.codex`],
+    roBinds: readOnlyBinds,
+  };
+}
 
 /**
  * Parse Codex JSONL output. Returns { text, sessionId }.
@@ -54,7 +61,7 @@ export default {
     } catch { return false; }
   },
 
-  async call(prompt, { model, effort, sessionId }) {
+  async call(prompt, { model, effort, sessionId, readOnlyBinds }) {
     let args;
     if (sessionId) {
       // Resume: `codex exec resume <id> <prompt> --json -c model=...`
@@ -62,6 +69,7 @@ export default {
       args = [
         'exec', 'resume', sessionId, prompt,
         '--json',
+        '--skip-git-repo-check',
         '-c', `model="${model}"`,
         '-c', `model_reasoning_effort=${effort}`,
       ];
@@ -70,6 +78,7 @@ export default {
         'exec',
         '--sandbox', 'read-only',
         '--json',
+        '--skip-git-repo-check',
         '-c', `model="${model}"`,
         '-c', `model_reasoning_effort=${effort}`,
         prompt,
@@ -81,7 +90,7 @@ export default {
       const child = spawnSandboxed('codex', args, {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
-      }, CODEX_SANDBOX);
+      }, buildSandbox(readOnlyBinds));
       let out = '';
       let err = '';
       const timer = setTimeout(() => {
@@ -100,12 +109,13 @@ export default {
     return parseCodexJsonl(stdout);
   },
 
-  async *stream(prompt, { model, effort, sessionId }) {
+  async *stream(prompt, { model, effort, sessionId, readOnlyBinds }) {
     let args;
     if (sessionId) {
       args = [
         'exec', 'resume', sessionId, prompt,
         '--json',
+        '--skip-git-repo-check',
         '-c', `model="${model}"`,
         '-c', `model_reasoning_effort=${effort}`,
       ];
@@ -114,6 +124,7 @@ export default {
         'exec',
         '--sandbox', 'read-only',
         '--json',
+        '--skip-git-repo-check',
         '-c', `model="${model}"`,
         '-c', `model_reasoning_effort=${effort}`,
         prompt,
@@ -121,7 +132,7 @@ export default {
     }
     const env = { ...process.env, NO_COLOR: '1' };
 
-    const child = spawnSandboxed('codex', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, CODEX_SANDBOX);
+    const child = spawnSandboxed('codex', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, buildSandbox(readOnlyBinds));
     let buf = '';
     for await (const chunk of child.stdout) {
       buf += chunk.toString('utf8');
