@@ -1,9 +1,9 @@
 /**
  * ChatGPT runtime adapter.
  *
- * Calls ChatGPT backend Responses API via Codex OAuth token.
+ * Calls ChatGPT backend Responses API via OpenAI Node SDK + Codex OAuth token.
  * Consumes the user's ChatGPT Pro subscription — zero API cost.
- * No CLI available — HTTP only. Cannot read local files.
+ * HTTP only — cannot read local files.
  *
  * Endpoint: https://chatgpt.com/backend-api/codex/responses
  * Auth: Bearer access_token from ~/.codex/auth.json
@@ -13,11 +13,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import OpenAI from 'openai';
+import { fetch as undiciFetch, ProxyAgent } from 'undici';
 
 const execFileAsync = promisify(execFile);
 
 const AUTH_PATH = path.join(process.env.HOME || '/root', '.codex/auth.json');
-const RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses';
+const BASE_URL = 'https://chatgpt.com/backend-api/codex';
 const TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const REFRESH_LEEWAY_SEC = 60 * 60;
@@ -38,18 +40,6 @@ function writeAuthAtomic(auth) {
   const tmp = AUTH_PATH + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(auth, null, 2), { mode: 0o600 });
   fs.renameSync(tmp, AUTH_PATH);
-}
-
-async function curlRaw(url, body, headers = {}) {
-  const args = ['-sS', '-m', '320', url, '-H', 'Content-Type: application/json'];
-  for (const [k, v] of Object.entries(headers)) args.push('-H', `${k}: ${v}`);
-  args.push('-d', typeof body === 'string' ? body : JSON.stringify(body));
-  const { stdout } = await execFileAsync('curl', args, {
-    encoding: 'utf8',
-    timeout: 330_000,
-    maxBuffer: 4 * 1024 * 1024,
-  });
-  return stdout;
 }
 
 async function curlForm(url, form) {
@@ -99,64 +89,53 @@ async function refreshTokenIfNeeded(auth) {
   return updated;
 }
 
-function buildRequestBody(prompt, model, effort) {
-  const body = {
-    model,
-    instructions: 'You are a helpful assistant. Respond in plain text.',
-    input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt }] }],
-    stream: true,
-    store: false,
-  };
-  if (effort && effort !== 'medium') {
-    body.reasoning = { effort };
-  }
-  return body;
+function buildProxiedFetch() {
+  const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+  if (!proxy) return undefined;
+  const dispatcher = new ProxyAgent(proxy);
+  return (url, init) => undiciFetch(url, { ...init, dispatcher });
 }
 
-function buildHeaders(token, accountId) {
-  return {
-    Authorization: `Bearer ${token}`,
-    'chatgpt-account-id': accountId,
-    'OpenAI-Beta': 'responses=experimental',
-    originator: 'codex_cli_rs',
-    Accept: 'text/event-stream',
-  };
-}
-
-async function getTokenAndAccount() {
+async function createClient() {
   let auth = readAuth();
   auth = await refreshTokenIfNeeded(auth);
   const token = auth.tokens.access_token;
   const payload = decodeJwtPayload(token);
   const accountId = payload?.['https://api.openai.com/auth']?.chatgpt_account_id;
   if (!accountId) throw new Error('JWT missing chatgpt_account_id');
-  return { token, accountId };
+
+  const opts = {
+    apiKey: token,
+    baseURL: BASE_URL,
+    defaultHeaders: {
+      'chatgpt-account-id': accountId,
+      originator: 'codex_cli_rs',
+    },
+  };
+
+  const proxiedFetch = buildProxiedFetch();
+  if (proxiedFetch) opts.fetch = proxiedFetch;
+
+  return new OpenAI(opts);
 }
 
-function parseResponsesSSE(body) {
-  const out = [];
-  const errors = [];
-  for (const line of body.split('\n')) {
-    if (!line.startsWith('data:')) continue;
-    const raw = line.slice(5).trim();
-    if (!raw || raw === '[DONE]') continue;
-    let evt;
-    try { evt = JSON.parse(raw); } catch { continue; }
-    if (evt.type === 'response.output_text.delta' && typeof evt.delta === 'string') {
-      out.push(evt.delta);
-    } else if (evt.type === 'response.failed' || evt.type === 'error') {
-      errors.push(JSON.stringify(evt));
-    }
+function buildParams(prompt, model, effort) {
+  const params = {
+    model,
+    instructions: 'You are a helpful assistant. Respond in plain text.',
+    input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }],
+    stream: true,
+    store: false,
+  };
+  if (effort && effort !== 'medium') {
+    params.reasoning = { effort };
   }
-  if (errors.length && !out.length) {
-    throw new Error(`responses failed: ${errors.join(' | ')}`);
-  }
-  return out.join('');
+  return params;
 }
 
 export default {
   name: 'chatgpt',
-  capabilities: ['text'],  // no read_file — HTTP only, no local file access
+  capabilities: ['text'],
   models: ['gpt-5.4', 'gpt-5.3-codex'],
   defaultModel: 'gpt-5.4',
   efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
@@ -169,51 +148,30 @@ export default {
   },
 
   async call(prompt, { model, effort }) {
-    const { token, accountId } = await getTokenAndAccount();
-    const body = buildRequestBody(prompt, model, effort);
-    const headers = buildHeaders(token, accountId);
+    const client = await createClient();
+    const stream = await client.responses.create(buildParams(prompt, model, effort));
 
-    const raw = await curlRaw(RESPONSES_URL, body, headers);
-
-    // Check for JSON error response
-    const trimmed = raw.trimStart();
-    if (trimmed.startsWith('{')) {
-      try {
-        const j = JSON.parse(trimmed);
-        if (j.detail || j.error) throw new Error(`chatgpt error: ${j.detail || JSON.stringify(j.error)}`);
-      } catch (e) { if (e.message.startsWith('chatgpt')) throw e; }
+    let text = '';
+    for await (const event of stream) {
+      if (event.type === 'response.output_text.delta') text += event.delta || '';
+      if (event.type === 'error') {
+        throw new Error(`chatgpt error: ${event.error?.message || JSON.stringify(event)}`);
+      }
     }
-
-    const text = parseResponsesSSE(raw);
-    if (!text) throw new Error(`chatgpt returned empty; raw=${raw.slice(0, 400)}`);
+    if (!text) throw new Error('chatgpt returned empty response');
     return { text: text.trim() };
   },
 
   async *stream(prompt, { model, effort }) {
-    // For now, call() collects full SSE then we yield it.
-    // TODO: true streaming with chunked curl when needed.
-    const { token, accountId } = await getTokenAndAccount();
-    const body = buildRequestBody(prompt, model, effort);
-    const headers = buildHeaders(token, accountId);
+    const client = await createClient();
+    const stream = await client.responses.create(buildParams(prompt, model, effort));
 
-    const raw = await curlRaw(RESPONSES_URL, body, headers);
-    const trimmed = raw.trimStart();
-    if (trimmed.startsWith('{')) {
-      try {
-        const j = JSON.parse(trimmed);
-        if (j.detail || j.error) throw new Error(`chatgpt error: ${j.detail || JSON.stringify(j.error)}`);
-      } catch (e) { if (e.message.startsWith('chatgpt')) throw e; }
-    }
-
-    // Parse SSE and yield deltas
-    for (const line of raw.split('\n')) {
-      if (!line.startsWith('data:')) continue;
-      const data = line.slice(5).trim();
-      if (!data || data === '[DONE]') continue;
-      let evt;
-      try { evt = JSON.parse(data); } catch { continue; }
-      if (evt.type === 'response.output_text.delta' && typeof evt.delta === 'string') {
-        yield evt.delta;
+    for await (const event of stream) {
+      if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
+        yield event.delta;
+      }
+      if (event.type === 'error') {
+        throw new Error(`chatgpt error: ${event.error?.message || JSON.stringify(event)}`);
       }
     }
   },
