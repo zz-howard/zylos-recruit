@@ -90,14 +90,16 @@ export function checkCapability(adapter, required) {
  * @param {string[]} [opts.readOnlyBinds] - extra read-only dirs to expose to the
  *   sandboxed CLI (e.g. resumes dir for read_file scenarios). Adapters running
  *   in bwrap minimalFS mode forward this to the sandbox; others ignore it.
+ * @param {{ systemPrompt: string, messages: Array<{ role: string, content: string }> }} [opts.conversation] -
+ *   structured conversation for HTTP runtimes (chatgpt). CLI runtimes ignore this.
  * @returns {Promise<{ text: string, runtime: string, model: string, effort: string, sessionId?: string }>}
  */
-export async function call(scenario, prompt, { required = ['text'], overrides, sessionId, readOnlyBinds } = {}) {
+export async function call(scenario, prompt, { required = ['text'], overrides, sessionId, readOnlyBinds, conversation } = {}) {
   const { adapter, runtimeName, model, effort } = resolve(scenario, overrides);
   checkCapability(adapter, required);
 
-  console.log(`[recruit] AI call: scenario=${scenario}, runtime=${runtimeName}, model=${model}, effort=${effort}${sessionId ? `, resume=${sessionId.slice(0, 8)}…` : ''}`);
-  const result = await adapter.call(prompt, { model, effort, capabilities: required, sessionId, readOnlyBinds });
+  console.log(`[recruit] AI call: scenario=${scenario}, runtime=${runtimeName}, model=${model}, effort=${effort}${sessionId ? `, resume=${sessionId.slice(0, 8)}…` : ''}${conversation ? `, multi-turn=${conversation.messages.length}msgs` : ''}`);
+  const result = await adapter.call(prompt, { model, effort, capabilities: required, sessionId, readOnlyBinds, conversation });
   return { text: result.text || result, runtime: runtimeName, model, effort, sessionId: result.sessionId };
 }
 
