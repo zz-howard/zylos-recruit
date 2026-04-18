@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-04-18
+
+### Added
+- **Web search and web fetch tools** for ChatGPT runtime. AI-powered interview
+  chats can now search the web (`web_search`) and fetch page content
+  (`web_fetch`) when answering questions that require external information.
+- **SSRF protection stack** (4 new files, 1024 lines): private IP detection,
+  hostname blacklist, DNS pinning, redirect validation, size limits (750KB raw /
+  20K chars extracted), content tagging with random marker IDs for prompt
+  injection prevention, 15-min LRU cache.
+- **Multi-round tool loop**: each round includes full tools; loop continues
+  until the model produces text without tool calls. Max 25 rounds as safety
+  limit — the last round strips tools to force text output.
+- **Parallel web fetch**: multiple URLs within the same round are fetched
+  concurrently via `Promise.all`.
+
+### Changed
+- **ChatGPT adapter migrated from curl to OpenAI Node SDK** (`openai` npm).
+  OAuth token passed as `apiKey`, `baseURL = chatgpt.com/backend-api`.
+- **Native multi-turn conversation** via Responses API `instructions` +
+  role-based `input` array (replaces single concatenated user message).
+- **Prefix cache confirmed working** on HTTP multi-turn mode (91% hit rate).
+- **Usage logging** added: input/output/cached tokens + web_searches/web_fetches
+  count per request.
+
 ## [0.2.6] - 2026-04-17
 
 ### Added
