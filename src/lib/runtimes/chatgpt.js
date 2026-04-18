@@ -216,18 +216,17 @@ function logUsage(usage, webSearchCount, webFetchCount) {
  * Returns a formatted string to inject into the follow-up request.
  */
 async function executeAndFormatFetchResults(functionCalls) {
-  const results = [];
-  for (const fc of functionCalls) {
-    if (fc.name !== 'web_fetch') continue;
-    const params = typeof fc.args === 'string' ? JSON.parse(fc.args) : fc.args;
-    console.log(`[recruit] web_fetch: ${params.url}`);
-    const result = await executeWebFetch(params);
-    if (result.error) {
-      results.push(`[web_fetch ${params.url}]: Error — ${result.error}`);
-    } else {
-      results.push(`[web_fetch ${params.url}]:\n${result.text}`);
-    }
-  }
+  const fetches = functionCalls
+    .filter(fc => fc.name === 'web_fetch')
+    .map(fc => {
+      const params = typeof fc.args === 'string' ? JSON.parse(fc.args) : fc.args;
+      console.log(`[recruit] web_fetch: ${params.url}`);
+      return executeWebFetch(params).then(result => {
+        if (result.error) return `[web_fetch ${params.url}]: Error — ${result.error}`;
+        return `[web_fetch ${params.url}]:\n${result.text}`;
+      });
+    });
+  const results = await Promise.all(fetches);
   return results.join('\n\n');
 }
 
@@ -246,118 +245,106 @@ export default {
   },
 
   async call(prompt, { model, effort, conversation }) {
+    const MAX_ROUNDS = 25;
     const client = await createClient();
     const tools = buildTools();
     const params = buildParams(prompt, model, effort, conversation, tools);
 
-    // Round 1: send request — model may call web_fetch or produce text directly
-    const stream1 = await client.responses.create(params);
-    const result1 = await consumeStream(stream1);
+    let currentInstructions = params.instructions || '';
+    let totalWebSearches = 0;
+    let totalWebFetches = 0;
 
-    const fetchCalls = result1.functionCalls.filter(fc => fc.name === 'web_fetch');
+    for (let round = 1; round <= MAX_ROUNDS; round++) {
+      const isLastRound = round === MAX_ROUNDS;
+      const roundParams = {
+        model,
+        stream: true,
+        store: false,
+        instructions: currentInstructions,
+        input: params.input,
+        tools: isLastRound ? undefined : tools,
+      };
+      if (effort && effort !== 'medium') {
+        roundParams.reasoning = { effort };
+      }
 
-    if (fetchCalls.length === 0) {
-      // No web_fetch calls — return text directly
-      logUsage(result1.usage, result1.webSearchCount, 0);
-      if (!result1.text) throw new Error('chatgpt returned empty response');
-      return { text: result1.text.trim() };
+      const stream = await client.responses.create(round === 1 ? params : roundParams);
+      const result = await consumeStream(stream);
+      totalWebSearches += result.webSearchCount;
+
+      const fetchCalls = result.functionCalls.filter(fc => fc.name === 'web_fetch');
+
+      if (fetchCalls.length === 0 || isLastRound) {
+        logUsage(result.usage, totalWebSearches, totalWebFetches);
+        if (!result.text) throw new Error('chatgpt returned empty response');
+        return { text: result.text.trim() };
+      }
+
+      totalWebFetches += fetchCalls.length;
+      console.log(`[recruit] Round ${round}: ${fetchCalls.length} web_fetch call(s), continuing...`);
+      const fetchContext = await executeAndFormatFetchResults(fetchCalls);
+      currentInstructions += '\n\n' + fetchContext;
     }
-
-    // Round 2: execute web_fetch, inject results, re-request without function tools
-    // (/codex/responses doesn't support multi-round function calling)
-    const fetchContext = await executeAndFormatFetchResults(fetchCalls);
-    const augmentedInstructions = (params.instructions || '') +
-      '\n\nThe following web content was fetched for you. Use it to answer the user\'s question:\n\n' +
-      fetchContext;
-
-    const params2 = {
-      model,
-      stream: true,
-      store: false,
-      instructions: augmentedInstructions,
-      input: params.input,
-      tools: [{ type: 'web_search', search_context_size: 'medium' }],
-    };
-    if (effort && effort !== 'medium') {
-      params2.reasoning = { effort };
-    }
-
-    const stream2 = await client.responses.create(params2);
-    const result2 = await consumeStream(stream2);
-    logUsage(result2.usage, result1.webSearchCount + result2.webSearchCount, fetchCalls.length);
-    if (!result2.text) throw new Error('chatgpt returned empty response');
-    return { text: result2.text.trim() };
   },
 
   async *stream(prompt, { model, effort, conversation }) {
+    const MAX_ROUNDS = 25;
     const client = await createClient();
     const tools = buildTools();
     const params = buildParams(prompt, model, effort, conversation, tools);
 
-    // Round 1: stream response — model may call web_fetch or produce text
-    const apiStream1 = await client.responses.create(params);
-    const functionCalls = [];
-    let currentFnCall = null;
-    let hasText = false;
+    let currentInstructions = params.instructions || '';
 
-    for await (const event of apiStream1) {
-      if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
-        yield event.delta;
-        hasText = true;
-      }
-      if (event.type === 'response.web_search_call.searching') {
-        yield '\n[搜索中...]\n';
-      }
-      if (event.type === 'response.output_item.added' && event.item?.type === 'function_call') {
-        currentFnCall = { id: event.item.id, name: event.item.name, args: '' };
-      }
-      if (event.type === 'response.function_call_arguments.delta') {
-        if (!currentFnCall) currentFnCall = { id: event.item_id, name: '', args: '' };
-        currentFnCall.args += event.delta || '';
-      }
-      if (event.type === 'response.output_item.done' && event.item?.type === 'function_call') {
-        if (currentFnCall) {
-          currentFnCall.name = event.item.name || currentFnCall.name;
-          currentFnCall.args = event.item.arguments || currentFnCall.args;
-          functionCalls.push(currentFnCall);
-          currentFnCall = null;
+    for (let round = 1; round <= MAX_ROUNDS; round++) {
+      const isLastRound = round === MAX_ROUNDS;
+      const roundParams = round === 1 ? params : {
+        model,
+        stream: true,
+        store: false,
+        instructions: currentInstructions,
+        input: params.input,
+        tools: isLastRound ? undefined : tools,
+        ...(effort && effort !== 'medium' ? { reasoning: { effort } } : {}),
+      };
+
+      const apiStream = await client.responses.create(roundParams);
+      const functionCalls = [];
+      let currentFnCall = null;
+
+      for await (const event of apiStream) {
+        if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
+          yield event.delta;
+        }
+        if (event.type === 'response.web_search_call.searching') {
+          yield '\n[搜索中...]\n';
+        }
+        if (event.type === 'response.output_item.added' && event.item?.type === 'function_call') {
+          currentFnCall = { id: event.item.id, name: event.item.name, args: '' };
+        }
+        if (event.type === 'response.function_call_arguments.delta') {
+          if (!currentFnCall) currentFnCall = { id: event.item_id, name: '', args: '' };
+          currentFnCall.args += event.delta || '';
+        }
+        if (event.type === 'response.output_item.done' && event.item?.type === 'function_call') {
+          if (currentFnCall) {
+            currentFnCall.name = event.item.name || currentFnCall.name;
+            currentFnCall.args = event.item.arguments || currentFnCall.args;
+            functionCalls.push(currentFnCall);
+            currentFnCall = null;
+          }
+        }
+        if (event.type === 'error') {
+          throw new Error(`chatgpt error: ${event.error?.message || JSON.stringify(event)}`);
         }
       }
-      if (event.type === 'error') {
-        throw new Error(`chatgpt error: ${event.error?.message || JSON.stringify(event)}`);
-      }
-    }
 
-    const fetchCalls = functionCalls.filter(fc => fc.name === 'web_fetch');
-    if (fetchCalls.length === 0) return;
+      const fetchCalls = functionCalls.filter(fc => fc.name === 'web_fetch');
+      if (fetchCalls.length === 0 || isLastRound) return;
 
-    // Round 2: execute fetches, inject results, re-stream
-    yield '\n[获取网页内容...]\n';
-    const fetchContext = await executeAndFormatFetchResults(fetchCalls);
-    const augmentedInstructions = (params.instructions || '') +
-      '\n\nThe following web content was fetched for you. Use it to answer the user\'s question:\n\n' +
-      fetchContext;
-
-    const params2 = {
-      model,
-      stream: true,
-      store: false,
-      instructions: augmentedInstructions,
-      input: params.input,
-      tools: [{ type: 'web_search', search_context_size: 'medium' }],
-    };
-    if (effort && effort !== 'medium') {
-      params2.reasoning = { effort };
-    }
-
-    const apiStream2 = await client.responses.create(params2);
-    for await (const event of apiStream2) {
-      if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
-        yield event.delta;
-      }
-      if (event.type === 'error') {
-        throw new Error(`chatgpt error: ${event.error?.message || JSON.stringify(event)}`);
-      }
+      console.log(`[recruit] Round ${round}: ${fetchCalls.length} web_fetch call(s), continuing...`);
+      yield '\n[获取网页内容...]\n';
+      const fetchContext = await executeAndFormatFetchResults(fetchCalls);
+      currentInstructions += '\n\n' + fetchContext;
     }
   },
 };
