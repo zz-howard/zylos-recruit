@@ -31,12 +31,14 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@mozilla/readability": "^0.6.0",
     "better-sqlite3": "^11.3.0",
     "deep-chat": "^2.4.2",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "https-proxy-agent": "^9.0.0",
     "jsonrepair": "^3.14.0",
+    "linkedom": "^0.18.12",
     "multer": "^2.1.1",
     "openai": "^6.34.0",
     "undici": "^8.1.0"

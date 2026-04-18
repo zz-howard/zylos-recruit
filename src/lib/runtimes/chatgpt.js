@@ -15,6 +15,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import OpenAI from 'openai';
 import { fetch as undiciFetch, ProxyAgent } from 'undici';
+import { WEB_FETCH_TOOL_DEFINITION, executeWebFetch } from '../tools/web-fetch.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -119,7 +120,7 @@ async function createClient() {
   return new OpenAI(opts);
 }
 
-function buildParams(prompt, model, effort, conversation) {
+function buildParams(prompt, model, effort, conversation, tools) {
   const params = {
     model,
     stream: true,
@@ -141,12 +142,98 @@ function buildParams(prompt, model, effort, conversation) {
   if (effort && effort !== 'medium') {
     params.reasoning = { effort };
   }
+
+  if (tools && tools.length > 0) {
+    params.tools = tools;
+  }
+
   return params;
+}
+
+function buildTools() {
+  return [
+    { type: 'web_search', search_context_size: 'medium' },
+    WEB_FETCH_TOOL_DEFINITION,
+  ];
+}
+
+/**
+ * Consume a streaming response, collecting text and function calls.
+ * /codex/responses returns empty response.output, so we capture function
+ * calls from stream events instead.
+ */
+async function consumeStream(stream) {
+  let text = '';
+  let usage = null;
+  let webSearchCount = 0;
+  const functionCalls = [];
+  let currentFnCall = null;
+
+  for await (const event of stream) {
+    if (event.type === 'response.output_text.delta') {
+      text += event.delta || '';
+    }
+    if (event.type === 'response.web_search_call.completed') {
+      webSearchCount++;
+    }
+    if (event.type === 'response.output_item.added' && event.item?.type === 'function_call') {
+      currentFnCall = { id: event.item.id, name: event.item.name, args: '' };
+    }
+    if (event.type === 'response.function_call_arguments.delta') {
+      if (!currentFnCall) currentFnCall = { id: event.item_id, name: '', args: '' };
+      currentFnCall.args += event.delta || '';
+    }
+    if (event.type === 'response.output_item.done' && event.item?.type === 'function_call') {
+      if (currentFnCall) {
+        currentFnCall.name = event.item.name || currentFnCall.name;
+        currentFnCall.args = event.item.arguments || currentFnCall.args;
+        functionCalls.push(currentFnCall);
+        currentFnCall = null;
+      }
+    }
+    if (event.type === 'response.completed') {
+      usage = event.response?.usage;
+    }
+    if (event.type === 'error') {
+      throw new Error(`chatgpt error: ${event.error?.message || JSON.stringify(event)}`);
+    }
+  }
+
+  return { text, usage, functionCalls, webSearchCount };
+}
+
+function logUsage(usage, webSearchCount, webFetchCount) {
+  if (!usage) return;
+  const cached = usage.input_tokens_details?.cached_tokens ?? 0;
+  const parts = [`input=${usage.input_tokens}`, `output=${usage.output_tokens}`, `cached=${cached}`];
+  if (webSearchCount) parts.push(`web_searches=${webSearchCount}`);
+  if (webFetchCount) parts.push(`web_fetches=${webFetchCount}`);
+  console.log(`[recruit] ChatGPT usage: ${parts.join(', ')}`);
+}
+
+/**
+ * Execute web_fetch calls and build a context block with the results.
+ * Returns a formatted string to inject into the follow-up request.
+ */
+async function executeAndFormatFetchResults(functionCalls) {
+  const results = [];
+  for (const fc of functionCalls) {
+    if (fc.name !== 'web_fetch') continue;
+    const params = typeof fc.args === 'string' ? JSON.parse(fc.args) : fc.args;
+    console.log(`[recruit] web_fetch: ${params.url}`);
+    const result = await executeWebFetch(params);
+    if (result.error) {
+      results.push(`[web_fetch ${params.url}]: Error — ${result.error}`);
+    } else {
+      results.push(`[web_fetch ${params.url}]:\n${result.text}`);
+    }
+  }
+  return results.join('\n\n');
 }
 
 export default {
   name: 'chatgpt',
-  capabilities: ['text'],
+  capabilities: ['text', 'web_search', 'web_fetch'],
   models: ['gpt-5.4', 'gpt-5.3-codex'],
   defaultModel: 'gpt-5.4',
   efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
@@ -160,30 +247,111 @@ export default {
 
   async call(prompt, { model, effort, conversation }) {
     const client = await createClient();
-    const stream = await client.responses.create(buildParams(prompt, model, effort, conversation));
+    const tools = buildTools();
+    const params = buildParams(prompt, model, effort, conversation, tools);
 
-    let text = '';
-    let usage = null;
-    for await (const event of stream) {
-      if (event.type === 'response.output_text.delta') text += event.delta || '';
-      if (event.type === 'response.completed') usage = event.response?.usage;
-      if (event.type === 'error') {
-        throw new Error(`chatgpt error: ${event.error?.message || JSON.stringify(event)}`);
-      }
+    // Round 1: send request — model may call web_fetch or produce text directly
+    const stream1 = await client.responses.create(params);
+    const result1 = await consumeStream(stream1);
+
+    const fetchCalls = result1.functionCalls.filter(fc => fc.name === 'web_fetch');
+
+    if (fetchCalls.length === 0) {
+      // No web_fetch calls — return text directly
+      logUsage(result1.usage, result1.webSearchCount, 0);
+      if (!result1.text) throw new Error('chatgpt returned empty response');
+      return { text: result1.text.trim() };
     }
-    if (usage) {
-      const cached = usage.input_tokens_details?.cached_tokens ?? 0;
-      console.log(`[recruit] ChatGPT usage: input=${usage.input_tokens}, output=${usage.output_tokens}, cached=${cached}`);
+
+    // Round 2: execute web_fetch, inject results, re-request without function tools
+    // (/codex/responses doesn't support multi-round function calling)
+    const fetchContext = await executeAndFormatFetchResults(fetchCalls);
+    const augmentedInstructions = (params.instructions || '') +
+      '\n\nThe following web content was fetched for you. Use it to answer the user\'s question:\n\n' +
+      fetchContext;
+
+    const params2 = {
+      model,
+      stream: true,
+      store: false,
+      instructions: augmentedInstructions,
+      input: params.input,
+      tools: [{ type: 'web_search', search_context_size: 'medium' }],
+    };
+    if (effort && effort !== 'medium') {
+      params2.reasoning = { effort };
     }
-    if (!text) throw new Error('chatgpt returned empty response');
-    return { text: text.trim() };
+
+    const stream2 = await client.responses.create(params2);
+    const result2 = await consumeStream(stream2);
+    logUsage(result2.usage, result1.webSearchCount + result2.webSearchCount, fetchCalls.length);
+    if (!result2.text) throw new Error('chatgpt returned empty response');
+    return { text: result2.text.trim() };
   },
 
   async *stream(prompt, { model, effort, conversation }) {
     const client = await createClient();
-    const stream = await client.responses.create(buildParams(prompt, model, effort, conversation));
+    const tools = buildTools();
+    const params = buildParams(prompt, model, effort, conversation, tools);
 
-    for await (const event of stream) {
+    // Round 1: stream response — model may call web_fetch or produce text
+    const apiStream1 = await client.responses.create(params);
+    const functionCalls = [];
+    let currentFnCall = null;
+    let hasText = false;
+
+    for await (const event of apiStream1) {
+      if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
+        yield event.delta;
+        hasText = true;
+      }
+      if (event.type === 'response.web_search_call.searching') {
+        yield '\n[搜索中...]\n';
+      }
+      if (event.type === 'response.output_item.added' && event.item?.type === 'function_call') {
+        currentFnCall = { id: event.item.id, name: event.item.name, args: '' };
+      }
+      if (event.type === 'response.function_call_arguments.delta') {
+        if (!currentFnCall) currentFnCall = { id: event.item_id, name: '', args: '' };
+        currentFnCall.args += event.delta || '';
+      }
+      if (event.type === 'response.output_item.done' && event.item?.type === 'function_call') {
+        if (currentFnCall) {
+          currentFnCall.name = event.item.name || currentFnCall.name;
+          currentFnCall.args = event.item.arguments || currentFnCall.args;
+          functionCalls.push(currentFnCall);
+          currentFnCall = null;
+        }
+      }
+      if (event.type === 'error') {
+        throw new Error(`chatgpt error: ${event.error?.message || JSON.stringify(event)}`);
+      }
+    }
+
+    const fetchCalls = functionCalls.filter(fc => fc.name === 'web_fetch');
+    if (fetchCalls.length === 0) return;
+
+    // Round 2: execute fetches, inject results, re-stream
+    yield '\n[获取网页内容...]\n';
+    const fetchContext = await executeAndFormatFetchResults(fetchCalls);
+    const augmentedInstructions = (params.instructions || '') +
+      '\n\nThe following web content was fetched for you. Use it to answer the user\'s question:\n\n' +
+      fetchContext;
+
+    const params2 = {
+      model,
+      stream: true,
+      store: false,
+      instructions: augmentedInstructions,
+      input: params.input,
+      tools: [{ type: 'web_search', search_context_size: 'medium' }],
+    };
+    if (effort && effort !== 'medium') {
+      params2.reasoning = { effort };
+    }
+
+    const apiStream2 = await client.responses.create(params2);
+    for await (const event of apiStream2) {
       if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
         yield event.delta;
       }
