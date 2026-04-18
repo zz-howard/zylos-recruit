@@ -171,6 +171,7 @@ export function chatRouter() {
 
       let prompt;
       let sessionId = interview.session_id || undefined;
+      let conversation;
 
       if (sessionId) {
         // Resume session — send only the new message (AI has full context)
@@ -182,10 +183,17 @@ export function chatRouter() {
         const history = allMessages.slice(0, -1);
         const systemPrompt = loadSystemPrompt();
         prompt = buildConversationPrompt(systemPrompt, history, userMessage);
+
+        // Structured conversation for HTTP runtimes (native multi-turn)
+        conversation = {
+          systemPrompt,
+          messages: allMessages.map(m => ({ role: m.role, content: m.content })),
+        };
+
         console.log(`[recruit] Chat: interview #${interview.id} — new session (${allMessages.length} messages total)...`);
       }
 
-      const result = await runClaude(prompt, 'chat', overrides, sessionId);
+      const result = await runClaude(prompt, 'chat', overrides, sessionId, conversation);
       console.log(`[recruit] Chat: interview #${interview.id} — AI responded (${result.text.length} chars)`);
 
       // Store session_id if newly returned

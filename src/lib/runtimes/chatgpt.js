@@ -119,14 +119,25 @@ async function createClient() {
   return new OpenAI(opts);
 }
 
-function buildParams(prompt, model, effort) {
+function buildParams(prompt, model, effort, conversation) {
   const params = {
     model,
-    instructions: 'You are a helpful assistant. Respond in plain text.',
-    input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }],
     stream: true,
     store: false,
   };
+
+  if (conversation) {
+    params.instructions = conversation.systemPrompt;
+    params.input = conversation.messages.map(m =>
+      m.role === 'assistant'
+        ? { role: 'assistant', content: [{ type: 'output_text', text: m.content }] }
+        : { role: 'user', content: [{ type: 'input_text', text: m.content }] }
+    );
+  } else {
+    params.instructions = 'You are a helpful assistant. Respond in plain text.';
+    params.input = [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }];
+  }
+
   if (effort && effort !== 'medium') {
     params.reasoning = { effort };
   }
@@ -147,9 +158,9 @@ export default {
     } catch { return false; }
   },
 
-  async call(prompt, { model, effort }) {
+  async call(prompt, { model, effort, conversation }) {
     const client = await createClient();
-    const stream = await client.responses.create(buildParams(prompt, model, effort));
+    const stream = await client.responses.create(buildParams(prompt, model, effort, conversation));
 
     let text = '';
     for await (const event of stream) {
@@ -162,9 +173,9 @@ export default {
     return { text: text.trim() };
   },
 
-  async *stream(prompt, { model, effort }) {
+  async *stream(prompt, { model, effort, conversation }) {
     const client = await createClient();
-    const stream = await client.responses.create(buildParams(prompt, model, effort));
+    const stream = await client.responses.create(buildParams(prompt, model, effort, conversation));
 
     for await (const event of stream) {
       if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
