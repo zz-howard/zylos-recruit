@@ -163,11 +163,17 @@ export default {
     const stream = await client.responses.create(buildParams(prompt, model, effort, conversation));
 
     let text = '';
+    let usage = null;
     for await (const event of stream) {
       if (event.type === 'response.output_text.delta') text += event.delta || '';
+      if (event.type === 'response.completed') usage = event.response?.usage;
       if (event.type === 'error') {
         throw new Error(`chatgpt error: ${event.error?.message || JSON.stringify(event)}`);
       }
+    }
+    if (usage) {
+      const cached = usage.input_tokens_details?.cached_tokens ?? 0;
+      console.log(`[recruit] ChatGPT usage: input=${usage.input_tokens}, output=${usage.output_tokens}, cached=${cached}`);
     }
     if (!text) throw new Error('chatgpt returned empty response');
     return { text: text.trim() };
