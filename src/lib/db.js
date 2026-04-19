@@ -250,9 +250,10 @@ function migrateSoftDelete(db, columnExists) {
     db.exec(`ALTER TABLE ${t} ADD COLUMN delete_batch TEXT DEFAULT NULL`);
   }
 
-  // Step 2: Create partial unique indexes before dropping old constraints
-  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_name_active ON companies(name) WHERE deleted_at IS NULL`);
-  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_roles_company_name_active ON roles(company_id, name) WHERE deleted_at IS NULL`);
+  // Step 2: Disable FK enforcement during table rebuild.
+  // DROP TABLE on a parent with foreign_keys=ON triggers implicit cascade
+  // deletes on child tables — this would destroy data.
+  db.pragma('foreign_keys = OFF');
 
   // Step 3: Rebuild companies table to drop inline UNIQUE(name)
   db.exec(`
@@ -293,7 +294,14 @@ function migrateSoftDelete(db, columnExists) {
     CREATE UNIQUE INDEX idx_roles_company_name_active ON roles(company_id, name) WHERE deleted_at IS NULL;
   `);
 
-  // Step 5: Recreate indexes on soft-delete columns for query performance
+  // Step 5: Re-enable FK enforcement and verify integrity
+  db.pragma('foreign_keys = ON');
+  const fkCheck = db.pragma('foreign_key_check');
+  if (fkCheck.length > 0) {
+    console.error('[recruit] FK integrity violations after migration:', fkCheck);
+  }
+
+  // Step 6: Indexes on soft-delete columns for query performance
   db.exec(`CREATE INDEX IF NOT EXISTS idx_companies_deleted ON companies(deleted_at)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_deleted ON candidates(deleted_at)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_ii_deleted ON internal_interviews(deleted_at)`);
@@ -472,6 +480,11 @@ export function deleteRole(id) {
       `UPDATE role_profiles SET deleted_at=datetime('now'), delete_batch=?
        WHERE role_id=? AND deleted_at IS NULL`
     ).run(batch, id).changes;
+    // Preserve ON DELETE SET NULL semantics: clear role_id on active candidates
+    result.candidatesUnlinked = d.prepare(
+      `UPDATE candidates SET role_id=NULL, updated_at=datetime('now')
+       WHERE role_id=? AND deleted_at IS NULL`
+    ).run(id).changes;
     result.role = d.prepare(
       `UPDATE roles SET deleted_at=datetime('now'), delete_batch=?
        WHERE id=? AND deleted_at IS NULL`
@@ -493,7 +506,7 @@ export function listCandidates({ companyId, roleId, state } = {}) {
   const rows = getDb().prepare(`
     SELECT c.*, r.name AS role_name
     FROM candidates c
-    LEFT JOIN roles r ON r.id = c.role_id
+    LEFT JOIN roles r ON r.id = c.role_id AND r.deleted_at IS NULL
     ${whereClause}
     ORDER BY c.updated_at DESC
   `).all(...params);
@@ -524,7 +537,7 @@ export function getCandidate(id) {
   const cand = getDb().prepare(`
     SELECT c.*, r.name AS role_name
     FROM candidates c
-    LEFT JOIN roles r ON r.id = c.role_id
+    LEFT JOIN roles r ON r.id = c.role_id AND r.deleted_at IS NULL
     WHERE c.id = ? AND c.deleted_at IS NULL
   `).get(id);
   if (!cand) return null;
@@ -705,10 +718,24 @@ export function restoreCandidate(id) {
     const row = d.prepare('SELECT * FROM candidates WHERE id = ? AND deleted_at IS NOT NULL').get(id);
     if (!row) throw new Error('candidate not found or not deleted');
 
+    const company = d.prepare('SELECT id FROM companies WHERE id = ? AND deleted_at IS NULL').get(row.company_id);
+    if (!company) throw new Error('parent company is deleted — restore it first');
+
+    // If role_id points to a deleted role, clear it on restore
+    let clearRole = false;
+    if (row.role_id) {
+      const role = d.prepare('SELECT id FROM roles WHERE id = ? AND deleted_at IS NULL').get(row.role_id);
+      if (!role) clearRole = true;
+    }
+
     const batch = row.delete_batch;
-    result.candidate = d.prepare(
-      'UPDATE candidates SET deleted_at=NULL, delete_batch=NULL WHERE id=?'
-    ).run(id).changes;
+    if (clearRole) {
+      d.prepare('UPDATE candidates SET deleted_at=NULL, delete_batch=NULL, role_id=NULL WHERE id=?').run(id);
+    } else {
+      d.prepare('UPDATE candidates SET deleted_at=NULL, delete_batch=NULL WHERE id=?').run(id);
+    }
+    result.candidate = 1;
+    result.role_cleared = clearRole;
 
     if (batch) {
       result.evaluations = d.prepare(
