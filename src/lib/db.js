@@ -298,7 +298,7 @@ function migrateSoftDelete(db, columnExists) {
   db.pragma('foreign_keys = ON');
   const fkCheck = db.pragma('foreign_key_check');
   if (fkCheck.length > 0) {
-    console.error('[recruit] FK integrity violations after migration:', fkCheck);
+    throw new Error(`Soft-delete migration failed: ${fkCheck.length} FK integrity violation(s) — ${JSON.stringify(fkCheck)}`);
   }
 
   // Step 6: Indexes on soft-delete columns for query performance
