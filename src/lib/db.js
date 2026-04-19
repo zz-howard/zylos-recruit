@@ -19,6 +19,7 @@ import Database from 'better-sqlite3';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { DB_PATH, DATA_DIR } from './config.js';
+import { withFkOff, assertFkOff } from './migration-safety.js';
 
 export const STATES = ['pending', 'scheduled', 'interviewed', 'passed', 'rejected'];
 
@@ -250,56 +251,51 @@ function migrateSoftDelete(db, columnExists) {
     db.exec(`ALTER TABLE ${t} ADD COLUMN delete_batch TEXT DEFAULT NULL`);
   }
 
-  // Step 2: Disable FK enforcement during table rebuild.
-  // DROP TABLE on a parent with foreign_keys=ON triggers implicit cascade
-  // deletes on child tables — this would destroy data.
-  db.pragma('foreign_keys = OFF');
+  // Step 2-4: Rebuild parent tables with FK enforcement disabled.
+  // withFkOff() disables FKs, runs the migration, re-enables FKs, and
+  // verifies integrity — preventing the CASCADE DELETE data loss bug.
+  withFkOff(db, () => {
+    assertFkOff(db);
 
-  // Step 3: Rebuild companies table to drop inline UNIQUE(name)
-  db.exec(`
-    CREATE TABLE companies_new (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      name        TEXT NOT NULL,
-      eval_prompt TEXT,
-      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
-      deleted_at  TEXT DEFAULT NULL,
-      delete_batch TEXT DEFAULT NULL
-    );
-    INSERT INTO companies_new SELECT id, name, eval_prompt, created_at, updated_at, deleted_at, delete_batch FROM companies;
-    DROP TABLE companies;
-    ALTER TABLE companies_new RENAME TO companies;
-    CREATE UNIQUE INDEX idx_companies_name_active ON companies(name) WHERE deleted_at IS NULL;
-  `);
+    // Step 3: Rebuild companies table to drop inline UNIQUE(name)
+    db.exec(`
+      CREATE TABLE companies_new (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL,
+        eval_prompt TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        deleted_at  TEXT DEFAULT NULL,
+        delete_batch TEXT DEFAULT NULL
+      );
+      INSERT INTO companies_new SELECT id, name, eval_prompt, created_at, updated_at, deleted_at, delete_batch FROM companies;
+      DROP TABLE companies;
+      ALTER TABLE companies_new RENAME TO companies;
+      CREATE UNIQUE INDEX idx_companies_name_active ON companies(name) WHERE deleted_at IS NULL;
+    `);
 
-  // Step 4: Rebuild roles table to drop inline UNIQUE(company_id, name)
-  db.exec(`
-    CREATE TABLE roles_new (
-      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-      company_id         INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-      name               TEXT NOT NULL,
-      description        TEXT,
-      expected_portrait  TEXT,
-      eval_prompt        TEXT,
-      active             INTEGER NOT NULL DEFAULT 1,
-      created_at         TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
-      deleted_at         TEXT DEFAULT NULL,
-      delete_batch       TEXT DEFAULT NULL
-    );
-    INSERT INTO roles_new SELECT id, company_id, name, description, expected_portrait, eval_prompt, active, created_at, updated_at, deleted_at, delete_batch FROM roles;
-    DROP TABLE roles;
-    ALTER TABLE roles_new RENAME TO roles;
-    CREATE INDEX idx_roles_company ON roles(company_id);
-    CREATE UNIQUE INDEX idx_roles_company_name_active ON roles(company_id, name) WHERE deleted_at IS NULL;
-  `);
-
-  // Step 5: Re-enable FK enforcement and verify integrity
-  db.pragma('foreign_keys = ON');
-  const fkCheck = db.pragma('foreign_key_check');
-  if (fkCheck.length > 0) {
-    throw new Error(`Soft-delete migration failed: ${fkCheck.length} FK integrity violation(s) — ${JSON.stringify(fkCheck)}`);
-  }
+    // Step 4: Rebuild roles table to drop inline UNIQUE(company_id, name)
+    db.exec(`
+      CREATE TABLE roles_new (
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id         INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        name               TEXT NOT NULL,
+        description        TEXT,
+        expected_portrait  TEXT,
+        eval_prompt        TEXT,
+        active             INTEGER NOT NULL DEFAULT 1,
+        created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+        deleted_at         TEXT DEFAULT NULL,
+        delete_batch       TEXT DEFAULT NULL
+      );
+      INSERT INTO roles_new SELECT id, company_id, name, description, expected_portrait, eval_prompt, active, created_at, updated_at, deleted_at, delete_batch FROM roles;
+      DROP TABLE roles;
+      ALTER TABLE roles_new RENAME TO roles;
+      CREATE INDEX idx_roles_company ON roles(company_id);
+      CREATE UNIQUE INDEX idx_roles_company_name_active ON roles(company_id, name) WHERE deleted_at IS NULL;
+    `);
+  });
 
   // Step 6: Indexes on soft-delete columns for query performance
   db.exec(`CREATE INDEX IF NOT EXISTS idx_companies_deleted ON companies(deleted_at)`);
