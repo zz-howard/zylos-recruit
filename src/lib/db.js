@@ -16,6 +16,7 @@
  */
 
 import Database from 'better-sqlite3';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { DB_PATH, DATA_DIR } from './config.js';
 
@@ -232,6 +233,78 @@ function migrateFromV021(db) {
       SELECT 1 FROM role_profiles rp WHERE rp.role_id = roles.id
     )`);
   }
+
+  migrateSoftDelete(db, columnExists);
+}
+
+function migrateSoftDelete(db, columnExists) {
+  if (columnExists('companies', 'deleted_at')) return;
+
+  // Step 1: Add deleted_at + delete_batch columns to all 8 tables
+  const tables = [
+    'companies', 'company_profiles', 'roles', 'role_profiles',
+    'candidates', 'evaluations', 'internal_interviews', 'internal_interview_messages',
+  ];
+  for (const t of tables) {
+    db.exec(`ALTER TABLE ${t} ADD COLUMN deleted_at TEXT DEFAULT NULL`);
+    db.exec(`ALTER TABLE ${t} ADD COLUMN delete_batch TEXT DEFAULT NULL`);
+  }
+
+  // Step 2: Disable FK enforcement during table rebuild.
+  // DROP TABLE on a parent with foreign_keys=ON triggers implicit cascade
+  // deletes on child tables — this would destroy data.
+  db.pragma('foreign_keys = OFF');
+
+  // Step 3: Rebuild companies table to drop inline UNIQUE(name)
+  db.exec(`
+    CREATE TABLE companies_new (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      name        TEXT NOT NULL,
+      eval_prompt TEXT,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      deleted_at  TEXT DEFAULT NULL,
+      delete_batch TEXT DEFAULT NULL
+    );
+    INSERT INTO companies_new SELECT id, name, eval_prompt, created_at, updated_at, deleted_at, delete_batch FROM companies;
+    DROP TABLE companies;
+    ALTER TABLE companies_new RENAME TO companies;
+    CREATE UNIQUE INDEX idx_companies_name_active ON companies(name) WHERE deleted_at IS NULL;
+  `);
+
+  // Step 4: Rebuild roles table to drop inline UNIQUE(company_id, name)
+  db.exec(`
+    CREATE TABLE roles_new (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      company_id         INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      name               TEXT NOT NULL,
+      description        TEXT,
+      expected_portrait  TEXT,
+      eval_prompt        TEXT,
+      active             INTEGER NOT NULL DEFAULT 1,
+      created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+      deleted_at         TEXT DEFAULT NULL,
+      delete_batch       TEXT DEFAULT NULL
+    );
+    INSERT INTO roles_new SELECT id, company_id, name, description, expected_portrait, eval_prompt, active, created_at, updated_at, deleted_at, delete_batch FROM roles;
+    DROP TABLE roles;
+    ALTER TABLE roles_new RENAME TO roles;
+    CREATE INDEX idx_roles_company ON roles(company_id);
+    CREATE UNIQUE INDEX idx_roles_company_name_active ON roles(company_id, name) WHERE deleted_at IS NULL;
+  `);
+
+  // Step 5: Re-enable FK enforcement and verify integrity
+  db.pragma('foreign_keys = ON');
+  const fkCheck = db.pragma('foreign_key_check');
+  if (fkCheck.length > 0) {
+    throw new Error(`Soft-delete migration failed: ${fkCheck.length} FK integrity violation(s) — ${JSON.stringify(fkCheck)}`);
+  }
+
+  // Step 6: Indexes on soft-delete columns for query performance
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_companies_deleted ON companies(deleted_at)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_deleted ON candidates(deleted_at)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_ii_deleted ON internal_interviews(deleted_at)`);
 }
 
 // ─── Companies ────────────────────────────────────────────────────────
@@ -239,20 +312,21 @@ function migrateFromV021(db) {
 export function listCompanies() {
   return getDb().prepare(`
     SELECT c.*, (
-      SELECT COUNT(*) FROM roles r WHERE r.company_id = c.id
+      SELECT COUNT(*) FROM roles r WHERE r.company_id = c.id AND r.deleted_at IS NULL
     ) AS role_count, (
-      SELECT COUNT(*) FROM candidates cd WHERE cd.company_id = c.id
+      SELECT COUNT(*) FROM candidates cd WHERE cd.company_id = c.id AND cd.deleted_at IS NULL
     ) AS candidate_count
     FROM companies c
+    WHERE c.deleted_at IS NULL
     ORDER BY c.created_at ASC
   `).all();
 }
 
 export function getCompany(id) {
-  const company = getDb().prepare('SELECT * FROM companies WHERE id = ?').get(id);
+  const company = getDb().prepare('SELECT * FROM companies WHERE id = ? AND deleted_at IS NULL').get(id);
   if (!company) return null;
   company.profile = getDb().prepare(`
-    SELECT * FROM company_profiles WHERE company_id = ? ORDER BY version DESC LIMIT 1
+    SELECT * FROM company_profiles WHERE company_id = ? AND deleted_at IS NULL ORDER BY version DESC LIMIT 1
   `).get(id) || null;
   return company;
 }
@@ -272,37 +346,78 @@ export function updateCompany(id, updates) {
   if (fields.length === 0) return getCompany(id);
   fields.push(`updated_at = datetime('now')`);
   params.push(id);
-  getDb().prepare(`UPDATE companies SET ${fields.join(', ')} WHERE id = ?`).run(...params);
+  getDb().prepare(`UPDATE companies SET ${fields.join(', ')} WHERE id = ? AND deleted_at IS NULL`).run(...params);
   return getCompany(id);
 }
 
 export function updateCompanyProfile(companyId, content) {
   const row = getDb().prepare(`
-    SELECT COALESCE(MAX(version), 0) AS v FROM company_profiles WHERE company_id = ?
+    SELECT COALESCE(MAX(version), 0) AS v FROM company_profiles WHERE company_id = ? AND deleted_at IS NULL
   `).get(companyId);
   const nextVersion = (row?.v || 0) + 1;
   getDb().prepare(`
     INSERT INTO company_profiles (company_id, version, content) VALUES (?, ?, ?)
   `).run(companyId, nextVersion, content);
-  getDb().prepare(`UPDATE companies SET updated_at = datetime('now') WHERE id = ?`).run(companyId);
+  getDb().prepare(`UPDATE companies SET updated_at = datetime('now') WHERE id = ? AND deleted_at IS NULL`).run(companyId);
   return getCompany(companyId);
 }
 
 export function deleteCompany(id) {
-  getDb().prepare('DELETE FROM companies WHERE id = ?').run(id);
+  const batch = crypto.randomUUID();
+  const d = getDb();
+  const result = {};
+  const tx = d.transaction(() => {
+    result.messages = d.prepare(
+      `UPDATE internal_interview_messages SET deleted_at=datetime('now'), delete_batch=?
+       WHERE deleted_at IS NULL AND interview_id IN
+         (SELECT id FROM internal_interviews WHERE company_id=? AND deleted_at IS NULL)`
+    ).run(batch, id).changes;
+    result.interviews = d.prepare(
+      `UPDATE internal_interviews SET deleted_at=datetime('now'), delete_batch=?
+       WHERE company_id=? AND deleted_at IS NULL`
+    ).run(batch, id).changes;
+    result.evaluations = d.prepare(
+      `UPDATE evaluations SET deleted_at=datetime('now'), delete_batch=?
+       WHERE deleted_at IS NULL AND candidate_id IN
+         (SELECT id FROM candidates WHERE company_id=? AND deleted_at IS NULL)`
+    ).run(batch, id).changes;
+    result.candidates = d.prepare(
+      `UPDATE candidates SET deleted_at=datetime('now'), delete_batch=?
+       WHERE company_id=? AND deleted_at IS NULL`
+    ).run(batch, id).changes;
+    result.roleProfiles = d.prepare(
+      `UPDATE role_profiles SET deleted_at=datetime('now'), delete_batch=?
+       WHERE deleted_at IS NULL AND role_id IN
+         (SELECT id FROM roles WHERE company_id=? AND deleted_at IS NULL)`
+    ).run(batch, id).changes;
+    result.roles = d.prepare(
+      `UPDATE roles SET deleted_at=datetime('now'), delete_batch=?
+       WHERE company_id=? AND deleted_at IS NULL`
+    ).run(batch, id).changes;
+    result.companyProfiles = d.prepare(
+      `UPDATE company_profiles SET deleted_at=datetime('now'), delete_batch=?
+       WHERE company_id=? AND deleted_at IS NULL`
+    ).run(batch, id).changes;
+    result.company = d.prepare(
+      `UPDATE companies SET deleted_at=datetime('now'), delete_batch=?
+       WHERE id=? AND deleted_at IS NULL`
+    ).run(batch, id).changes;
+  });
+  tx.immediate();
+  return { batch, ...result };
 }
 
 // ─── Roles ────────────────────────────────────────────────────────────
 
 export function listRoles({ companyId, active } = {}) {
-  const where = [];
+  const where = ['r.deleted_at IS NULL'];
   const params = [];
   if (companyId) { where.push('r.company_id = ?'); params.push(companyId); }
   if (active !== undefined) { where.push('r.active = ?'); params.push(active ? 1 : 0); }
-  const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const whereClause = 'WHERE ' + where.join(' AND ');
   return getDb().prepare(`
     SELECT r.*, (
-      SELECT COUNT(*) FROM candidates c WHERE c.role_id = r.id
+      SELECT COUNT(*) FROM candidates c WHERE c.role_id = r.id AND c.deleted_at IS NULL
     ) AS candidate_count
     FROM roles r
     ${whereClause}
@@ -311,10 +426,10 @@ export function listRoles({ companyId, active } = {}) {
 }
 
 export function getRole(id) {
-  const role = getDb().prepare('SELECT * FROM roles WHERE id = ?').get(id);
+  const role = getDb().prepare('SELECT * FROM roles WHERE id = ? AND deleted_at IS NULL').get(id);
   if (!role) return null;
   role.profile = getDb().prepare(`
-    SELECT * FROM role_profiles WHERE role_id = ? ORDER BY version DESC LIMIT 1
+    SELECT * FROM role_profiles WHERE role_id = ? AND deleted_at IS NULL ORDER BY version DESC LIMIT 1
   `).get(id) || null;
   return role;
 }
@@ -340,53 +455,70 @@ export function updateRole(id, { name, description, expected_portrait, eval_prom
   if (fields.length === 0) return getRole(id);
   fields.push(`updated_at = datetime('now')`);
   params.push(id);
-  getDb().prepare(`UPDATE roles SET ${fields.join(', ')} WHERE id = ?`).run(...params);
+  getDb().prepare(`UPDATE roles SET ${fields.join(', ')} WHERE id = ? AND deleted_at IS NULL`).run(...params);
   return getRole(id);
 }
 
 export function updateRoleProfile(roleId, content) {
   const row = getDb().prepare(`
-    SELECT COALESCE(MAX(version), 0) AS v FROM role_profiles WHERE role_id = ?
+    SELECT COALESCE(MAX(version), 0) AS v FROM role_profiles WHERE role_id = ? AND deleted_at IS NULL
   `).get(roleId);
   const nextVersion = (row?.v || 0) + 1;
   getDb().prepare(`
     INSERT INTO role_profiles (role_id, version, content) VALUES (?, ?, ?)
   `).run(roleId, nextVersion, content);
-  // Sync live expected_portrait on the roles row
-  getDb().prepare(`UPDATE roles SET expected_portrait = ?, updated_at = datetime('now') WHERE id = ?`).run(content, roleId);
+  getDb().prepare(`UPDATE roles SET expected_portrait = ?, updated_at = datetime('now') WHERE id = ? AND deleted_at IS NULL`).run(content, roleId);
   return getRole(roleId);
 }
 
 export function deleteRole(id) {
-  getDb().prepare('DELETE FROM roles WHERE id = ?').run(id);
+  const batch = crypto.randomUUID();
+  const d = getDb();
+  const result = {};
+  const tx = d.transaction(() => {
+    result.roleProfiles = d.prepare(
+      `UPDATE role_profiles SET deleted_at=datetime('now'), delete_batch=?
+       WHERE role_id=? AND deleted_at IS NULL`
+    ).run(batch, id).changes;
+    // Preserve ON DELETE SET NULL semantics: clear role_id on active candidates
+    result.candidatesUnlinked = d.prepare(
+      `UPDATE candidates SET role_id=NULL, updated_at=datetime('now')
+       WHERE role_id=? AND deleted_at IS NULL`
+    ).run(id).changes;
+    result.role = d.prepare(
+      `UPDATE roles SET deleted_at=datetime('now'), delete_batch=?
+       WHERE id=? AND deleted_at IS NULL`
+    ).run(batch, id).changes;
+  });
+  tx.immediate();
+  return { batch, ...result };
 }
 
 // ─── Candidates ───────────────────────────────────────────────────────
 
 export function listCandidates({ companyId, roleId, state } = {}) {
-  const where = [];
+  const where = ['c.deleted_at IS NULL'];
   const params = [];
   if (companyId) { where.push('c.company_id = ?'); params.push(companyId); }
   if (roleId)    { where.push('c.role_id = ?');    params.push(roleId); }
   if (state)     { where.push('c.state = ?');      params.push(state); }
-  const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const whereClause = 'WHERE ' + where.join(' AND ');
   const rows = getDb().prepare(`
     SELECT c.*, r.name AS role_name
     FROM candidates c
-    LEFT JOIN roles r ON r.id = c.role_id
+    LEFT JOIN roles r ON r.id = c.role_id AND r.deleted_at IS NULL
     ${whereClause}
     ORDER BY c.updated_at DESC
   `).all(...params);
 
-  // Attach latest AI eval + latest interview eval per candidate
   const stmtAi = getDb().prepare(`
     SELECT verdict, meta FROM evaluations
-    WHERE candidate_id = ? AND kind = 'resume_ai'
+    WHERE candidate_id = ? AND kind = 'resume_ai' AND deleted_at IS NULL
     ORDER BY created_at DESC LIMIT 1
   `);
   const stmtInterview = getDb().prepare(`
     SELECT verdict FROM evaluations
-    WHERE candidate_id = ? AND kind = 'interview'
+    WHERE candidate_id = ? AND kind = 'interview' AND deleted_at IS NULL
     ORDER BY created_at DESC LIMIT 1
   `);
   for (const row of rows) {
@@ -405,12 +537,12 @@ export function getCandidate(id) {
   const cand = getDb().prepare(`
     SELECT c.*, r.name AS role_name
     FROM candidates c
-    LEFT JOIN roles r ON r.id = c.role_id
-    WHERE c.id = ?
+    LEFT JOIN roles r ON r.id = c.role_id AND r.deleted_at IS NULL
+    WHERE c.id = ? AND c.deleted_at IS NULL
   `).get(id);
   if (!cand) return null;
   cand.evaluations = getDb().prepare(`
-    SELECT * FROM evaluations WHERE candidate_id = ? ORDER BY created_at DESC
+    SELECT * FROM evaluations WHERE candidate_id = ? AND deleted_at IS NULL ORDER BY created_at DESC
   `).all(id);
   return cand;
 }
@@ -418,7 +550,7 @@ export function getCandidate(id) {
 export function createCandidate(data) {
   const { companyId, name, role_id, email, phone, source, brief, extra_info } = data;
   if (role_id) {
-    const role = getDb().prepare('SELECT company_id FROM roles WHERE id = ?').get(role_id);
+    const role = getDb().prepare('SELECT company_id FROM roles WHERE id = ? AND deleted_at IS NULL').get(role_id);
     if (!role) throw new Error('role not found');
     if (role.company_id !== companyId) throw new Error('role belongs to a different company');
   }
@@ -435,16 +567,16 @@ export function updateCandidate(id, updates) {
   const keys = Object.keys(updates).filter(k => UPDATABLE.has(k));
   if (keys.length === 0) return getCandidate(id);
   if (updates.role_id) {
-    const cand = getDb().prepare('SELECT company_id FROM candidates WHERE id = ?').get(id);
+    const cand = getDb().prepare('SELECT company_id FROM candidates WHERE id = ? AND deleted_at IS NULL').get(id);
     if (!cand) return null;
-    const role = getDb().prepare('SELECT company_id FROM roles WHERE id = ?').get(updates.role_id);
+    const role = getDb().prepare('SELECT company_id FROM roles WHERE id = ? AND deleted_at IS NULL').get(updates.role_id);
     if (!role) throw new Error('role not found');
     if (role.company_id !== cand.company_id) throw new Error('role belongs to a different company');
   }
   const setClause = keys.map(k => `${k} = ?`).join(', ');
   const values = keys.map(k => updates[k]);
   getDb().prepare(`
-    UPDATE candidates SET ${setClause}, updated_at = datetime('now') WHERE id = ?
+    UPDATE candidates SET ${setClause}, updated_at = datetime('now') WHERE id = ? AND deleted_at IS NULL
   `).run(...values, id);
   return getCandidate(id);
 }
@@ -452,36 +584,52 @@ export function updateCandidate(id, updates) {
 export function moveCandidate(id, state) {
   if (!STATES.includes(state)) throw new Error(`invalid state: ${state}`);
   getDb().prepare(`
-    UPDATE candidates SET state = ?, updated_at = datetime('now') WHERE id = ?
+    UPDATE candidates SET state = ?, updated_at = datetime('now') WHERE id = ? AND deleted_at IS NULL
   `).run(state, id);
   return getCandidate(id);
 }
 
 export function addEvaluation(candidateId, { kind, author, verdict, content, meta }) {
-  const db = getDb();
-  db.prepare(`
+  const d = getDb();
+  const cand = d.prepare('SELECT id FROM candidates WHERE id = ? AND deleted_at IS NULL').get(candidateId);
+  if (!cand) throw new Error('candidate not found');
+  d.prepare(`
     INSERT INTO evaluations (candidate_id, kind, author, verdict, content, meta)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(candidateId, kind || null, author || null, verdict || null, content || null, meta || null);
-  db.prepare(`UPDATE candidates SET updated_at = datetime('now') WHERE id = ?`).run(candidateId);
+  d.prepare(`UPDATE candidates SET updated_at = datetime('now') WHERE id = ? AND deleted_at IS NULL`).run(candidateId);
   return getCandidate(candidateId);
 }
 
 export function deleteCandidate(id) {
-  getDb().prepare('DELETE FROM candidates WHERE id = ?').run(id);
+  const batch = crypto.randomUUID();
+  const d = getDb();
+  const result = {};
+  const tx = d.transaction(() => {
+    result.evaluations = d.prepare(
+      `UPDATE evaluations SET deleted_at=datetime('now'), delete_batch=?
+       WHERE candidate_id=? AND deleted_at IS NULL`
+    ).run(batch, id).changes;
+    result.candidate = d.prepare(
+      `UPDATE candidates SET deleted_at=datetime('now'), delete_batch=?
+       WHERE id=? AND deleted_at IS NULL`
+    ).run(batch, id).changes;
+  });
+  tx.immediate();
+  return { batch, ...result };
 }
 
 // ─── Internal Interviews ─────────────────────────────────────────────
 
 export function listInternalInterviews({ companyId, status, limit = 20, offset = 0 } = {}) {
-  const where = [];
+  const where = ['ii.deleted_at IS NULL'];
   const params = [];
   if (companyId) { where.push('ii.company_id = ?'); params.push(companyId); }
   if (status) { where.push('ii.status = ?'); params.push(status); }
-  const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const whereClause = 'WHERE ' + where.join(' AND ');
   const rows = getDb().prepare(`
     SELECT ii.*, (
-      SELECT COUNT(*) FROM internal_interview_messages m WHERE m.interview_id = ii.id
+      SELECT COUNT(*) FROM internal_interview_messages m WHERE m.interview_id = ii.id AND m.deleted_at IS NULL
     ) AS message_count
     FROM internal_interviews ii
     ${whereClause}
@@ -495,11 +643,11 @@ export function listInternalInterviews({ companyId, status, limit = 20, offset =
 }
 
 export function getInternalInterview(id) {
-  return getDb().prepare('SELECT * FROM internal_interviews WHERE id = ?').get(id);
+  return getDb().prepare('SELECT * FROM internal_interviews WHERE id = ? AND deleted_at IS NULL').get(id);
 }
 
 export function getInternalInterviewByToken(token) {
-  return getDb().prepare('SELECT * FROM internal_interviews WHERE token = ?').get(token);
+  return getDb().prepare('SELECT * FROM internal_interviews WHERE token = ? AND deleted_at IS NULL').get(token);
 }
 
 export function createInternalInterview({ companyId, intervieweeName, token, runtimeType, model, effort }) {
@@ -522,24 +670,110 @@ export function updateInternalInterview(id, updates) {
   if (updates.completed_at !== undefined) { fields.push('completed_at = ?'); params.push(updates.completed_at); }
   if (fields.length === 0) return getInternalInterview(id);
   params.push(id);
-  getDb().prepare(`UPDATE internal_interviews SET ${fields.join(', ')} WHERE id = ?`).run(...params);
+  getDb().prepare(`UPDATE internal_interviews SET ${fields.join(', ')} WHERE id = ? AND deleted_at IS NULL`).run(...params);
   return getInternalInterview(id);
 }
 
 export function deleteInternalInterview(id) {
-  getDb().prepare('DELETE FROM internal_interviews WHERE id = ?').run(id);
+  const batch = crypto.randomUUID();
+  const d = getDb();
+  const result = {};
+  const tx = d.transaction(() => {
+    result.messages = d.prepare(
+      `UPDATE internal_interview_messages SET deleted_at=datetime('now'), delete_batch=?
+       WHERE interview_id=? AND deleted_at IS NULL`
+    ).run(batch, id).changes;
+    result.interview = d.prepare(
+      `UPDATE internal_interviews SET deleted_at=datetime('now'), delete_batch=?
+       WHERE id=? AND deleted_at IS NULL`
+    ).run(batch, id).changes;
+  });
+  tx.immediate();
+  return { batch, ...result };
 }
 
 // ─── Internal Interview Messages ─────────────────────────────────────
 
 export function listInterviewMessages(interviewId) {
   return getDb().prepare(`
-    SELECT * FROM internal_interview_messages WHERE interview_id = ? ORDER BY created_at ASC
+    SELECT * FROM internal_interview_messages WHERE interview_id = ? AND deleted_at IS NULL ORDER BY created_at ASC
   `).all(interviewId);
 }
 
 export function addInterviewMessage(interviewId, { role, content }) {
-  getDb().prepare(`
+  const d = getDb();
+  const ii = d.prepare('SELECT id FROM internal_interviews WHERE id = ? AND deleted_at IS NULL').get(interviewId);
+  if (!ii) throw new Error('interview not found');
+  d.prepare(`
     INSERT INTO internal_interview_messages (interview_id, role, content) VALUES (?, ?, ?)
   `).run(interviewId, role, content);
+}
+
+// ─── Restore (Soft Delete Recovery) ─────────────────────────────────
+
+export function restoreCandidate(id) {
+  const d = getDb();
+  const result = {};
+  const tx = d.transaction(() => {
+    const row = d.prepare('SELECT * FROM candidates WHERE id = ? AND deleted_at IS NOT NULL').get(id);
+    if (!row) throw new Error('candidate not found or not deleted');
+
+    const company = d.prepare('SELECT id FROM companies WHERE id = ? AND deleted_at IS NULL').get(row.company_id);
+    if (!company) throw new Error('parent company is deleted — restore it first');
+
+    // If role_id points to a deleted role, clear it on restore
+    let clearRole = false;
+    if (row.role_id) {
+      const role = d.prepare('SELECT id FROM roles WHERE id = ? AND deleted_at IS NULL').get(row.role_id);
+      if (!role) clearRole = true;
+    }
+
+    const batch = row.delete_batch;
+    if (clearRole) {
+      d.prepare('UPDATE candidates SET deleted_at=NULL, delete_batch=NULL, role_id=NULL WHERE id=?').run(id);
+    } else {
+      d.prepare('UPDATE candidates SET deleted_at=NULL, delete_batch=NULL WHERE id=?').run(id);
+    }
+    result.candidate = 1;
+    result.role_cleared = clearRole;
+
+    if (batch) {
+      result.evaluations = d.prepare(
+        'UPDATE evaluations SET deleted_at=NULL, delete_batch=NULL WHERE candidate_id=? AND delete_batch=?'
+      ).run(id, batch).changes;
+    }
+  });
+  tx.immediate();
+  return result;
+}
+
+export function restoreInternalInterview(id) {
+  const d = getDb();
+  const result = {};
+  const tx = d.transaction(() => {
+    const row = d.prepare('SELECT * FROM internal_interviews WHERE id = ? AND deleted_at IS NOT NULL').get(id);
+    if (!row) throw new Error('interview not found or not deleted');
+
+    const conflict = d.prepare(
+      'SELECT id FROM internal_interviews WHERE token = ? AND deleted_at IS NULL'
+    ).get(row.token);
+    if (conflict) throw new Error(`token conflict with active interview #${conflict.id}`);
+
+    // Verify parent company is not deleted
+    const company = d.prepare('SELECT id FROM companies WHERE id = ? AND deleted_at IS NULL').get(row.company_id);
+    if (!company) throw new Error('parent company is deleted — restore it first');
+
+    const batch = row.delete_batch;
+    result.interview = d.prepare(
+      'UPDATE internal_interviews SET deleted_at=NULL, delete_batch=NULL WHERE id=?'
+    ).run(id).changes;
+
+    if (batch) {
+      result.messages = d.prepare(
+        'UPDATE internal_interview_messages SET deleted_at=NULL, delete_batch=NULL WHERE interview_id=? AND delete_batch=?'
+      ).run(id, batch).changes;
+    }
+  });
+  tx.immediate();
+  return result;
 }

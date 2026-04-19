@@ -65,8 +65,8 @@ export function companiesRouter() {
   });
 
   router.delete('/:id', (req, res) => {
-    deleteCompany(Number(req.params.id));
-    res.status(204).end();
+    const result = deleteCompany(Number(req.params.id));
+    res.json(result);
   });
 
   return router;

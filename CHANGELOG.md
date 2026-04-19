@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-04-19
+
+### Changed
+- **Soft delete for all 8 tables**: `DELETE FROM` replaced with `deleted_at`
+  timestamp + `delete_batch` UUID. Records are hidden from queries but preserved
+  in the database for recovery.
+- **Cascade soft delete**: deleting a company/candidate/role/interview
+  soft-deletes all child records in a single `BEGIN IMMEDIATE` transaction with
+  shared batch ID. Each delete function returns per-table affected row counts.
+- **Partial unique indexes**: `companies(name)` and `roles(company_id, name)`
+  uniqueness now scoped to active records only — soft-deleted records don't block
+  creating new records with the same name.
+- **Write-path filtering**: role lookups in `createCandidate`/`updateCandidate`,
+  candidate checks in `addEvaluation`, and interview checks in
+  `addInterviewMessage` now exclude soft-deleted records.
+- Delete API endpoints return batch ID + affected counts instead of 204.
+
+### Added
+- **Restore endpoints**: `POST /api/candidates/:id/restore` and
+  `POST /api/internal-interviews/:id/restore`. Batch-aware recovery restores
+  only same-batch child records. Pre-checks uniqueness conflicts and parent
+  record state before restoring.
+
 ## [0.2.7] - 2026-04-18
 
 ### Added

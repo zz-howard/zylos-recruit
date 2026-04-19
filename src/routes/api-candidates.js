@@ -1,7 +1,7 @@
 import express from 'express';
 import {
   listCandidates, getCandidate, createCandidate, updateCandidate,
-  moveCandidate, addEvaluation, deleteCandidate, listRoles, STATES,
+  moveCandidate, addEvaluation, deleteCandidate, restoreCandidate, listRoles, STATES,
 } from '../lib/db.js';
 import { evaluateResumeAsync, evaluateResumeStream, isEvaluating, autoMatchFromResume, rankRolesFromResume } from '../lib/ai.js';
 
@@ -70,8 +70,21 @@ export function candidatesRouter() {
   });
 
   router.delete('/:id', (req, res) => {
-    deleteCandidate(Number(req.params.id));
-    res.status(204).end();
+    const result = deleteCandidate(Number(req.params.id));
+    res.json(result);
+  });
+
+  router.post('/:id/restore', (req, res) => {
+    try {
+      const result = restoreCandidate(Number(req.params.id));
+      res.json(result);
+    } catch (err) {
+      const msg = String(err.message || '');
+      if (msg.includes('not found') || msg.includes('not deleted')) {
+        return res.status(404).json({ error: msg });
+      }
+      res.status(409).json({ error: msg });
+    }
   });
 
   router.post('/:id/move', (req, res) => {

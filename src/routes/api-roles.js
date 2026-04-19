@@ -88,8 +88,8 @@ export function rolesRouter() {
     const id = Number(req.params.id);
     const existing = getRole(id);
     if (!existing) return res.status(404).json({ error: 'not found' });
-    deleteRole(id);
-    res.status(204).end();
+    const result = deleteRole(id);
+    res.json(result);
   });
 
   return router;

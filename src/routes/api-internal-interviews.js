@@ -3,7 +3,7 @@ import express from 'express';
 import { jsonrepair } from 'jsonrepair';
 import {
   listInternalInterviews, getInternalInterview, createInternalInterview,
-  deleteInternalInterview, listInterviewMessages,
+  deleteInternalInterview, restoreInternalInterview, listInterviewMessages,
 } from '../lib/db.js';
 import { runClaude } from '../lib/ai-chat.js';
 import { resolveAiConfig } from '../lib/config.js';
@@ -188,8 +188,21 @@ ${parts.join('\n\n---\n\n')}
     const id = Number(req.params.id);
     const existing = getInternalInterview(id);
     if (!existing) return res.status(404).json({ error: 'not found' });
-    deleteInternalInterview(id);
-    res.status(204).end();
+    const result = deleteInternalInterview(id);
+    res.json(result);
+  });
+
+  router.post('/:id/restore', (req, res) => {
+    try {
+      const result = restoreInternalInterview(Number(req.params.id));
+      res.json(result);
+    } catch (err) {
+      const msg = String(err.message || '');
+      if (msg.includes('not found') || msg.includes('not deleted')) {
+        return res.status(404).json({ error: msg });
+      }
+      res.status(409).json({ error: msg });
+    }
   });
 
   return router;
