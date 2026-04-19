@@ -46,15 +46,20 @@ export function assertFkOff(db) {
 }
 
 /**
- * Dry-run a migration on an in-memory clone of the schema.
- * Validates that the migration SQL is syntactically correct and
- * doesn't violate FK constraints, without touching the real database.
+ * Schema-only dry run: replay a migration on an empty in-memory clone.
+ * Catches SQL syntax errors, missing table/column references, and
+ * structural FK definition issues.
  *
- * @param {Database} db - source database (schema is copied)
+ * Limitation: no production data is copied, so this will NOT detect
+ * data-dependent issues (unique conflicts, dirty data, CASCADE behavior
+ * on real rows, INSERT...SELECT edge cases). Use withFkOff() as the
+ * primary safety mechanism for data-destructive migrations.
+ *
+ * @param {Database} db - source database (schema-only is copied)
  * @param {(db: Database) => void} migrationFn - migration to test
  * @returns {{ success: boolean, error?: string }}
  */
-export function dryRun(db, migrationFn) {
+export function schemaDryRun(db, migrationFn) {
   const memDb = new Database(':memory:');
   try {
     // Copy schema (CREATE TABLE/INDEX statements) from source
