@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2026-04-20
+
+### Added
+- **Migration safety utilities** (`src/lib/migration-safety.js`): `withFkOff(db, fn)`
+  wraps a callback with `PRAGMA foreign_keys = OFF` and restores it after;
+  `assertFkOff(db)` guard throws if foreign keys are still enabled;
+  `schemaDryRun(db, sql)` executes DDL inside a rolled-back transaction to
+  validate syntax without applying changes.
+
 ## [0.2.8] - 2026-04-19
 
 ### Changed
