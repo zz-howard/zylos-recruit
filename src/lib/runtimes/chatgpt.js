@@ -233,7 +233,7 @@ async function executeAndFormatFetchResults(functionCalls) {
 export default {
   name: 'chatgpt',
   capabilities: ['text', 'web_search', 'web_fetch'],
-  models: ['gpt-5.4', 'gpt-5.3-codex'],
+  models: ['gpt-5.5', 'gpt-5.4', 'gpt-5.3-codex'],
   defaultModel: 'gpt-5.4',
   efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
 

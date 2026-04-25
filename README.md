@@ -195,7 +195,7 @@ See [references/agent-workflow.md](references/agent-workflow.md) for the full gu
 |---------|-------------|
 | `auth.password` | Scrypt-hashed web login password |
 | `auth.api_token` | Bearer token for API access (auto-generated) |
-| `ai.runtime` | `auto` / `claude` / `codex` / `gemini` |
+| `ai.runtime` | `auto` / `claude` / `codex` / `chatgpt` / `gemini` |
 | `ai.model` | `auto` or specific model per runtime |
 | `ai.effort` | Reasoning effort (`low` / `medium` / `high` / `max`) |
 
