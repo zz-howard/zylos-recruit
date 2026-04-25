@@ -19,6 +19,38 @@ import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { spawnSandboxed } from './sandbox.js';
 
+const BASE_MODELS = ['gpt-5.4', 'gpt-5.3-codex'];
+const GPT_55_MIN_CODEX_VERSION = '0.124.0';
+
+function parseVersion(output) {
+  const match = String(output || '').match(/\b(\d+)\.(\d+)\.(\d+)\b/);
+  return match ? match.slice(1).map((n) => Number(n)) : null;
+}
+
+function isAtLeastVersion(actual, minimum) {
+  const a = parseVersion(actual);
+  const m = parseVersion(minimum);
+  if (!a || !m) return false;
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i] > m[i]) return true;
+    if (a[i] < m[i]) return false;
+  }
+  return true;
+}
+
+function supportsGpt55() {
+  try {
+    const version = execFileSync('codex', ['--version'], { encoding: 'utf8', timeout: 5000 });
+    return isAtLeastVersion(version, GPT_55_MIN_CODEX_VERSION);
+  } catch {
+    return false;
+  }
+}
+
+function getModels() {
+  return supportsGpt55() ? ['gpt-5.5', ...BASE_MODELS] : BASE_MODELS;
+}
+
 function buildSandbox(readOnlyBinds = []) {
   return {
     minimalFS: true,
@@ -50,7 +82,7 @@ function parseCodexJsonl(output) {
 export default {
   name: 'codex',
   capabilities: ['text', 'read_file'],
-  models: ['gpt-5.4', 'gpt-5.3-codex'],
+  get models() { return getModels(); },
   defaultModel: 'gpt-5.4',
   efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
 
