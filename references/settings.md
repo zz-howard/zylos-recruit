@@ -18,17 +18,19 @@ GET /api/settings
     "runtime": "auto",
     "effective": "claude",
     "envRuntime": "claude",
-    "availableRuntimes": ["claude", "codex", "gemini"],
+    "availableRuntimes": ["claude", "codex", "chatgpt", "gemini"],
     "model": "auto",
     "validModels": {
       "claude": ["opus", "sonnet", "haiku"],
       "codex": ["gpt-5.5", "gpt-5.4", "gpt-5.3-codex"],
+      "chatgpt": ["gpt-5.5", "gpt-5.4", "gpt-5.3-codex"],
       "gemini": ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash"]
     },
     "effort": "high",
     "validEfforts": {
       "claude": ["low", "medium", "high", "max"],
       "codex": ["none", "low", "medium", "high", "xhigh"],
+      "chatgpt": ["none", "low", "medium", "high", "xhigh"],
       "gemini": []
     }
   }
@@ -69,7 +71,7 @@ Content-Type: application/json
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `ai.runtime` | string | `auto`, `claude`, `codex`, or `gemini` |
+| `ai.runtime` | string | `auto`, `claude`, `codex`, `chatgpt`, or `gemini` |
 | `ai.model` | string | `auto` or a specific model from `validModels` |
 | `ai.effort` | string | Effort level from `validEfforts`. Empty string for runtimes without effort support |
 
@@ -86,9 +88,11 @@ All fields are optional — only provided fields are updated.
 |---------|--------------|
 | claude | sonnet |
 | codex | gpt-5.4 |
+| chatgpt | gpt-5.4 |
 | gemini | gemini-2.5-flash |
 
 `gpt-5.5` is available for Codex CLI when `codex --version` is `0.124.0` or newer.
+`gpt-5.5` is also available for the ChatGPT subscription runtime via the ChatGPT Codex backend.
 
 ### Runtime-Effort Mapping
 
@@ -96,4 +100,5 @@ All fields are optional — only provided fields are updated.
 |---------|---------------|---------|
 | claude | low, medium, high, max | high |
 | codex | none, low, medium, high, xhigh | high |
+| chatgpt | none, low, medium, high, xhigh | high |
 | gemini | _(not supported)_ | — |
