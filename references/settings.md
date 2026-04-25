@@ -22,7 +22,7 @@ GET /api/settings
     "model": "auto",
     "validModels": {
       "claude": ["opus", "sonnet", "haiku"],
-      "codex": ["gpt-5.4", "gpt-5.3-codex"],
+      "codex": ["gpt-5.5", "gpt-5.4", "gpt-5.3-codex"],
       "gemini": ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash"]
     },
     "effort": "high",
@@ -87,6 +87,8 @@ All fields are optional — only provided fields are updated.
 | claude | sonnet |
 | codex | gpt-5.4 |
 | gemini | gemini-2.5-flash |
+
+`gpt-5.5` is available for Codex CLI when `codex --version` is `0.124.0` or newer.
 
 ### Runtime-Effort Mapping
 
