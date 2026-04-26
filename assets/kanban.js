@@ -1404,11 +1404,23 @@
       // Scenario rows
       SCENARIOS.forEach(function (s) {
         var sCfg = raw[s.key] || {};
+        var srt = sCfg.runtime || '';
         html += '<tr>';
         html += '<td style="padding:6px 8px;">' + escapeHtml(s.label) + '</td>';
-        html += '<td style="padding:4px 4px;"><select data-key="' + s.key + '" data-field="runtime" style="width:100%;">' + makeRuntimeOptions(sCfg.runtime || '') + '</select></td>';
-        html += '<td style="padding:4px 4px;"><select data-key="' + s.key + '" data-field="model" style="width:100%;">' + makeModelOptions(sCfg.runtime || defCfg.runtime, sCfg.model || '') + '</select></td>';
-        html += '<td style="padding:4px 4px;"><select data-key="' + s.key + '" data-field="effort" style="width:100%;">' + makeEffortOptions(sCfg.runtime || defCfg.runtime, sCfg.effort || '') + '</select></td>';
+        html += '<td style="padding:4px 4px;"><select data-key="' + s.key + '" data-field="runtime" style="width:100%;">' + makeRuntimeOptions(srt) + '</select></td>';
+        if (!srt) {
+          html += '<td style="padding:4px 4px;"><select data-key="' + s.key + '" data-field="model" style="width:100%;" disabled><option value="" selected>跟随默认</option></select></td>';
+          html += '<td style="padding:4px 4px;"><select data-key="' + s.key + '" data-field="effort" style="width:100%;" disabled><option value="" selected>跟随默认</option></select></td>';
+        } else {
+          var ert = (srt === 'auto') ? ai.envRuntime : srt;
+          var efList = ai.validEfforts[ert] || [];
+          html += '<td style="padding:4px 4px;"><select data-key="' + s.key + '" data-field="model" style="width:100%;">' + makeModelOptions(srt, sCfg.model || '') + '</select></td>';
+          if (efList.length === 0) {
+            html += '<td style="padding:4px 4px;"><select data-key="' + s.key + '" data-field="effort" style="width:100%;" disabled><option value="" selected>N/A</option></select></td>';
+          } else {
+            html += '<td style="padding:4px 4px;"><select data-key="' + s.key + '" data-field="effort" style="width:100%;">' + makeEffortOptions(srt, sCfg.effort || '') + '</select></td>';
+          }
+        }
         html += '</tr>';
       });
 
@@ -1428,14 +1440,28 @@
       wrap.querySelectorAll('select[data-field="runtime"]').forEach(function (sel) {
         sel.addEventListener('change', function () {
           var key = this.getAttribute('data-key');
-          var rt = this.value || (key !== 'default' ? wrap.querySelector('select[data-key="default"][data-field="runtime"]').value : 'auto');
+          var rt = this.value;
           var row = this.closest('tr');
           var modelSel = row.querySelector('select[data-field="model"]');
           var effortSel = row.querySelector('select[data-field="effort"]');
-          var curModel = modelSel.value;
-          var curEffort = effortSel.value;
-          modelSel.innerHTML = makeModelOptions(rt, curModel);
-          effortSel.innerHTML = makeEffortOptions(rt, curEffort);
+          if (key !== 'default' && !rt) {
+            modelSel.innerHTML = '<option value="" selected>跟随默认</option>';
+            modelSel.disabled = true;
+            effortSel.innerHTML = '<option value="" selected>跟随默认</option>';
+            effortSel.disabled = true;
+          } else {
+            var ert = (!rt || rt === 'auto') ? ai.envRuntime : rt;
+            var efList = ai.validEfforts[ert] || [];
+            modelSel.disabled = false;
+            modelSel.innerHTML = makeModelOptions(ert, 'auto');
+            if (efList.length === 0) {
+              effortSel.innerHTML = '<option value="" selected>N/A</option>';
+              effortSel.disabled = true;
+            } else {
+              effortSel.disabled = false;
+              effortSel.innerHTML = makeEffortOptions(ert, efList[0]);
+            }
+          }
         });
       });
 
