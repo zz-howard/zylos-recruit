@@ -87,6 +87,27 @@ Recruit should not write directly into pages internals. It should use the pages
 registration surface so pages remains responsible for symlink ownership, slug
 conflict handling, and source path validation.
 
+## Concurrent Generation and Registration
+
+Recruit may generate reference interview-question documents concurrently for
+multiple candidates. Document generation remains recruit-owned and can proceed
+in parallel.
+
+Pages registration is different: it should be treated as a pages-owned
+serialized operation. Recruit should call the pages registration surface for
+each generated Markdown file and rely on pages to lock and atomically maintain
+its external-file registry.
+
+Recruit should make registration requests idempotent by using stable slugs for
+the same recruit document. If registration is retried for the same document and
+source file, the operation should be safe to repeat. If pages reports a slug
+conflict or registration failure, recruit should keep the recruit-owned raw
+Markdown document available and surface the pages integration error without
+blocking the candidate workflow.
+
+Recruit should not attempt to repair or rewrite pages' registry. Recovery and
+cleanup of pages-managed symlinks belong to pages.
+
 ## Acceptance Criteria
 
 - A user can generate a reference interview-question Markdown document from a
@@ -97,6 +118,9 @@ conflict handling, and source path validation.
   role context.
 - When pages integration is available, recruit registers the Markdown file with
   pages and stores the returned viewer URL.
+- Concurrent document generations do not corrupt pages registration state;
+  recruit can issue multiple registration requests and pages serializes registry
+  writes.
 - Opening the pages URL takes the user to the pages domain and requires pages
   authentication according to pages configuration.
 - Editing or regenerating the recruit-owned Markdown file is reflected in pages
