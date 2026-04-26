@@ -31,11 +31,6 @@ CREATE TABLE IF NOT EXISTS interview_question_documents (
   pages_slug        TEXT,
   pages_url         TEXT,
   pages_registered_at TEXT,
-  interview_round   TEXT,
-  target_duration_minutes INTEGER,
-  custom_prompt     TEXT,
-  prompt_mode       TEXT NOT NULL DEFAULT 'append'
-                    CHECK (prompt_mode IN ('append')),
   generation_status TEXT NOT NULL DEFAULT 'ready'
                     CHECK (generation_status IN ('ready','failed')),
   generator_runtime TEXT,
@@ -84,8 +79,8 @@ Expected behavior:
   - creates a DB row
   - attempts Pages registration if available
   - returns document metadata, including `pages_url` when present
-  - accepts optional `custom_prompt`, `interview_round`, and
-    `target_duration_minutes`
+  - may accept optional generation preferences if approved in the pending
+    decisions below
 - `GET /api/candidates/:id/interview-questions`
   - lists non-deleted documents for that candidate, newest first
 - `GET /api/interview-questions/:docId/raw`
@@ -184,10 +179,25 @@ Generation input should include:
 - latest resume AI evaluation summary when available
 - resume file path when available and safe for the selected runtime
 
+### Pending Context Decisions
+
+The following items are not all required for the first version. They should be
+approved before adding fields or extra workflow logic.
+
+| Item | What it is | How to get it | If omitted | Recommendation |
+|------|------------|---------------|------------|----------------|
+| Per-generation custom prompt | One-off interviewer instructions for this document, such as focus areas, exclusions, candidate-specific concerns, or must-ask topics. | Request body on `POST /api/candidates/:id/interview-questions`; the UI can expose a textarea. | Generation uses built-in prompt plus company/role prompts only. | Support as an optional request parameter. Persist only if auditability is needed. |
+| Prompt mode | Whether custom prompt is appended or replaces other prompts. | System-controlled constant for the first version. | Code always appends custom instructions. | Do not add a DB field in v1; fixed `append` behavior is enough. |
+| Interview round | Whether this is first round, second round, final round, or a focused technical screen. | User-selected/input request field, or written inside `custom_prompt`. Candidate state is not specific enough to infer this reliably. | Default to a general 60-minute technical interview. | Do not add a separate field in v1; use `custom_prompt` if needed. |
+| Target duration | Desired interview length such as 30, 45, or 60 minutes. | User-provided request field, or written inside `custom_prompt`. | Default to 60 minutes. | Do not persist in v1; fixed 60 minutes is acceptable unless UI needs a duration control. |
+| Structured resume summary | Parsed resume facts such as education, career trajectory, tech stack, representative projects, highlights, and risks. | Not stored today. Build at generation time from `candidate.brief`, latest `resume_ai` evaluation, and/or reading the resume PDF. | Questions may rely more on resume AI evaluation and direct PDF reading. | Do not add a field in v1. |
+| Evidence snippets | Short facts or excerpts used to ground tailored questions. | Extract at generation time from resume PDF and evaluation content/meta. | Questions may be less anchored to specific candidate evidence. | Do not add a field in v1. |
+| `interview_questions` AI scenario | Independent settings entry for runtime/model/effort selection. | Add `interview_questions` to the Settings scenario enum in code. | Reuse default AI settings. | Optional. Add only if separate model control is useful immediately. |
+
 ### Context Source Availability
 
-The context plan should be constrained to data that exists in Recruit today, or
-to fields explicitly introduced by this feature.
+The context plan should be constrained to data that exists in Recruit today or
+to items explicitly approved from the pending decision table.
 
 | Context | Source | Availability | Notes |
 |---------|--------|--------------|-------|
@@ -205,10 +215,10 @@ to fields explicitly introduced by this feature.
 | Latest resume AI verdict/score | latest `evaluations` where `kind = 'resume_ai'`, plus `meta.score` | Available when evaluation has run | Candidate detail already returns all evaluations; list view derives latest verdict/score. |
 | Resume AI analysis/recommendation | `evaluations.content` and `evaluations.meta.analysis/recommendation` | Available when evaluation has run | Existing AI eval stores markdown content and JSON meta. |
 | Human interview feedback | `evaluations` where `kind = 'interview'` | Available when entered | Useful for later interview rounds; may be absent for first interview. |
-| Interview round | New request field / document row `interview_round` | Needs this feature | Not currently stored. Add as optional input to generation and persist on the document row. |
-| Target duration | New request field / document row `target_duration_minutes` | Needs this feature | Not currently stored. Default to 60 minutes. |
-| Per-generation custom prompt | New request field / document row `custom_prompt` | Needs this feature | Not currently stored. Persist the prompt used so the generated document is auditable. |
-| Prompt mode | New document row `prompt_mode` | Needs this feature | First version should only support `append`; do not implement full replacement. |
+| Interview round | Pending decision | Not available today | Can be provided through optional custom prompt instead of a dedicated field. |
+| Target duration | Built-in default or pending decision | Default available | Default to 60 minutes unless a field/control is approved. |
+| Per-generation custom prompt | Pending decision | Not available today | Can be accepted as a request parameter; persistence is optional. |
+| Prompt mode | Built-in constant | Available by implementation | First version should be fixed append behavior. |
 | Evidence snippets | Resume PDF + evaluation content/meta | Partially available | Generate snippets at request time from available sources; do not assume snippets are pre-stored. |
 | Output constraints | Built-in prompt/template | Available by implementation | These are code-level constants, not user data. |
 
@@ -268,12 +278,13 @@ The generation context should be assembled from these blocks:
   - latest `resume_ai` evaluation verdict/content/meta
   - previous `interview` evaluations, when present
 - Interview context:
-  - request-level `interview_round`
-  - request-level `target_duration_minutes`, defaulting to 60
+  - default target duration of 60 minutes
+  - interview round only if explicitly approved as a field or provided in the
+    custom prompt
   - role seniority implied by role profile and candidate experience
 - Custom instruction context:
-  - request-level `custom_prompt`
-  - persisted document `custom_prompt` for auditability
+  - optional request-level `custom_prompt`, if approved
+  - persisted document `custom_prompt` only if auditability is required
 - Evidence snippets:
   - short, relevant excerpts or facts extracted from resume/evaluation sources
     during generation
