@@ -105,6 +105,63 @@ Add an AI scenario key:
 }
 ```
 
+### Prompt Configuration Model
+
+Reference interview-question generation should use layered prompts rather than
+a single free-form prompt.
+
+The built-in system prompt should contain stable quality rules that apply to
+all generated interview-question documents:
+
+- write questions like a human interviewer, not an AI-generated questionnaire
+- ask one question at a time and avoid stacked multi-part questions
+- include concrete examples when they help anchor expected answer depth
+- keep interviewer-only notes short, using `> 考察点：...`
+- use natural follow-up guidance instead of long scripted follow-up lists
+- avoid verbose "intent" or "analysis" blocks in the candidate-facing question
+  flow
+- default to a 60-minute structure: opening, technical foundation,
+  architecture and engineering, AI-native habits, and closing
+- include a short summary section with evaluation dimensions, pacing guidance,
+  and the most revealing questions for this candidate
+
+The role-level prompt should contain role-specific evaluation criteria and can
+override the default evaluation emphasis. Examples:
+
+- DevOps / SRE roles should emphasize business-driven infrastructure
+  architecture, not only cloud administration.
+- LLM algorithm roles should emphasize whether the candidate can move LLM work
+  from demo to production, including evaluation, deployment, cost, and
+  monitoring.
+- Engineering IC roles may emphasize code taste, module boundaries,
+  production incidents, and AI-native delivery habits.
+
+The per-generation custom prompt should represent Howard's current interview
+intent. It should support:
+
+- focus areas to emphasize
+- areas to avoid
+- candidate-specific concerns or red flags
+- interview round or seniority expectations
+- time allocation changes
+- must-ask topics or must-not-ask topics
+
+The default behavior should be additive: custom prompt content is appended as
+"interviewer preferences" and receives higher priority for focus, exclusions,
+weights, and time allocation. It should not replace the built-in quality rules.
+
+This avoids a common failure mode where a custom prompt accidentally removes
+the style constraints that make the generated questions useful. A future
+advanced mode could allow replacing the role prompt, but the first version
+should not allow replacing the built-in system prompt.
+
+Recommended precedence:
+
+1. Built-in system prompt: non-overridable quality and output rules.
+2. Role `eval_prompt`: role-specific criteria and weighting.
+3. Per-generation custom prompt: highest-priority interview intent, appended
+   as preferences and constraints for this generation.
+
 Generation input should include:
 
 - company profile / company eval prompt
@@ -133,6 +190,69 @@ tags: [recruit, interview-questions]
 The prompt should follow the updated interview-question style standard:
 human interviewer language, one point at a time, clear intended angle, and no
 multi-question stacking.
+
+### Context Engineering
+
+High-quality interview questions need structured context, not a raw dump of all
+available candidate data.
+
+The generation context should be assembled from these blocks:
+
+- Company context:
+  - company profile
+  - product and technical architecture summary
+  - AI-native work style
+  - what this role would work on at COCO
+- Role context:
+  - role title and JD
+  - expected portrait
+  - role `eval_prompt`
+  - assessment dimensions and weight hints
+  - role-specific red flags
+- Candidate context:
+  - structured resume summary
+  - years of experience and seniority signal
+  - education and career trajectory
+  - tech stack and domain experience
+  - representative projects
+  - highlights and risk signals
+- Existing evaluation context:
+  - latest resume AI evaluation conclusion
+  - score or verdict when available
+  - main evidence supporting the conclusion
+  - concerns that should be tested in interview
+- Interview context:
+  - interview round
+  - interviewer
+  - target duration
+  - desired depth and seniority calibration
+- Custom instruction context:
+  - per-generation custom prompt
+  - areas to emphasize or avoid
+  - must-ask or must-not-ask topics
+- Evidence snippets:
+  - short, relevant excerpts or facts from the resume/evaluation that support
+    tailored questions
+- Output constraints:
+  - Markdown frontmatter
+  - question count and stage structure
+  - language
+  - observation-note format
+  - summary requirements
+
+The generator should prefer structured summaries plus a small number of
+high-value evidence snippets over blindly inserting the full resume and all
+historical notes. The useful signal comes from intersecting role expectations,
+candidate evidence, and the current interview goal.
+
+When context exceeds the available model budget, trimming priority should be:
+
+1. Remove low-signal long resume prose already captured in the structured
+   summary.
+2. Remove older or duplicate evaluation notes.
+3. Keep role expectations, current custom prompt, candidate risk signals, and
+   evidence snippets.
+4. Keep output/style constraints even under tight budgets.
 
 ## Pages Integration Adapter
 
