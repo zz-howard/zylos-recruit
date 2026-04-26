@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.10] - 2026-04-26
+
+### Added
+- **gpt-5.5 runtime option**: ChatGPT runtime now exposes `gpt-5.5`;
+  Codex runtime exposes `gpt-5.5` when the installed Codex CLI is `0.124.0`
+  or newer.
+
+### Fixed
+- **Scenario AI settings inheritance**: scenario-specific model and effort
+  controls are now locked when runtime follows the default settings. Selecting
+  an explicit runtime resets model/effort to valid options for that runtime,
+  and runtimes without effort support display `N/A`.
+
 ## [0.2.9] - 2026-04-20
 
 ### Added
