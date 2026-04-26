@@ -9,7 +9,7 @@ import express, { Router } from 'express';
 import { getConfig, saveConfig, resolveAiConfig } from '../lib/config.js';
 import { getAvailableRuntimes, getEnvRuntime, getValidModels, getValidEfforts } from '../lib/ai.js';
 
-const AI_SCENARIOS = ['resume_eval', 'auto_match', 'chat', 'chat_summary', 'portrait'];
+const AI_SCENARIOS = ['resume_eval', 'auto_match', 'chat', 'chat_summary', 'portrait', 'interview_questions'];
 
 function buildResponse() {
   const config = getConfig();

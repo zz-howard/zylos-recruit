@@ -369,6 +369,16 @@
           : '<div class="meta">尚未进行 AI 评估</div>')
       + '</div>'
 
+      // ─── Reference Interview Questions section ───
+      + '<div class="eval-section">'
+      + '<h3>参考面试题</h3>'
+      + '<div class="field"><label>本次生成要求（可选）</label>'
+      +   '<textarea id="iq-custom-prompt" placeholder="例如：重点看迁移能力；不要问算法细节；围绕 AI-native 工作方式多问"></textarea></div>'
+      + '<button class="btn btn-primary" id="btn-generate-iq">生成参考面试题</button>'
+      + '<div id="iq-status" class="meta"></div>'
+      + '<div id="iq-documents" class="iq-documents"><div class="meta">Loading...</div></div>'
+      + '</div>'
+
       // ─── Interview Feedback section ───
       + '<div class="eval-section">'
       + '<h3>面试记录</h3>'
@@ -803,6 +813,33 @@
           }
         }).catch(function () {});
       }, 5000);
+    }
+
+    loadInterviewQuestionDocuments(c.id, wrap);
+
+    var generateIqBtn = wrap.querySelector('#btn-generate-iq');
+    if (generateIqBtn) {
+      generateIqBtn.addEventListener('click', function () {
+        var statusEl = wrap.querySelector('#iq-status');
+        var customPrompt = wrap.querySelector('#iq-custom-prompt').value || '';
+        generateIqBtn.disabled = true;
+        generateIqBtn.textContent = '生成中...';
+        statusEl.textContent = '';
+        api('POST', '/candidates/' + c.id + '/interview-questions', {
+          custom_prompt: customPrompt,
+        }).then(function () {
+          toast('参考面试题已生成', 'success');
+          wrap.querySelector('#iq-custom-prompt').value = '';
+          return loadInterviewQuestionDocuments(c.id, wrap);
+        }).catch(function (err) {
+          statusEl.textContent = '❌ ' + err.message;
+          statusEl.className = 'meta error';
+          toast(err.message, 'error');
+        }).finally(function () {
+          generateIqBtn.disabled = false;
+          generateIqBtn.textContent = '生成参考面试题';
+        });
+      });
     }
 
     // Add interview evaluation
@@ -1341,6 +1378,7 @@
       { key: 'chat', label: '需求访谈' },
       { key: 'chat_summary', label: '访谈汇总' },
       { key: 'portrait', label: '岗位画像' },
+      { key: 'interview_questions', label: '参考面试题' },
     ];
 
     api('GET', '/settings').then(function (r) {
@@ -1600,6 +1638,58 @@
       })
       .catch(function (err) {
         toast('加载访谈列表失败: ' + err.message, 'error');
+      });
+  }
+
+  function loadInterviewQuestionDocuments(candidateId, wrap) {
+    var listEl = wrap.querySelector('#iq-documents');
+    if (!listEl) return Promise.resolve();
+    listEl.innerHTML = '<div class="meta">Loading...</div>';
+    return api('GET', '/candidates/' + candidateId + '/interview-questions')
+      .then(function (r) {
+        var docs = r.documents || [];
+        if (docs.length === 0) {
+          listEl.innerHTML = '<div class="meta">暂无参考面试题</div>';
+          return;
+        }
+        listEl.innerHTML = docs.map(function (d) {
+          var actions = '';
+          if (d.pages_url) {
+            actions += '<a class="btn btn-primary" target="_blank" href="' + escapeHtml(d.pages_url) + '">Open in Pages</a> ';
+          } else {
+            actions += '<a class="btn" target="_blank" href="' + API + '/interview-questions/' + d.id + '/raw">View Markdown</a> ';
+            actions += '<button class="btn btn-ghost iq-retry" data-id="' + d.id + '">Retry Pages</button> ';
+          }
+          actions += '<a class="btn btn-ghost" target="_blank" href="' + API + '/interview-questions/' + d.id + '/raw">Raw</a>';
+          return '<div class="eval iq-doc">'
+            + '<div class="eval-head">'
+            + '<span>' + escapeHtml(d.title || 'Reference interview questions') + '</span>'
+            + '<span class="meta">' + escapeHtml(d.created_at || '') + '</span>'
+            + '</div>'
+            + (d.error_message && !d.pages_url ? '<div class="meta error">' + escapeHtml(d.error_message) + '</div>' : '')
+            + '<div class="actions">' + actions + '</div>'
+            + '</div>';
+        }).join('');
+
+        listEl.querySelectorAll('.iq-retry').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            btn.disabled = true;
+            btn.textContent = 'Retrying...';
+            api('POST', '/interview-questions/' + btn.dataset.id + '/register-pages')
+              .then(function () {
+                toast('Pages registration updated', 'success');
+                return loadInterviewQuestionDocuments(candidateId, wrap);
+              })
+              .catch(function (err) {
+                toast(err.message, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Retry Pages';
+              });
+          });
+        });
+      })
+      .catch(function (err) {
+        listEl.innerHTML = '<div class="meta error">' + escapeHtml(err.message) + '</div>';
       });
   }
 
