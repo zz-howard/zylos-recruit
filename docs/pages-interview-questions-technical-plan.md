@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS interview_question_documents (
   pages_slug        TEXT,
   pages_url         TEXT,
   pages_registered_at TEXT,
+  interview_round   TEXT,
+  target_duration_minutes INTEGER,
+  custom_prompt     TEXT,
+  prompt_mode       TEXT NOT NULL DEFAULT 'append'
+                    CHECK (prompt_mode IN ('append')),
   generation_status TEXT NOT NULL DEFAULT 'ready'
                     CHECK (generation_status IN ('ready','failed')),
   generator_runtime TEXT,
@@ -79,6 +84,8 @@ Expected behavior:
   - creates a DB row
   - attempts Pages registration if available
   - returns document metadata, including `pages_url` when present
+  - accepts optional `custom_prompt`, `interview_round`, and
+    `target_duration_minutes`
 - `GET /api/candidates/:id/interview-questions`
   - lists non-deleted documents for that candidate, newest first
 - `GET /api/interview-questions/:docId/raw`
@@ -104,6 +111,10 @@ Add an AI scenario key:
   }
 }
 ```
+
+The settings API currently enumerates known AI scenarios in
+`src/routes/api-settings.js`; implementation must add `interview_questions` to
+that list so the runtime/model/effort can be configured independently.
 
 ### Prompt Configuration Model
 
@@ -173,6 +184,48 @@ Generation input should include:
 - latest resume AI evaluation summary when available
 - resume file path when available and safe for the selected runtime
 
+### Context Source Availability
+
+The context plan should be constrained to data that exists in Recruit today, or
+to fields explicitly introduced by this feature.
+
+| Context | Source | Availability | Notes |
+|---------|--------|--------------|-------|
+| Company name | `companies.name` | Available | Returned by `getCompany()` / companies API. |
+| Company profile | latest `company_profiles.content` | Available when configured | Existing resume evaluation already injects this as `company?.profile?.content`. If absent, use a concise fallback. |
+| Company eval prompt | `companies.eval_prompt` | Available when configured | Existing resume evaluation already appends it as company-level custom instructions. |
+| Role title | `roles.name` | Available | Candidate must have `role_id`, or generation should fail / ask user to assign a role. |
+| Role JD | `roles.description` | Available when configured | Existing code treats it as fallback when `expected_portrait` is absent. Interview-question generation can include both JD and portrait, with trimming. |
+| Role expected portrait | `roles.expected_portrait` and latest `role_profiles.content` | Available when configured | Existing role profile API writes latest profile content into `expected_portrait`. |
+| Role eval prompt | `roles.eval_prompt` | Available when configured | This is the right source for role-specific interview emphasis. |
+| Candidate basic fields | `candidates.name`, `email`, `phone`, `source`, `brief`, `state`, `role_id` | Available | `brief` may be auto-filled from resume AI evaluation. |
+| Candidate extra info | `candidates.extra_info` | Available when configured | Existing resume evaluation already injects this. |
+| Resume file | `candidates.resume_path` under `RESUMES_DIR` | Available when uploaded | Current runtime path supports PDF reading through CLI runtimes with `read_file`; generation should require a resume or degrade to DB/evaluation-only context. |
+| Structured resume summary | Not a dedicated table/column today | Partially available | Use `candidate.brief`, latest `resume_ai` evaluation content/meta, and/or read the PDF during generation. Do not assume parsed fields such as education or career trajectory are stored separately. |
+| Latest resume AI verdict/score | latest `evaluations` where `kind = 'resume_ai'`, plus `meta.score` | Available when evaluation has run | Candidate detail already returns all evaluations; list view derives latest verdict/score. |
+| Resume AI analysis/recommendation | `evaluations.content` and `evaluations.meta.analysis/recommendation` | Available when evaluation has run | Existing AI eval stores markdown content and JSON meta. |
+| Human interview feedback | `evaluations` where `kind = 'interview'` | Available when entered | Useful for later interview rounds; may be absent for first interview. |
+| Interview round | New request field / document row `interview_round` | Needs this feature | Not currently stored. Add as optional input to generation and persist on the document row. |
+| Target duration | New request field / document row `target_duration_minutes` | Needs this feature | Not currently stored. Default to 60 minutes. |
+| Per-generation custom prompt | New request field / document row `custom_prompt` | Needs this feature | Not currently stored. Persist the prompt used so the generated document is auditable. |
+| Prompt mode | New document row `prompt_mode` | Needs this feature | First version should only support `append`; do not implement full replacement. |
+| Evidence snippets | Resume PDF + evaluation content/meta | Partially available | Generate snippets at request time from available sources; do not assume snippets are pre-stored. |
+| Output constraints | Built-in prompt/template | Available by implementation | These are code-level constants, not user data. |
+
+Unavailable or partial sources must have explicit fallback behavior:
+
+- No company profile: generate with company name and a short "profile not
+  provided" note.
+- No role portrait: use role JD; if both are absent, generation should fail
+  with a clear "role requirements missing" error.
+- No resume uploaded: allow generation only if candidate brief, extra info, or
+  prior evaluations provide enough signal; otherwise fail with "resume or
+  candidate context required".
+- No prior resume AI evaluation: read the resume file directly when the runtime
+  supports file reading; otherwise generate from DB fields and note limited
+  evidence.
+- No custom prompt: use built-in system prompt + role/company prompts only.
+
 The output should be Markdown directly. Unlike resume evaluation, it does not
 need to produce JSON unless the implementation chooses to wrap metadata
 separately. The Markdown should include frontmatter so Pages can infer title,
@@ -199,40 +252,31 @@ available candidate data.
 The generation context should be assembled from these blocks:
 
 - Company context:
-  - company profile
-  - product and technical architecture summary
-  - AI-native work style
-  - what this role would work on at COCO
+  - `companies.name`
+  - latest `company_profiles.content`, when configured
+  - `companies.eval_prompt`, when configured
 - Role context:
-  - role title and JD
-  - expected portrait
-  - role `eval_prompt`
-  - assessment dimensions and weight hints
-  - role-specific red flags
+  - `roles.name`
+  - `roles.description`
+  - `roles.expected_portrait`
+  - `roles.eval_prompt`
 - Candidate context:
-  - structured resume summary
-  - years of experience and seniority signal
-  - education and career trajectory
-  - tech stack and domain experience
-  - representative projects
-  - highlights and risk signals
+  - `candidates.name`, `source`, `brief`, `extra_info`, and assigned role
+  - resume PDF path when uploaded and readable by the selected runtime
+  - structured resume facts extracted on demand, not assumed to be stored
 - Existing evaluation context:
-  - latest resume AI evaluation conclusion
-  - score or verdict when available
-  - main evidence supporting the conclusion
-  - concerns that should be tested in interview
+  - latest `resume_ai` evaluation verdict/content/meta
+  - previous `interview` evaluations, when present
 - Interview context:
-  - interview round
-  - interviewer
-  - target duration
-  - desired depth and seniority calibration
+  - request-level `interview_round`
+  - request-level `target_duration_minutes`, defaulting to 60
+  - role seniority implied by role profile and candidate experience
 - Custom instruction context:
-  - per-generation custom prompt
-  - areas to emphasize or avoid
-  - must-ask or must-not-ask topics
+  - request-level `custom_prompt`
+  - persisted document `custom_prompt` for auditability
 - Evidence snippets:
-  - short, relevant excerpts or facts from the resume/evaluation that support
-    tailored questions
+  - short, relevant excerpts or facts extracted from resume/evaluation sources
+    during generation
 - Output constraints:
   - Markdown frontmatter
   - question count and stage structure
