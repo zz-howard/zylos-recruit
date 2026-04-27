@@ -195,10 +195,63 @@ function stripFrontmatter(markdown) {
   return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n+/, '').trim();
 }
 
-function cleanGeneratedMarkdown(markdown) {
+function stripFirstMarkdownFenceBlock(markdown) {
+  const match = markdown.match(/```(?:markdown|md)?[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*(?:\r?\n|$)/i);
+  if (!match) return markdown;
+
+  const before = markdown.slice(0, match.index).trim();
+  const looksLikePreamble =
+    !before ||
+    /^(我会|我将|下面|以下|Here|I'll|I will|Let me)\b/i.test(before) ||
+    !/[#|>*[\]-]/.test(before);
+
+  return match.index < 1200 && looksLikePreamble ? match[1].trim() : markdown;
+}
+
+function stripLeadingGeneratedPreamble(markdown) {
+  const firstHeading = markdown.search(/^#{1,3}\s+\S/m);
+  if (firstHeading <= 0) return markdown;
+
+  const preamble = markdown.slice(0, firstHeading).trim();
+  if (!preamble) return markdown.slice(firstHeading).trim();
+
+  const looksLikeModelNarration =
+    /^(我会|我将|下面|以下|Here|I'll|I will|Let me)\b/i.test(preamble) ||
+    !/[#|>*`[\]-]/.test(preamble);
+
+  return looksLikeModelNarration ? markdown.slice(firstHeading).trim() : markdown;
+}
+
+function stripFirstTopMatterBlock(markdown) {
+  const firstHeading = markdown.search(/^#{1,3}\s+\S/m);
+  const match = markdown.match(/---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/);
+  if (!match) return markdown;
+
+  const matchStart = match.index;
+  const before = markdown.slice(0, matchStart).trim();
+  const isBeforeDocument = firstHeading === -1 || matchStart <= firstHeading || matchStart < 1200;
+  if (!isBeforeDocument) return markdown;
+
+  const looksLikePreamble =
+    !before ||
+    /^(我会|我将|下面|以下|Here|I'll|I will|Let me)\b/i.test(before) ||
+    !/[#|>*`[\]-]/.test(before);
+
+  return looksLikePreamble ? markdown.slice(match.index + match[0].length).trim() : markdown;
+}
+
+export function cleanGeneratedMarkdown(markdown) {
   let cleaned = String(markdown || '').trim();
-  for (let i = 0; i < 3; i += 1) {
-    const next = stripFrontmatter(stripMarkdownFence(cleaned)).trim();
+  for (let i = 0; i < 5; i += 1) {
+    const next = stripLeadingGeneratedPreamble(
+      stripFirstTopMatterBlock(
+        stripFrontmatter(
+          stripFirstMarkdownFenceBlock(
+            stripMarkdownFence(cleaned),
+          ),
+        ),
+      ),
+    ).trim();
     if (next === cleaned) break;
     cleaned = next;
   }
@@ -237,7 +290,7 @@ export async function generateInterviewQuestions(candidateId, { customPrompt } =
   const readOnlyBinds = hasResume ? [RESUMES_DIR] : undefined;
   const { text, runtime, model, effort } = await aiCall('interview_questions', prompt, { required, readOnlyBinds });
 
-  const body = stripFrontmatter(stripMarkdownFence(String(text || '').trim()));
+  const body = cleanGeneratedMarkdown(text);
   const title = inferMarkdownTitle(body, `Reference Interview Questions - ${safeTitlePart(candidate.name || 'Candidate')}`);
   const markdown = ensureFrontmatter(body, { title, roleName: role.name });
 
