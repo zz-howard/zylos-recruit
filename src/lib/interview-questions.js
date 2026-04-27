@@ -152,8 +152,7 @@ Return Markdown only. Include frontmatter with title, description, date, and tag
 }
 
 function ensureFrontmatter(markdown, { title, roleName }) {
-  const trimmed = String(markdown || '').trim();
-  if (trimmed.startsWith('---\n')) return trimmed + '\n';
+  const trimmed = stripFrontmatter(stripMarkdownFence(String(markdown || '').trim()));
   const today = new Date().toISOString().slice(0, 10);
   return `---
 title: "${markdownEscapeYaml(title)}"
@@ -164,6 +163,15 @@ tags: [recruit, interview-questions]
 
 ${trimmed}
 `;
+}
+
+function stripMarkdownFence(markdown) {
+  const match = markdown.match(/^```(?:markdown|md)?[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*$/i);
+  return match ? match[1].trim() : markdown;
+}
+
+function stripFrontmatter(markdown) {
+  return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n+/, '').trim();
 }
 
 export async function generateInterviewQuestions(candidateId, { customPrompt } = {}) {
