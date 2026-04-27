@@ -174,6 +174,11 @@ function stripFrontmatter(markdown) {
   return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n+/, '').trim();
 }
 
+function inferMarkdownTitle(markdown, fallback) {
+  const match = markdown.match(/^#\s+(.+)$/m);
+  return safeTitlePart(match?.[1] || fallback);
+}
+
 export async function generateInterviewQuestions(candidateId, { customPrompt } = {}) {
   const candidate = getCandidate(candidateId);
   if (!candidate) throw new Error('candidate not found');
@@ -201,8 +206,9 @@ export async function generateInterviewQuestions(candidateId, { customPrompt } =
   const readOnlyBinds = hasResume ? [RESUMES_DIR] : undefined;
   const { text, runtime, model, effort } = await aiCall('interview_questions', prompt, { required, readOnlyBinds });
 
-  const title = `Reference Interview Questions - ${safeTitlePart(candidate.name || 'Candidate')}`;
-  const markdown = ensureFrontmatter(text, { title, roleName: role.name });
+  const body = stripFrontmatter(stripMarkdownFence(String(text || '').trim()));
+  const title = inferMarkdownTitle(body, `Reference Interview Questions - ${safeTitlePart(candidate.name || 'Candidate')}`);
+  const markdown = ensureFrontmatter(body, { title, roleName: role.name });
 
   fs.mkdirSync(DOCS_DIR, { recursive: true });
   const token = crypto.randomBytes(5).toString('hex');
