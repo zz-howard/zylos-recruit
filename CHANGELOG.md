@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.12] - 2026-04-27
+
+### Changed
+- **Async reference interview-question generation**: candidate detail pages now
+  start generation in the background, show a generating state after refresh or
+  reopening, and poll until the generated document appears.
+
+### Fixed
+- **Interview-question generation UX**: the "生成参考面试题" button no longer
+  blocks the modal while waiting for the AI run to finish, and failed background
+  generations surface their error in the reference-question section.
+
 ## [0.2.11] - 2026-04-27
 
 ### Added
