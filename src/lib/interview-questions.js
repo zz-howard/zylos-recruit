@@ -14,6 +14,31 @@ import { call as aiCall } from './ai-gateway.js';
 import { registerWithPages, unregisterFromPages } from './pages-integration.js';
 
 const DOCS_DIR = path.join(DATA_DIR, 'interview-questions');
+const generatingSet = new Set();
+const generationErrors = new Map();
+
+export function isGeneratingInterviewQuestions(candidateId) {
+  return generatingSet.has(Number(candidateId));
+}
+
+export function getInterviewQuestionGenerationError(candidateId) {
+  return generationErrors.get(Number(candidateId)) || null;
+}
+
+export function generateInterviewQuestionsAsync(candidateId, { customPrompt } = {}) {
+  const id = Number(candidateId);
+  if (generatingSet.has(id)) {
+    throw new Error('参考面试题正在生成中，请稍候');
+  }
+  generatingSet.add(id);
+  generationErrors.delete(id);
+  generateInterviewQuestions(id, { customPrompt }).catch((err) => {
+    generationErrors.set(id, err.message || 'generation failed');
+    console.error(`[recruit] interview question generation failed for candidate #${id}:`, err.message);
+  }).finally(() => {
+    generatingSet.delete(id);
+  });
+}
 
 function latestByKind(evaluations, kind) {
   return (evaluations || []).find((e) => e.kind === kind) || null;
