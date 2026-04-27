@@ -830,14 +830,16 @@
         api('POST', '/candidates/' + c.id + '/interview-questions', {
           custom_prompt: customPrompt,
         }).then(function () {
-          toast('参考面试题已生成', 'success');
+          toast('参考面试题已开始生成，请稍候...', 'success');
           wrap.querySelector('#iq-custom-prompt').value = '';
-          return loadInterviewQuestionDocuments(c.id, wrap);
+          return loadInterviewQuestionDocuments(c.id, wrap).then(function () {
+            var docCount = wrap.querySelectorAll('.iq-doc:not(.iq-generating)').length;
+            startInterviewQuestionPolling(c.id, wrap, docCount);
+          });
         }).catch(function (err) {
           statusEl.textContent = '❌ ' + err.message;
           statusEl.className = 'meta error';
           toast(err.message, 'error');
-        }).finally(function () {
           generateIqBtn.disabled = false;
           generateIqBtn.textContent = '生成参考面试题';
         });
@@ -1643,54 +1645,123 @@
       });
   }
 
-  function loadInterviewQuestionDocuments(candidateId, wrap) {
-    var listEl = wrap.querySelector('#iq-documents');
-    if (!listEl) return Promise.resolve();
-    listEl.innerHTML = '<div class="meta">Loading...</div>';
-    return api('GET', '/candidates/' + candidateId + '/interview-questions')
-      .then(function (r) {
-        var docs = r.documents || [];
-        if (docs.length === 0) {
-          listEl.innerHTML = '<div class="meta">暂无参考面试题</div>';
-          return;
-        }
-        listEl.innerHTML = docs.map(function (d) {
-          var actions = '';
-          if (d.pages_url) {
-            actions += '<a class="btn btn-primary" target="_blank" href="' + escapeHtml(d.pages_url) + '">Open in Pages</a> ';
-          } else {
-            actions += '<a class="btn" target="_blank" href="' + API + '/interview-questions/' + d.id + '/raw">View Markdown</a> ';
-            actions += '<button class="btn btn-ghost iq-retry" data-id="' + d.id + '">Retry Pages</button> ';
-          }
-          actions += '<a class="btn btn-ghost" target="_blank" href="' + API + '/interview-questions/' + d.id + '/raw">Raw</a>';
-          return '<div class="eval iq-doc">'
-            + '<div class="eval-head">'
-            + '<span>' + escapeHtml(d.title || 'Reference interview questions') + '</span>'
-            + '<span class="meta">' + escapeHtml(d.created_at || '') + '</span>'
-            + '</div>'
-            + (d.error_message && !d.pages_url ? '<div class="meta error">' + escapeHtml(d.error_message) + '</div>' : '')
-            + '<div class="actions">' + actions + '</div>'
-            + '</div>';
-        }).join('');
+    function startInterviewQuestionPolling(candidateId, wrap, initialCount) {
+      if (!wrap || wrap.dataset.iqPolling === 'true') return;
+      wrap.dataset.iqPolling = 'true';
+      var pollCount = 0;
+      var maxPolls = 72;
+      var before = Number(initialCount || 0);
+      var statusEl = wrap.querySelector('#iq-status');
+      var timer = setInterval(function () {
+        pollCount++;
+        api('GET', '/candidates/' + candidateId + '/interview-questions')
+          .then(function (r) {
+            var docs = r.documents || [];
+            if (!r.generating || docs.length > before || pollCount >= maxPolls) {
+              clearInterval(timer);
+              wrap.dataset.iqPolling = '';
+              if (r.generation_error) {
+                if (statusEl) {
+                  statusEl.textContent = '❌ ' + r.generation_error;
+                  statusEl.className = 'meta error';
+                }
+                toast(r.generation_error, 'error');
+              } else if (docs.length > before || !r.generating) {
+                if (docs.length > before) toast('参考面试题已生成', 'success');
+                if (statusEl) {
+                  statusEl.textContent = '';
+                  statusEl.className = 'meta';
+                }
+              } else {
+                toast('参考面试题生成超时，请刷新页面查看', 'warning');
+              }
+              loadInterviewQuestionDocuments(candidateId, wrap);
+            } else {
+              renderInterviewQuestionDocuments(candidateId, wrap, r);
+            }
+          })
+          .catch(function () {});
+      }, 5000);
+    }
 
-        listEl.querySelectorAll('.iq-retry').forEach(function (btn) {
-          btn.addEventListener('click', function () {
-            btn.disabled = true;
-            btn.textContent = 'Retrying...';
-            api('POST', '/interview-questions/' + btn.dataset.id + '/register-pages')
-              .then(function () {
-                toast('Pages registration updated', 'success');
-                return loadInterviewQuestionDocuments(candidateId, wrap);
-              })
-              .catch(function (err) {
-                toast(err.message, 'error');
-                btn.disabled = false;
-                btn.textContent = 'Retry Pages';
-              });
-          });
+    function renderInterviewQuestionDocuments(candidateId, wrap, r) {
+      var listEl = wrap.querySelector('#iq-documents');
+      if (!listEl) return;
+      var docs = r.documents || [];
+      var generateBtn = wrap.querySelector('#btn-generate-iq');
+      if (generateBtn) {
+        generateBtn.disabled = !!r.generating;
+        generateBtn.textContent = r.generating ? '生成中...' : '生成参考面试题';
+      }
+      var cards = [];
+      if (r.generating) {
+        cards.push('<div class="eval iq-doc iq-generating">'
+          + '<div class="eval-head">'
+          + '<span>参考面试题生成中...</span>'
+          + '<span class="meta">请稍候</span>'
+          + '</div>'
+          + '<div class="meta">刷新页面后仍会继续显示生成状态，完成后自动更新列表。</div>'
+          + '</div>');
+      } else if (r.generation_error) {
+        cards.push('<div class="eval iq-doc">'
+          + '<div class="meta error">❌ ' + escapeHtml(r.generation_error) + '</div>'
+          + '</div>');
+      }
+      if (docs.length === 0 && !r.generating && !r.generation_error) {
+        listEl.innerHTML = '<div class="meta">暂无参考面试题</div>';
+        return;
+      }
+      cards = cards.concat(docs.map(function (d) {
+        var actions = '';
+        if (d.pages_url) {
+          actions += '<a class="btn btn-primary" target="_blank" href="' + escapeHtml(d.pages_url) + '">Open in Pages</a> ';
+        } else {
+          actions += '<a class="btn" target="_blank" href="' + API + '/interview-questions/' + d.id + '/raw">View Markdown</a> ';
+          actions += '<button class="btn btn-ghost iq-retry" data-id="' + d.id + '">Retry Pages</button> ';
+        }
+        actions += '<a class="btn btn-ghost" target="_blank" href="' + API + '/interview-questions/' + d.id + '/raw">Raw</a>';
+        return '<div class="eval iq-doc">'
+          + '<div class="eval-head">'
+          + '<span>' + escapeHtml(d.title || 'Reference interview questions') + '</span>'
+          + '<span class="meta">' + escapeHtml(d.created_at || '') + '</span>'
+          + '</div>'
+          + (d.error_message && !d.pages_url ? '<div class="meta error">' + escapeHtml(d.error_message) + '</div>' : '')
+          + '<div class="actions">' + actions + '</div>'
+          + '</div>';
+      }));
+      listEl.innerHTML = cards.join('');
+
+      listEl.querySelectorAll('.iq-retry').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          btn.disabled = true;
+          btn.textContent = 'Retrying...';
+          api('POST', '/interview-questions/' + btn.dataset.id + '/register-pages')
+            .then(function () {
+              toast('Pages registration updated', 'success');
+              return loadInterviewQuestionDocuments(candidateId, wrap);
+            })
+            .catch(function (err) {
+              toast(err.message, 'error');
+              btn.disabled = false;
+              btn.textContent = 'Retry Pages';
+            });
         });
-      })
-      .catch(function (err) {
+      });
+
+      if (r.generating) {
+        startInterviewQuestionPolling(candidateId, wrap, docs.length);
+      }
+    }
+
+    function loadInterviewQuestionDocuments(candidateId, wrap) {
+      var listEl = wrap.querySelector('#iq-documents');
+      if (!listEl) return Promise.resolve();
+      listEl.innerHTML = '<div class="meta">Loading...</div>';
+      return api('GET', '/candidates/' + candidateId + '/interview-questions')
+        .then(function (r) {
+          renderInterviewQuestionDocuments(candidateId, wrap, r);
+        })
+        .catch(function (err) {
         listEl.innerHTML = '<div class="meta error">' + escapeHtml(err.message) + '</div>';
       });
   }

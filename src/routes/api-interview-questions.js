@@ -7,6 +7,9 @@ import {
 } from '../lib/db.js';
 import {
   generateInterviewQuestions,
+  generateInterviewQuestionsAsync,
+  getInterviewQuestionGenerationError,
+  isGeneratingInterviewQuestions,
   resolveDocumentPath,
   retryPagesRegistration,
   unregisterDocumentFromPages,
@@ -18,13 +21,21 @@ export function interviewQuestionsRouter() {
 
   router.get('/candidates/:id/interview-questions', (req, res) => {
     const candidateId = Number(req.params.id);
-    res.json({ documents: listInterviewQuestionDocuments({ candidateId }) });
+    res.json({
+      documents: listInterviewQuestionDocuments({ candidateId }),
+      generating: isGeneratingInterviewQuestions(candidateId),
+      generation_error: getInterviewQuestionGenerationError(candidateId),
+    });
   });
 
   router.post('/candidates/:id/interview-questions', async (req, res) => {
     const candidateId = Number(req.params.id);
     const customPrompt = typeof req.body?.custom_prompt === 'string' ? req.body.custom_prompt : '';
     try {
+      if (!req.query.sync) {
+        generateInterviewQuestionsAsync(candidateId, { customPrompt });
+        return res.status(202).json({ message: 'interview question generation started', candidate_id: candidateId });
+      }
       const document = await generateInterviewQuestions(candidateId, { customPrompt });
       res.status(201).json({ document });
     } catch (err) {
@@ -32,12 +43,13 @@ export function interviewQuestionsRouter() {
       const msg = String(err.message || '');
       if (msg.includes('not found')) return res.status(404).json({ error: msg });
       if (
+        msg.includes('正在生成中') ||
         msg.includes('no assigned role') ||
         msg.includes('role requirements missing') ||
         msg.includes('resume or candidate context required') ||
         msg.includes('does not support "read_file"')
       ) {
-        return res.status(400).json({ error: msg });
+        return res.status(msg.includes('正在生成中') ? 409 : 400).json({ error: msg });
       }
       res.status(500).json({ error: msg || 'generation failed' });
     }
