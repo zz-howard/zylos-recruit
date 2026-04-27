@@ -273,6 +273,45 @@
     var aiEvals = c.evaluations.filter(function (e) { return e.kind === 'resume_ai'; });
     var interviewEvals = c.evaluations.filter(function (e) { return e.kind !== 'resume_ai'; });
 
+    var interviewQuestionSection = ''
+      + '<div class="eval-section detail-side-section">'
+      + '<h3>参考面试题</h3>'
+      + '<div class="field"><label>本次生成要求（可选）</label>'
+      +   '<textarea id="iq-custom-prompt" placeholder="例如：重点看迁移能力；不要问算法细节；围绕 AI-native 工作方式多问"></textarea></div>'
+      + '<button class="btn btn-primary" id="btn-generate-iq">生成参考面试题</button>'
+      + '<div id="iq-status" class="meta"></div>'
+      + '<div id="iq-documents" class="iq-documents"><div class="meta">Loading...</div></div>'
+      + '</div>';
+
+    var interviewFeedbackSection = ''
+      + '<div class="eval-section detail-side-section">'
+      + '<h3>面试记录</h3>'
+      + '<div class="field"><label>Verdict</label>'
+      +   '<select id="eval-verdict">'
+      +     '<option value="">—</option>'
+      +     '<option value="pass">✅ 通过</option>'
+      +     '<option value="hold">⏸ 保留</option>'
+      +     '<option value="reject">❌ 淘汰</option>'
+      +   '</select></div>'
+      + '<div class="field"><label>Notes</label>'
+      +   '<textarea id="eval-content" placeholder="面试反馈..."></textarea></div>'
+      + '<button class="btn btn-primary" id="btn-add-eval">添加面试记录</button>'
+      + (interviewEvals.length > 0
+          ? interviewEvals.map(function (e) {
+              var verdictLabel = VERDICT_LABELS[e.verdict] || e.verdict || '';
+              return '<div class="eval">'
+                + '<div class="eval-head">'
+                +   (e.verdict ? '<span class="verdict-badge verdict-' + escapeHtml(e.verdict) + '">'
+                    + escapeHtml(verdictLabel) + '</span> ' : '')
+                +   '<span>' + escapeHtml(e.author || 'anon') + '</span>'
+                +   '<span class="meta">' + escapeHtml(e.created_at) + '</span>'
+                + '</div>'
+                + '<div class="eval-body">' + escapeHtml(e.content || '') + '</div>'
+                + '</div>';
+            }).join('')
+          : '<div class="meta">暂无面试记录</div>')
+      + '</div>';
+
     function inlineField(key, label, value, tag) {
       tag = tag || 'input';
       var display = escapeHtml(value || '') || '<span class="placeholder">' + (label === 'Extra Info' ? '额外信息（如推荐理由、背景补充等）' : '点击添加') + '</span>';
@@ -367,48 +406,10 @@
               return tabs + panels;
             })()
           : '<div class="meta">尚未进行 AI 评估</div>')
-      + '</div>'
-
-      // ─── Reference Interview Questions section ───
-      + '<div class="eval-section">'
-      + '<h3>参考面试题</h3>'
-      + '<div class="field"><label>本次生成要求（可选）</label>'
-      +   '<textarea id="iq-custom-prompt" placeholder="例如：重点看迁移能力；不要问算法细节；围绕 AI-native 工作方式多问"></textarea></div>'
-      + '<button class="btn btn-primary" id="btn-generate-iq">生成参考面试题</button>'
-      + '<div id="iq-status" class="meta"></div>'
-      + '<div id="iq-documents" class="iq-documents"><div class="meta">Loading...</div></div>'
-      + '</div>'
-
-      // ─── Interview Feedback section ───
-      + '<div class="eval-section">'
-      + '<h3>面试记录</h3>'
-      + '<div class="field"><label>Verdict</label>'
-      +   '<select id="eval-verdict">'
-      +     '<option value="">—</option>'
-      +     '<option value="pass">✅ 通过</option>'
-      +     '<option value="hold">⏸ 保留</option>'
-      +     '<option value="reject">❌ 淘汰</option>'
-      +   '</select></div>'
-      + '<div class="field"><label>Notes</label>'
-      +   '<textarea id="eval-content" placeholder="面试反馈..."></textarea></div>'
-      + '<button class="btn btn-primary" id="btn-add-eval">添加面试记录</button>'
-      + (interviewEvals.length > 0
-          ? interviewEvals.map(function (e) {
-              var verdictLabel = VERDICT_LABELS[e.verdict] || e.verdict || '';
-              return '<div class="eval">'
-                + '<div class="eval-head">'
-                +   (e.verdict ? '<span class="verdict-badge verdict-' + escapeHtml(e.verdict) + '">'
-                    + escapeHtml(verdictLabel) + '</span> ' : '')
-                +   '<span>' + escapeHtml(e.author || 'anon') + '</span>'
-                +   '<span class="meta">' + escapeHtml(e.created_at) + '</span>'
-                + '</div>'
-                + '<div class="eval-body">' + escapeHtml(e.content || '') + '</div>'
-                + '</div>';
-            }).join('')
-          : '<div class="meta">暂无面试记录</div>')
       + '</div>';
 
     var right = document.createElement('div');
+    right.className = 'detail-side';
     var resumePane = document.createElement('div');
     resumePane.className = 'resume-pane';
     var resumeUrl = API + '/candidates/' + c.id + '/resume';
@@ -434,6 +435,7 @@
             + '</div>'
           : '<div class="no-resume">No resume uploaded</div>');
     right.appendChild(resumePane);
+    right.insertAdjacentHTML('beforeend', interviewQuestionSection + interviewFeedbackSection);
 
     wrap.appendChild(left);
     wrap.appendChild(right);
