@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.11] - 2026-04-27
+
+### Added
+- **Pages-backed interview questions**: candidate detail pages can generate
+  reference interview-question documents from candidate, role, resume, and
+  evaluation context, then register the generated Markdown with zylos-pages.
+
+### Changed
+- **Candidate detail layout**: on desktop, reference interview questions and
+  interview feedback now sit below Resume in the right column, keeping AI resume
+  evaluation separate and making the detail view more compact.
+- **Interview-question prompt quality**: generated documents now focus on
+  interview hypotheses, resume-anchored core questions, natural follow-ups,
+  weak-answer handling, and Howard's interview note template.
+
+### Fixed
+- **Generated Markdown cleanup**: strips model preambles, extra frontmatter, and
+  fenced Markdown wrappers before publishing to Pages, including glued
+  `。---`-style frontmatter cases.
+
 ## [0.2.10] - 2026-04-26
 
 ### Added
