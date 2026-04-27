@@ -40,6 +40,7 @@ export const DEFAULT_CONFIG = {
     // chat: {},
     // chat_summary: {},
     // portrait: {},
+    // interview_questions: {},
   },
 };
 
@@ -115,7 +116,7 @@ export function saveConfig(updates) {
 /**
  * Resolve AI config for a given scenario.
  * Merges: default ← scenario override ← legacy flat fields (backward compat).
- * @param {string} scenario - 'resume_eval' | 'auto_match' | 'chat' | 'chat_summary' | 'portrait'
+ * @param {string} scenario - 'resume_eval' | 'auto_match' | 'chat' | 'chat_summary' | 'portrait' | 'interview_questions'
  * @returns {{ runtime: string, model: string, effort: string }}
  */
 export function resolveAiConfig(scenario) {

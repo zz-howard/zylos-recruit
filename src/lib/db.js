@@ -8,6 +8,7 @@
  *   role_profiles               — versioned expected_portrait history per role
  *   candidates                  — individuals (scoped to a company via role.company_id)
  *   evaluations                 — AI resume screening + human interview feedback
+ *   interview_question_documents — generated reference interview-question docs
  *   internal_interviews         — internal stakeholder interviews for building role portraits
  *   internal_interview_messages — chat messages within an internal interview session
  *
@@ -110,6 +111,35 @@ function initSchema(db) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_evals_candidate ON evaluations(candidate_id);
+
+    CREATE TABLE IF NOT EXISTS interview_question_documents (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      candidate_id      INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+      role_id           INTEGER REFERENCES roles(id) ON DELETE SET NULL,
+      company_id        INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      title             TEXT NOT NULL,
+      file_path         TEXT NOT NULL,
+      pages_slug        TEXT,
+      pages_url         TEXT,
+      pages_registered_at TEXT,
+      generation_status TEXT NOT NULL DEFAULT 'ready'
+                        CHECK (generation_status IN ('ready','failed')),
+      generator_runtime TEXT,
+      generator_model   TEXT,
+      generator_effort  TEXT,
+      error_message     TEXT,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      deleted_at        TEXT,
+      delete_batch      TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_iq_docs_candidate
+      ON interview_question_documents(candidate_id);
+    CREATE INDEX IF NOT EXISTS idx_iq_docs_role
+      ON interview_question_documents(role_id);
+    CREATE INDEX IF NOT EXISTS idx_iq_docs_deleted
+      ON interview_question_documents(deleted_at);
 
     CREATE TABLE IF NOT EXISTS internal_interviews (
       id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -377,6 +407,10 @@ export function deleteCompany(id) {
        WHERE deleted_at IS NULL AND candidate_id IN
          (SELECT id FROM candidates WHERE company_id=? AND deleted_at IS NULL)`
     ).run(batch, id).changes;
+    result.interviewQuestionDocuments = d.prepare(
+      `UPDATE interview_question_documents SET deleted_at=datetime('now'), delete_batch=?
+       WHERE company_id=? AND deleted_at IS NULL`
+    ).run(batch, id).changes;
     result.candidates = d.prepare(
       `UPDATE candidates SET deleted_at=datetime('now'), delete_batch=?
        WHERE company_id=? AND deleted_at IS NULL`
@@ -479,6 +513,10 @@ export function deleteRole(id) {
     // Preserve ON DELETE SET NULL semantics: clear role_id on active candidates
     result.candidatesUnlinked = d.prepare(
       `UPDATE candidates SET role_id=NULL, updated_at=datetime('now')
+       WHERE role_id=? AND deleted_at IS NULL`
+    ).run(id).changes;
+    result.interviewQuestionDocumentsUnlinked = d.prepare(
+      `UPDATE interview_question_documents SET role_id=NULL, updated_at=datetime('now')
        WHERE role_id=? AND deleted_at IS NULL`
     ).run(id).changes;
     result.role = d.prepare(
@@ -606,6 +644,10 @@ export function deleteCandidate(id) {
       `UPDATE evaluations SET deleted_at=datetime('now'), delete_batch=?
        WHERE candidate_id=? AND deleted_at IS NULL`
     ).run(batch, id).changes;
+    result.interviewQuestionDocuments = d.prepare(
+      `UPDATE interview_question_documents SET deleted_at=datetime('now'), delete_batch=?
+       WHERE candidate_id=? AND deleted_at IS NULL`
+    ).run(batch, id).changes;
     result.candidate = d.prepare(
       `UPDATE candidates SET deleted_at=datetime('now'), delete_batch=?
        WHERE id=? AND deleted_at IS NULL`
@@ -613,6 +655,100 @@ export function deleteCandidate(id) {
   });
   tx.immediate();
   return { batch, ...result };
+}
+
+// ─── Interview Question Documents ────────────────────────────────────
+
+export function listInterviewQuestionDocuments({ candidateId } = {}) {
+  const where = ['d.deleted_at IS NULL'];
+  const params = [];
+  if (candidateId) { where.push('d.candidate_id = ?'); params.push(candidateId); }
+  return getDb().prepare(`
+    SELECT d.*, c.name AS candidate_name, r.name AS role_name
+    FROM interview_question_documents d
+    JOIN candidates c ON c.id = d.candidate_id AND c.deleted_at IS NULL
+    LEFT JOIN roles r ON r.id = d.role_id AND r.deleted_at IS NULL
+    WHERE ${where.join(' AND ')}
+    ORDER BY d.created_at DESC
+  `).all(...params);
+}
+
+export function getInterviewQuestionDocument(id) {
+  return getDb().prepare(`
+    SELECT d.*, c.name AS candidate_name, r.name AS role_name
+    FROM interview_question_documents d
+    JOIN candidates c ON c.id = d.candidate_id AND c.deleted_at IS NULL
+    LEFT JOIN roles r ON r.id = d.role_id AND r.deleted_at IS NULL
+    WHERE d.id = ? AND d.deleted_at IS NULL
+  `).get(id) || null;
+}
+
+export function createInterviewQuestionDocument(data) {
+  const info = getDb().prepare(`
+    INSERT INTO interview_question_documents (
+      candidate_id, role_id, company_id, title, file_path,
+      pages_slug, pages_url, pages_registered_at,
+      generation_status, generator_runtime, generator_model, generator_effort,
+      error_message
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    data.candidateId,
+    data.roleId || null,
+    data.companyId,
+    data.title,
+    data.filePath,
+    data.pagesSlug || null,
+    data.pagesUrl || null,
+    data.pagesRegisteredAt || null,
+    data.generationStatus || 'ready',
+    data.generatorRuntime || null,
+    data.generatorModel || null,
+    data.generatorEffort || null,
+    data.errorMessage || null,
+  );
+  return getInterviewQuestionDocument(info.lastInsertRowid);
+}
+
+export function updateInterviewQuestionDocument(id, updates) {
+  const map = {
+    title: 'title',
+    filePath: 'file_path',
+    pagesSlug: 'pages_slug',
+    pagesUrl: 'pages_url',
+    pagesRegisteredAt: 'pages_registered_at',
+    generationStatus: 'generation_status',
+    generatorRuntime: 'generator_runtime',
+    generatorModel: 'generator_model',
+    generatorEffort: 'generator_effort',
+    errorMessage: 'error_message',
+  };
+  const fields = [];
+  const params = [];
+  for (const [key, col] of Object.entries(map)) {
+    if (updates[key] !== undefined) {
+      fields.push(`${col} = ?`);
+      params.push(updates[key] || null);
+    }
+  }
+  if (fields.length === 0) return getInterviewQuestionDocument(id);
+  fields.push(`updated_at = datetime('now')`);
+  params.push(id);
+  getDb().prepare(`
+    UPDATE interview_question_documents
+    SET ${fields.join(', ')}
+    WHERE id = ? AND deleted_at IS NULL
+  `).run(...params);
+  return getInterviewQuestionDocument(id);
+}
+
+export function deleteInterviewQuestionDocument(id) {
+  const batch = crypto.randomUUID();
+  const info = getDb().prepare(`
+    UPDATE interview_question_documents
+    SET deleted_at=datetime('now'), delete_batch=?
+    WHERE id=? AND deleted_at IS NULL
+  `).run(batch, id);
+  return { batch, document: info.changes };
 }
 
 // ─── Internal Interviews ─────────────────────────────────────────────
@@ -736,6 +872,9 @@ export function restoreCandidate(id) {
     if (batch) {
       result.evaluations = d.prepare(
         'UPDATE evaluations SET deleted_at=NULL, delete_batch=NULL WHERE candidate_id=? AND delete_batch=?'
+      ).run(id, batch).changes;
+      result.interviewQuestionDocuments = d.prepare(
+        'UPDATE interview_question_documents SET deleted_at=NULL, delete_batch=NULL WHERE candidate_id=? AND delete_batch=?'
       ).run(id, batch).changes;
     }
   });

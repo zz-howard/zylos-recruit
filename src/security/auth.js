@@ -213,9 +213,12 @@ function validateApiToken(req, authConfig) {
   if (!token) return false;
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) return false;
+  const provided = Buffer.from(header.slice(7));
+  const expected = Buffer.from(token);
+  if (provided.length !== expected.length) return false;
   return crypto.timingSafeEqual(
-    Buffer.from(header.slice(7)),
-    Buffer.from(token),
+    provided,
+    expected,
   );
 }
 
@@ -307,6 +310,8 @@ export function setupAuth(app, authConfig, baseUrl) {
   app.use((req, res, next) => {
     if (!authConfig.enabled || !authConfig.password) return next();
 
+    const isApiPath = req.path.startsWith('/api/') || req.path.startsWith(baseUrl + '/api/');
+
     if (req.path.startsWith('/_assets') || req.path === '/login' || req.path === '/logout'
         || req.path.startsWith('/chat/') || req.path.startsWith('/api/chat/')) {
       return next();
@@ -318,12 +323,12 @@ export function setupAuth(app, authConfig, baseUrl) {
     }
 
     // API token (Bearer) bypass for programmatic access
-    if (req.path.startsWith('/api/') && validateApiToken(req, authConfig)) {
+    if (isApiPath && validateApiToken(req, authConfig)) {
       return next();
     }
 
     // API → 401 JSON, others → redirect
-    if (req.path.startsWith('/api/')) {
+    if (isApiPath) {
       return res.status(401).json({ error: 'unauthorized' });
     }
 

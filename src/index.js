@@ -22,6 +22,7 @@ import { candidatesRouter } from './routes/api-candidates.js';
 import { resumesRouter } from './routes/api-resumes.js';
 import { settingsRouter } from './routes/api-settings.js';
 import { internalInterviewsRouter } from './routes/api-internal-interviews.js';
+import { interviewQuestionsRouter } from './routes/api-interview-questions.js';
 import { chatRouter } from './routes/api-chat.js';
 import { chatPageRoute } from './routes/ui-chat.js';
 import { detectRuntimes } from './lib/ai.js';
@@ -115,11 +116,13 @@ async function main() {
   const candidates = candidatesRouter();
   const resumes = resumesRouter(config.upload);
   const settings = settingsRouter();
+  const interviewQuestions = interviewQuestionsRouter();
   app.use('/api/companies', companies);
   app.use('/api/roles', roles);
   app.use('/api/candidates', candidates);
   app.use('/api/candidates', resumes);
   app.use('/api/settings', settings);
+  app.use('/api', interviewQuestions);
   const interviews = internalInterviewsRouter();
   app.use('/api/internal-interviews', interviews);
   // Also mount at BASE_URL/api/* so it works without a reverse proxy
@@ -128,6 +131,7 @@ async function main() {
   app.use(BASE_URL + '/api/candidates', candidates);
   app.use(BASE_URL + '/api/candidates', resumes);
   app.use(BASE_URL + '/api/settings', settings);
+  app.use(BASE_URL + '/api', interviewQuestions);
   app.use(BASE_URL + '/api/internal-interviews', interviews);
 
   // Error handler
