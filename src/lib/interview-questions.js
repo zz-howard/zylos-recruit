@@ -133,13 +133,31 @@ Use these non-negotiable style rules:
 - Put a short interviewer-only note after each question using this exact form: "> 考察点：..."
 - Use natural follow-up guidance, not long scripted follow-up lists.
 - Do not write verbose "意图" or analysis blocks.
+- Anchor questions in specific evidence from the candidate resume/context: company names, projects, time periods, systems, model techniques, incidents, or career transitions. Avoid generic textbook questions.
+- For each core technical question, add one natural follow-up sentence after the 考察点 line. The follow-up should force concrete details, not invite a broad second answer.
+- Make the document directly usable by Howard in the interview: write question text as something he can read aloud, and keep interviewer guidance separate.
 
 Default structure:
-1. Opening and representative project warm-up
-2. Technical foundation
-3. Architecture, engineering habits, and production experience
-4. AI-native work habits
-5. Closing and reverse questions
+1. Pre-interview judgment: summarize the 2-3 core hypotheses to verify for this candidate and role.
+2. Opening and representative project warm-up: make the candidate choose one concrete project as the interview thread.
+3. Role-critical technical deep dive: focus on the role's hardest real requirements, not generic fundamentals.
+4. Transfer to this company/role: give one concrete company-relevant scenario and ask how the candidate would handle it.
+5. Execution plan and leadership: for senior/lead roles, ask about first week, first month, and 3-month verifiable outcomes.
+6. Risk checks: career gaps, short tenures, motivation, scope ownership, or other risks from the resume/evaluation.
+7. Closing and reverse questions.
+
+Role-specific depth rules:
+- For LLM post-training, model training, or AI research leadership roles, include questions that probe: data construction, instruction/preference/reward signal design, SFT vs DPO/RL/GRPO tradeoffs, eval design, failure attribution, negative samples, reward hacking, online/offline metric mismatch, and deployment/cost/latency constraints.
+- For Agent / Tool Use / Planning roles, include one realistic enterprise task scenario. Ask which part should be trained, what ground truth looks like, how wrong tool calls/parameters/permissions are represented, and what not to train.
+- For product engineering roles, focus on user workflow, data model, permissions/multi-tenancy, end-to-end delivery, debugging, code review, and AI-assisted engineering habits.
+- For DevOps/SRE roles, focus on incident handling, observability, deployment safety, cloud cost, security boundaries, and rollback.
+- For QA roles, focus on risk-based test design, automation, regression suites, AI/Agent evaluation, and release gates.
+- For security roles, focus on threat modeling, authz/authn boundaries, data leakage, cloud IAM, incident response, and embedding security into engineering workflow.
+
+Pacing and prioritization:
+- Do not generate an evenly weighted questionnaire. Identify the few questions that matter most for this candidate.
+- Include a "最关键的三道题" section and explain why those questions are most revealing.
+- Include a pacing note explaining what to skip or shorten if an early answer is weak.
 
 Default duration is 60 minutes. If interviewer preferences mention a different duration or round, adapt the number and depth of questions accordingly.
 
@@ -148,11 +166,14 @@ Ground questions in the candidate evidence above. If the resume file is availabl
 Return Markdown only. Include frontmatter with title, description, date, and tags. At the end, include:
 - evaluation dimension coverage table
 - pacing reminder
-- 2-3 most revealing questions for this candidate`;
+- 2-3 most revealing questions for this candidate
+- interviewer note-taking template
+
+Do not wrap the response in a Markdown code fence.`;
 }
 
 function ensureFrontmatter(markdown, { title, roleName }) {
-  const trimmed = stripFrontmatter(stripMarkdownFence(String(markdown || '').trim()));
+  const trimmed = cleanGeneratedMarkdown(markdown);
   const today = new Date().toISOString().slice(0, 10);
   return `---
 title: "${markdownEscapeYaml(title)}"
@@ -172,6 +193,16 @@ function stripMarkdownFence(markdown) {
 
 function stripFrontmatter(markdown) {
   return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n+/, '').trim();
+}
+
+function cleanGeneratedMarkdown(markdown) {
+  let cleaned = String(markdown || '').trim();
+  for (let i = 0; i < 3; i += 1) {
+    const next = stripFrontmatter(stripMarkdownFence(cleaned)).trim();
+    if (next === cleaned) break;
+    cleaned = next;
+  }
+  return cleaned;
 }
 
 function inferMarkdownTitle(markdown, fallback) {
