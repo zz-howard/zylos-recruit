@@ -5,8 +5,8 @@
 <h1 align="center">zylos-recruit</h1>
 
 <p align="center">
-  AI-powered recruitment management for zylos.<br>
-  Upload a resume, get an AI evaluation in seconds.
+  AI-assisted recruiting ATS for zylos.<br>
+  Build role portraits, screen resumes, generate interview references, and manage candidates in one pipeline.
 </p>
 
 <p align="center">
@@ -22,16 +22,20 @@
 
 ## What It Does
 
-zylos-recruit is a lightweight ATS (Applicant Tracking System) that lets you manage candidates through the hiring pipeline — from resume submission to interview decision — with AI doing the heavy lifting on resume screening.
+zylos-recruit is a lightweight ATS (Applicant Tracking System) that helps teams turn hiring intent into structured role profiles, evaluate resumes against those profiles, generate interviewer reference material, and manage candidates through the hiring pipeline.
 
-**The core idea:** You define a role (with a job description and ideal candidate portrait), upload a resume, and the system automatically evaluates how well the candidate matches — giving you a verdict (recommend / not recommend), a score, and a structured analysis covering technical fit, experience, potential, and risks.
+**The core idea:** You define or generate a role portrait, upload resumes, and the system evaluates each candidate against the active role context — returning a recommendation, score, and structured analysis covering technical fit, experience, potential, and risks. It also keeps the human hiring workflow organized: candidate pipeline, role library, reference interview questions, and human interview feedback.
 
 ### Key Capabilities
 
-- **AI Resume Evaluation** — Multi-runtime support (Claude, Codex, Gemini). The AI reads the PDF directly, cross-references it against the role's JD and expected portrait, and returns a structured assessment
+- **AI Resume Evaluation** — Multi-runtime support (Claude, Codex, Gemini, ChatGPT). The AI reads the PDF directly, cross-references it against the role's JD and expected portrait, and returns a structured assessment
 - **Kanban Board** — Visual pipeline with 5 columns: Pending → Scheduled → Interviewed → Passed → Talent Pool
 - **Role Library** — Create roles with markdown job descriptions and expected candidate portraits that guide AI evaluation
+- **Role Portrait Discovery** — Run internal stakeholder conversations to clarify what kind of person the team needs, then generate one or more role portraits from those conversations
+- **Reference Interview Questions** — Generate Pages-backed interview-question documents from the candidate resume, role context, and prior evaluation so human interviewers have a focused interview guide
+- **Human Interview Feedback** — Record post-interview notes and human verdicts alongside the AI resume evaluation
 - **Multi-Company** — Manage hiring for multiple companies from one instance, with full data isolation
+- **Sandboxed Local AI Runtime** — Reuse local OAuth/subscription CLI runtimes while constraining filesystem access with bubblewrap when available
 - **API-First** — Every operation available via REST API with Bearer token auth, making it easy to integrate with agents or scripts
 
 ## How It Works
@@ -41,20 +45,26 @@ zylos-recruit is a lightweight ATS (Applicant Tracking System) that lets you man
 ```
 ┌──────────────┐     ┌──────────────────┐     ┌───────────────┐
 │   Web UI     │────▶│  Express Server  │────▶│   SQLite DB   │
-│  (Kanban)    │     │   REST API       │     │  (single file)│
+│ ATS + Roles  │     │   REST API       │     │  (single file)│
 └──────────────┘     └────────┬─────────┘     └───────────────┘
                               │
 ┌──────────────┐     ┌────────▼─────────┐
-│  Agent / CI  │────▶│   AI Evaluator   │
-│  (API Token) │     │  Claude / Codex  │
-└──────────────┘     │  / Gemini CLI    │
+│  Agent / CI  │────▶│    AI Gateway    │
+│  (API Token) │     │ Claude / Codex / │
+└──────────────┘     │ Gemini / ChatGPT │
+                     └────────┬─────────┘
+                              │
+                     ┌────────▼─────────┐
+                     │ bwrap Sandbox    │
+                     │ scoped file IO   │
                      └──────────────────┘
 ```
 
-- **Web UI** — Kanban board with drag-free column navigation, PDF preview, and inline evaluation display
+- **Web UI** — Kanban board, role manager, internal role discovery conversations, PDF preview, evaluation display, interview-question documents, and human feedback
 - **Express Server** — REST API on a single port, served behind Caddy reverse proxy
 - **SQLite** — Zero-config, single-file database. No external DB required
-- **AI Evaluator** — Shells out to CLI tools (claude, codex, or gemini) to evaluate resumes. The CLI reads the PDF natively, so no text extraction or OCR is needed
+- **AI Gateway** — Routes each scenario to configured local AI runtimes for resume evaluation, role portrait generation, conversation summaries, and interview-question generation
+- **Sandbox Layer** — Uses bubblewrap (`bwrap`) when available so CLI runtimes only see their auth/state directories plus the explicit read-only data needed for the current scenario
 
 ### AI Evaluation Flow
 
@@ -107,6 +117,32 @@ The AI returns a structured verdict:
 | **analysis** | Technical fit, experience, growth potential, risk factors |
 | **recommendation** | What to focus on in interview, or why not to proceed |
 | **contact** | Auto-extracted name, email, phone from resume |
+
+### Role Portrait Flow
+
+```
+  Stakeholder Conversations       Portrait Generation        Role Library
+ ─────────────────────────  ──▶  ───────────────────  ──▶  ─────────────
+
+ ┌─────────────────────┐        ┌────────────────────┐      ┌──────────┐
+ │ Internal chat links │───────▶│ One or more role   │─────▶│ Active   │
+ │ with hiring team    │        │ portrait drafts    │      │ roles    │
+ └─────────────────────┘        └────────────────────┘      └──────────┘
+```
+
+Internal role discovery is for the hiring team, not candidates. It helps collect the team's hiring intent, summarize the conversation, and generate expected candidate portraits that can be saved into the role library. When a conversation covers multiple distinct roles, zylos-recruit can return multiple portrait drafts for review.
+
+### Reference Interview Questions
+
+For a candidate with enough context, zylos-recruit can generate a Markdown interview guide and register it with zylos-pages. The guide is designed for a human interviewer and is grounded in:
+
+- Candidate resume and extracted profile
+- Active role JD and expected portrait
+- AI resume evaluation
+- Existing human interview feedback, when present
+- Optional custom interviewer instruction
+
+The output focuses on interview hypotheses, resume-anchored questions, natural follow-ups, weak-answer handling, and an interviewer note-taking template.
 
 ### Candidate Lifecycle
 
@@ -210,7 +246,7 @@ Full documentation in [`references/`](references/):
 | [roles](references/roles.md) | Roles and job profiles |
 | [candidates](references/candidates.md) | Candidate CRUD and pipeline |
 | [resumes](references/resumes.md) | Resume upload/download |
-| [evaluations](references/evaluations.md) | AI and human evaluations |
+| [evaluations](references/evaluations.md) | AI resume screening and human interview feedback |
 | [settings](references/settings.md) | AI runtime configuration |
 | [agent-workflow](references/agent-workflow.md) | Programmatic integration guide |
 
