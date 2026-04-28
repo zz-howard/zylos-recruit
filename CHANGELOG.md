@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.13] - 2026-04-28
+
+### Changed
+- **Internal role-discovery opening**: new internal interviews now ask directly
+  what kind of person or role is needed, and only fall back to work hand-off
+  exploration when the stakeholder is unsure or the role is unclear.
+- **README positioning**: project documentation now reflects the current
+  reference capabilities: role portrait discovery, portrait generation,
+  multi-portrait drafts, Pages-backed reference interview questions, human
+  interview feedback, local AI runtime reuse, and bwrap sandboxing.
+
 ## [0.2.12] - 2026-04-27
 
 ### Changed
