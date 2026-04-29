@@ -76,7 +76,7 @@ evaluations
 ### 2.3 State Machine
 
 ```
-pending (待处理) ──▶ scheduled (已预约) ──▶ interviewed (已完成) ──▶ passed (可推进)
+pending (待处理) ──▶ scheduled (已预约) ──▶ interviewed (已完成) ──▶ passed (已推进)
                                                           └───▶ rejected (人才库)
 ```
 
