@@ -60,7 +60,7 @@ export function kanbanPageHtml(baseUrl) {
         <div class="col" data-state="pending"><h3>待处理</h3><div class="col-body"></div></div>
         <div class="col" data-state="scheduled"><h3>已预约</h3><div class="col-body"></div></div>
         <div class="col" data-state="interviewed"><h3>已完成</h3><div class="col-body"></div></div>
-        <div class="col" data-state="passed"><h3>可推进</h3><div class="col-body"></div></div>
+        <div class="col" data-state="passed"><h3>已推进</h3><div class="col-body"></div></div>
         <div class="col" data-state="rejected"><h3>人才库</h3><div class="col-body"></div></div>
       </main>
 

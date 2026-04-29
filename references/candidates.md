@@ -159,5 +159,5 @@ Content-Type: application/json
 | `pending` | 待处理 | New candidate, awaiting screening |
 | `scheduled` | 已预约 | Interview scheduled |
 | `interviewed` | 已面试 | Interview completed |
-| `passed` | 推进中 | Moving forward in process |
+| `passed` | 已推进 | Moving forward in process |
 | `rejected` | 人才库 | Not proceeding (talent pool) |
