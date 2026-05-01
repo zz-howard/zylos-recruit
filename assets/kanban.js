@@ -690,19 +690,25 @@
         var tmp = document.createElement('textarea');
         tmp.innerHTML = escaped;
         var raw = tmp.value;
-        navigator.clipboard.writeText(raw).then(function () {
-          toast('已复制到剪贴板', 'success');
-        }).catch(function () {
+        function fallbackCopy(text) {
           var ta = document.createElement('textarea');
-          ta.value = raw;
+          ta.value = text;
           ta.style.position = 'fixed';
           ta.style.opacity = '0';
           document.body.appendChild(ta);
           ta.select();
-          document.execCommand('copy');
+          var ok = document.execCommand('copy');
           document.body.removeChild(ta);
-          toast('已复制到剪贴板', 'success');
-        });
+          if (ok) toast('已复制到剪贴板', 'success');
+          else toast('复制失败，请手动选中复制', 'error');
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(raw).then(function () {
+            toast('已复制到剪贴板', 'success');
+          }).catch(function () { fallbackCopy(raw); });
+        } else {
+          fallbackCopy(raw);
+        }
       });
     });
 
