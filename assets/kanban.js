@@ -393,12 +393,14 @@
                 var meta = null;
                 try { meta = JSON.parse(e.meta); } catch (x) {}
                 return '<div class="eval ai-eval eval-panel" data-idx="' + i + '"'
+                  + ' data-raw-content="' + escapeHtml(e.content || '') + '"'
                   + (i > 0 ? ' style="display:none"' : '') + '>'
                   + '<div class="eval-head">'
                   +   '<span class="verdict-badge verdict-' + escapeHtml(e.verdict) + '">'
                   +     escapeHtml(verdictLabel) + '</span>'
                   +   (meta && meta.score != null ? ' <span class="meta">Score: ' + meta.score + '/100</span>' : '')
                   +   '<span class="meta">' + escapeHtml(e.author || '') + ' · ' + escapeHtml(e.created_at) + '</span>'
+                  +   '<button class="btn-copy-eval" title="复制评估内容">📋</button>'
                   + '</div>'
                   + '<div class="eval-body">' + formatEvalContent(e.content || '') + '</div>'
                   + '</div>';
@@ -678,6 +680,37 @@
         });
       });
     }
+
+    // Copy evaluation content
+    wrap.querySelectorAll('.btn-copy-eval').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var panel = btn.closest('.eval-panel');
+        var escaped = panel ? panel.getAttribute('data-raw-content') : '';
+        if (!escaped) return;
+        var tmp = document.createElement('textarea');
+        tmp.innerHTML = escaped;
+        var raw = tmp.value;
+        function fallbackCopy(text) {
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          var ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+          if (ok) toast('已复制到剪贴板', 'success');
+          else toast('复制失败，请手动选中复制', 'error');
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(raw).then(function () {
+            toast('已复制到剪贴板', 'success');
+          }).catch(function () { fallbackCopy(raw); });
+        } else {
+          fallbackCopy(raw);
+        }
+      });
+    });
 
     // Delete candidate
     wrap.querySelector('#btn-delete-cand').addEventListener('click', function () {

@@ -350,6 +350,19 @@
   margin-bottom: 4px;
 }
 .detail .eval-body { white-space: pre-wrap; }
+.btn-copy-eval {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.6;
+  transition: opacity var(--transition), background var(--transition);
+}
+.btn-copy-eval:hover { opacity: 1; background: var(--bg-alt); }
 
 /* ─── AI & interview evaluation ─── */
 .eval-section {
