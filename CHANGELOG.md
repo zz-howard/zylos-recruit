@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.15] - 2026-05-03
+
+### Added
+- Copy-to-clipboard button for AI evaluations on candidate detail page
+- bwrap (bubblewrap) detection and auto-install in post-install hook (Linux only; macOS warns unsupported)
+
+### Fixed
+- Inject company profile and eval_prompt into internal interview chat, summary generation, and portrait generation (previously only resume eval and interview questions had company context)
+- Resumed interview sessions now receive company context reminder
+
 ## [0.2.14] - 2026-04-29
 
 ### Changed
