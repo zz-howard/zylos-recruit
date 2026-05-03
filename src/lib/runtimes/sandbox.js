@@ -158,7 +158,7 @@ export function buildSandboxRuntimeConfig(cmd, opts = {}, sandbox = {}) {
   ]);
 
   return {
-    network: networkConfig(sandbox.network),
+    network: {},
     filesystem: {
       denyRead: [HOME, ZYLOS_DIR],
       allowRead: [
