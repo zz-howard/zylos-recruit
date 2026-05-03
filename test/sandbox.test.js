@@ -19,7 +19,12 @@ test('chat sandbox denies home and zylos without scenario read paths', () => {
   });
 
   assert.deepEqual(cfg.filesystem.denyRead, [HOME, ZYLOS_DIR]);
-  assert.equal(cfg.filesystem.allowRead.some((p) => p.startsWith(ZYLOS_DIR)), false);
+  const zylosPaths = cfg.filesystem.allowRead.filter((p) => p.startsWith(ZYLOS_DIR));
+  assert.equal(
+    zylosPaths.every((p) => p.includes('sandbox-runtime/vendor')),
+    true,
+    'only SRT vendor paths may appear under zylos in allowRead',
+  );
 });
 
 test('resume sandbox allows an exact existing resume file', () => {
@@ -86,10 +91,31 @@ test('support paths overlapping zylos directory are excluded from allowRead', ()
     supportReadPaths: [ZYLOS_DIR, path.join(ZYLOS_DIR, 'memory')],
   });
 
-  const zylosLeaked = cfg.filesystem.allowRead.some(
+  const zylosPaths = cfg.filesystem.allowRead.filter(
     (p) => p === ZYLOS_DIR || p.startsWith(ZYLOS_DIR + path.sep),
   );
-  assert.equal(zylosLeaked, false, 'allowRead must not re-expose zylos directory');
+  const srtVendor = zylosPaths.filter((p) => p.includes('sandbox-runtime/vendor'));
+  assert.equal(zylosPaths.length, srtVendor.length,
+    'only SRT vendor paths may appear under zylos in allowRead');
+  assert.equal(cfg.filesystem.allowRead.includes(ZYLOS_DIR), false,
+    'ZYLOS_DIR itself must not be in allowRead');
+  assert.equal(cfg.filesystem.allowRead.includes(path.join(ZYLOS_DIR, 'memory')), false,
+    'zylos/memory must not be in allowRead');
+});
+
+test('SRT vendor directory is in allowRead for apply-seccomp access', () => {
+  const cfg = buildSandboxRuntimeConfig('node', {}, {
+    scenario: 'chat',
+    runtime: 'claude',
+    authStatePaths: [],
+    readOnlyPaths: [],
+  });
+
+  const vendorPaths = cfg.filesystem.allowRead.filter(
+    (p) => p.includes('sandbox-runtime/vendor'),
+  );
+  assert.equal(vendorPaths.length > 0, true,
+    'SRT vendor dir must be in allowRead so apply-seccomp is accessible inside sandbox');
 });
 
 test('quoted command preserves argv boundaries for shell-sensitive input', () => {
