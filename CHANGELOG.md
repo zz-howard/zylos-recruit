@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.16] - 2026-05-03
+
+### Security
+- **SRT sandbox runtime adoption** (#27): replace old bwrap wrapper with @anthropic-ai/sandbox-runtime. Deny-default file policy (deny $HOME + ~/zylos, allow back only scenario-specific paths). Per-scenario sandbox config: chat/summary/portrait get zero file access; resume_eval gets exact resume file only. Fail-closed on missing dependencies (exit 126). Network allowlist for AI API domains only. Signal forwarding + cleanup-once lifecycle. Shell quoting safety via shell-quote library.
+
+### Fixed
+- **Auto-install sandbox dependencies** (#28): post-install hook now auto-installs socat and ripgrep via apt on Linux, ripgrep via brew on macOS (previously warn-only; bwrap already had auto-install).
+
 ## [0.2.15] - 2026-05-03
 
 ### Added
