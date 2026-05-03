@@ -111,17 +111,44 @@ if (platform === 'linux') {
     }
   }
 
-  if (hasCommand('socat')) console.log('  - socat detected ✓');
-  else console.warn('  - ⚠ socat not found. Install it before using interview AI sandboxing.');
+  if (hasCommand('socat')) {
+    console.log('  - socat detected ✓');
+  } else {
+    console.warn('  - socat not found, attempting install via apt...');
+    try {
+      execSync('sudo apt install -y socat', { stdio: 'inherit' });
+      console.log('    socat installed ✓');
+    } catch {
+      console.error('    ⚠ apt install failed. Try: sudo apt install socat');
+    }
+  }
 
-  if (hasCommand('rg')) console.log('  - rg detected ✓');
-  else console.warn('  - ⚠ ripgrep (rg) not found. SRT v0.0.49 requires it for dangerous-path scanning.');
+  if (hasCommand('rg')) {
+    console.log('  - rg detected ✓');
+  } else {
+    console.warn('  - rg not found, attempting install via apt...');
+    try {
+      execSync('sudo apt install -y ripgrep', { stdio: 'inherit' });
+      console.log('    rg installed ✓');
+    } catch {
+      console.error('    ⚠ apt install failed. Try: sudo apt install ripgrep');
+    }
+  }
 } else if (platform === 'darwin') {
   if (hasCommand('sandbox-exec')) console.log('  - sandbox-exec detected ✓');
   else console.warn('  - ⚠ sandbox-exec not found. macOS Seatbelt sandboxing will be unavailable.');
 
-  if (hasCommand('rg')) console.log('  - rg detected ✓');
-  else console.warn('  - ⚠ ripgrep (rg) not found. SRT v0.0.49 requires it during initialization.');
+  if (hasCommand('rg')) {
+    console.log('  - rg detected ✓');
+  } else {
+    console.warn('  - rg not found, attempting install via brew...');
+    try {
+      execSync('brew install ripgrep', { stdio: 'inherit' });
+      console.log('    rg installed ✓');
+    } catch {
+      console.error('    ⚠ brew install failed. Try: brew install ripgrep');
+    }
+  }
 } else {
   console.warn(`  - ⚠ unsupported sandbox platform: ${platform}`);
 }
