@@ -19,6 +19,16 @@ import { getConfig } from '../config.js';
 
 const HOME = homedir();
 const ZYLOS_DIR = path.join(HOME, 'zylos');
+
+function srtVendorPaths() {
+  try {
+    const srtEntry = fileURLToPath(import.meta.resolve('@anthropic-ai/sandbox-runtime'));
+    const vendorDir = path.resolve(path.dirname(srtEntry), '..', 'vendor');
+    return fs.existsSync(vendorDir) ? [vendorDir] : [];
+  } catch {
+    return [];
+  }
+}
 const RUNNER_PATH = fileURLToPath(new URL('./sandbox-runner.js', import.meta.url));
 const PAYLOAD_DIR = path.join(tmpdir(), 'zylos-recruit-sandbox');
 const SANDBOX_CWD = path.join(tmpdir(), 'zylos-recruit-sandbox-cwd');
@@ -153,6 +163,7 @@ export function buildSandboxRuntimeConfig(cmd, opts = {}, sandbox = {}) {
       denyRead: [HOME, ZYLOS_DIR],
       allowRead: [
         ...supportPaths,
+        ...srtVendorPaths(),
         ...authStatePaths,
         ...readOnlyPaths,
       ],
