@@ -9,7 +9,7 @@ import {
   getCompany,
   getRole,
 } from './db.js';
-import { DATA_DIR, RESUMES_DIR } from './config.js';
+import { DATA_DIR, KNOWLEDGE_DIR, RESUMES_DIR } from './config.js';
 import { call as aiCall } from './ai-gateway.js';
 import { registerWithPages, unregisterFromPages } from './pages-integration.js';
 
@@ -312,7 +312,10 @@ export async function generateInterviewQuestions(candidateId, { customPrompt } =
   const context = buildContext({ candidate, role, company, customPrompt });
   const prompt = buildPrompt(context);
   const required = hasResume ? ['text', 'read_file'] : ['text'];
-  const readOnlyBinds = hasResume ? [RESUMES_DIR] : undefined;
+  const readOnlyBinds = [
+    ...(fs.existsSync(KNOWLEDGE_DIR) ? [KNOWLEDGE_DIR] : []),
+    ...(hasResume ? [resumeAbsPath] : []),
+  ];
   const { text, runtime, model, effort } = await aiCall('interview_questions', prompt, { required, readOnlyBinds });
 
   const body = cleanGeneratedMarkdown(text);

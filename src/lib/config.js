@@ -13,6 +13,7 @@ export const DATA_DIR = path.join(HOME, 'zylos/components/recruit');
 export const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 export const DB_PATH = path.join(DATA_DIR, 'recruit.db');
 export const RESUMES_DIR = path.join(DATA_DIR, 'resumes');
+export const KNOWLEDGE_DIR = path.join(DATA_DIR, 'knowledge');
 export const LOGS_DIR = path.join(DATA_DIR, 'logs');
 
 export const DEFAULT_CONFIG = {
@@ -41,6 +42,9 @@ export const DEFAULT_CONFIG = {
     // chat_summary: {},
     // portrait: {},
     // interview_questions: {},
+    sandbox: {
+      allowUnsandboxed: false,
+    },
   },
 };
 

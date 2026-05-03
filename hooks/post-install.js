@@ -38,6 +38,11 @@ const INITIAL_CONFIG = {
     windowMs: 60_000,
     max: 120,
   },
+  ai: {
+    sandbox: {
+      allowUnsandboxed: false,
+    },
+  },
 };
 
 console.log('[post-install] Running recruit-specific setup...\n');
@@ -46,8 +51,10 @@ console.log('[post-install] Running recruit-specific setup...\n');
 console.log('Creating subdirectories...');
 fs.mkdirSync(path.join(DATA_DIR, 'logs'), { recursive: true });
 fs.mkdirSync(path.join(DATA_DIR, 'resumes'), { recursive: true });
+fs.mkdirSync(path.join(DATA_DIR, 'knowledge'), { recursive: true });
 console.log('  - logs/');
 console.log('  - resumes/');
+console.log('  - knowledge/');
 
 // 2. Create default config if not exists
 if (!fs.existsSync(CONFIG_PATH)) {
@@ -79,31 +86,46 @@ if (!fs.existsSync(CONFIG_PATH)) {
   }
 }
 
-// 3. Ensure bwrap (bubblewrap) is available for AI sandbox isolation
-try {
-  execSync('which bwrap', { stdio: 'ignore' });
-  console.log('\nbwrap detected ✓');
-} catch {
-  const platform = os.platform();
-  if (platform === 'linux') {
-    console.warn('\nbwrap not found, attempting install via apt...');
-    try {
-      execSync('sudo apt install -y bubblewrap', { stdio: 'inherit' });
-      console.log('bwrap installed ✓');
-    } catch {
-      console.error('⚠ apt install failed. Try: sudo apt install bubblewrap');
-    }
-  } else {
-    console.warn(`\n⚠ bwrap not found (platform: ${platform}).`);
-    if (platform === 'darwin') {
-      console.warn('bubblewrap relies on Linux namespaces and is not supported on macOS.');
-      console.warn('AI sandbox isolation will fall back to tool whitelisting only.');
-    } else {
-      console.warn('Please install bubblewrap manually, or ask your AI agent to assist.');
-      console.warn('Without bwrap, AI sandbox isolation will be limited to tool whitelisting only.');
-    }
+function hasCommand(command) {
+  try {
+    execSync(`which ${command}`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
   }
 }
+
+// 3. Check SRT sandbox dependencies. Interview AI fails closed when missing.
+const platform = os.platform();
+console.log('\nChecking AI sandbox dependencies...');
+if (platform === 'linux') {
+  if (hasCommand('bwrap')) {
+    console.log('  - bwrap detected ✓');
+  } else {
+    console.warn('  - bwrap not found, attempting install via apt...');
+    try {
+      execSync('sudo apt install -y bubblewrap', { stdio: 'inherit' });
+      console.log('    bwrap installed ✓');
+    } catch {
+      console.error('    ⚠ apt install failed. Try: sudo apt install bubblewrap');
+    }
+  }
+
+  if (hasCommand('socat')) console.log('  - socat detected ✓');
+  else console.warn('  - ⚠ socat not found. Install it before using interview AI sandboxing.');
+
+  if (hasCommand('rg')) console.log('  - rg detected ✓');
+  else console.warn('  - ⚠ ripgrep (rg) not found. SRT v0.0.49 requires it for dangerous-path scanning.');
+} else if (platform === 'darwin') {
+  if (hasCommand('sandbox-exec')) console.log('  - sandbox-exec detected ✓');
+  else console.warn('  - ⚠ sandbox-exec not found. macOS Seatbelt sandboxing will be unavailable.');
+
+  if (hasCommand('rg')) console.log('  - rg detected ✓');
+  else console.warn('  - ⚠ ripgrep (rg) not found. SRT v0.0.49 requires it during initialization.');
+} else {
+  console.warn(`  - ⚠ unsupported sandbox platform: ${platform}`);
+}
+console.log('  Missing sandbox dependencies cause interview AI subprocesses to fail closed.');
 
 // Note: PM2 service is started by Claude after this hook completes.
 console.log('\n[post-install] Complete!');

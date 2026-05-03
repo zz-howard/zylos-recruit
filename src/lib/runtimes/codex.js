@@ -8,9 +8,9 @@
  * Session resume: uses --json to capture thread_id from JSONL output,
  * then `codex exec resume <id> <prompt>` on subsequent calls.
  *
- * Filesystem-level safety is provided by sandbox.js in minimalFS mode:
- * $HOME is tmpfs, only ~/.codex (auth/state) is rw-bound, and caller-
- * supplied roBinds (e.g. resumes/) are the only readable scenario data.
+ * Filesystem-level safety is provided by sandbox.js through SRT:
+ * $HOME and ~/zylos are denied by default, then ~/.codex auth/state and
+ * caller-supplied scenario read paths are allowed back.
  * This sits on top of codex's own Landlock sandbox; prompt injection
  * that escapes the CLI layer still cannot reach the host filesystem.
  */
@@ -51,11 +51,12 @@ function getModels() {
   return supportsGpt55() ? ['gpt-5.5', ...BASE_MODELS] : BASE_MODELS;
 }
 
-function buildSandbox(readOnlyBinds = []) {
+function buildSandbox(readOnlyBinds = [], scenario = 'unknown') {
   return {
-    minimalFS: true,
-    rwBinds: [`${homedir()}/.codex`],
-    roBinds: readOnlyBinds,
+    scenario,
+    runtime: 'codex',
+    authStatePaths: [`${homedir()}/.codex`],
+    readOnlyPaths: readOnlyBinds,
   };
 }
 
@@ -93,7 +94,7 @@ export default {
     } catch { return false; }
   },
 
-  async call(prompt, { model, effort, sessionId, readOnlyBinds }) {
+  async call(prompt, { model, effort, sessionId, readOnlyBinds, scenario }) {
     let args;
     if (sessionId) {
       // Resume: `codex exec resume <id> <prompt> --json -c model=...`
@@ -122,7 +123,7 @@ export default {
       const child = spawnSandboxed('codex', args, {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
-      }, buildSandbox(readOnlyBinds));
+      }, buildSandbox(readOnlyBinds, scenario));
       let out = '';
       let err = '';
       const timer = setTimeout(() => {
@@ -141,7 +142,7 @@ export default {
     return parseCodexJsonl(stdout);
   },
 
-  async *stream(prompt, { model, effort, sessionId, readOnlyBinds }) {
+  async *stream(prompt, { model, effort, sessionId, readOnlyBinds, scenario }) {
     let args;
     if (sessionId) {
       args = [
@@ -164,7 +165,7 @@ export default {
     }
     const env = { ...process.env, NO_COLOR: '1' };
 
-    const child = spawnSandboxed('codex', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, buildSandbox(readOnlyBinds));
+    const child = spawnSandboxed('codex', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, buildSandbox(readOnlyBinds, scenario));
     let buf = '';
     for await (const chunk of child.stdout) {
       buf += chunk.toString('utf8');

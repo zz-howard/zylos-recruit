@@ -87,9 +87,8 @@ export function checkCapability(adapter, required) {
  * @param {string[]} [opts.required] - required capabilities (default: ['text'])
  * @param {{ runtime?: string, model?: string, effort?: string }} [opts.overrides] - bypass config
  * @param {string} [opts.sessionId] - session ID for conversation resume
- * @param {string[]} [opts.readOnlyBinds] - extra read-only dirs to expose to the
- *   sandboxed CLI (e.g. resumes dir for read_file scenarios). Adapters running
- *   in bwrap minimalFS mode forward this to the sandbox; others ignore it.
+ * @param {string[]} [opts.readOnlyBinds] - extra read-only files/dirs to expose
+ *   to the sandboxed CLI (for example, an exact resume file for read_file scenarios).
  * @param {{ systemPrompt: string, messages: Array<{ role: string, content: string }> }} [opts.conversation] -
  *   structured conversation for HTTP runtimes (chatgpt). CLI runtimes ignore this.
  * @returns {Promise<{ text: string, runtime: string, model: string, effort: string, sessionId?: string }>}
@@ -99,7 +98,7 @@ export async function call(scenario, prompt, { required = ['text'], overrides, s
   checkCapability(adapter, required);
 
   console.log(`[recruit] AI call: scenario=${scenario}, runtime=${runtimeName}, model=${model}, effort=${effort}${sessionId ? `, resume=${sessionId.slice(0, 8)}…` : ''}${conversation ? `, multi-turn=${conversation.messages.length}msgs` : ''}`);
-  const result = await adapter.call(prompt, { model, effort, capabilities: required, sessionId, readOnlyBinds, conversation });
+  const result = await adapter.call(prompt, { model, effort, capabilities: required, sessionId, readOnlyBinds, conversation, scenario });
   return { text: result.text || result, runtime: runtimeName, model, effort, sessionId: result.sessionId };
 }
 
@@ -118,5 +117,5 @@ export async function* stream(scenario, prompt, { required = ['text'], overrides
   checkCapability(adapter, required);
 
   console.log(`[recruit] AI stream: scenario=${scenario}, runtime=${runtimeName}, model=${model}, effort=${effort}`);
-  yield* adapter.stream(prompt, { model, effort, capabilities: required, readOnlyBinds });
+  yield* adapter.stream(prompt, { model, effort, capabilities: required, readOnlyBinds, scenario });
 }

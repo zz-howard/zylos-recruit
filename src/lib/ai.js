@@ -111,10 +111,10 @@ export const VALID_EFFORTS = new Proxy({}, {
 /**
  * Run a prompt through the gateway. Evaluation scenarios require read_file.
  */
-async function runCli(prompt, scenario = 'resume_eval') {
+async function runCli(prompt, scenario = 'resume_eval', readOnlyPaths = []) {
   const needsFile = ['resume_eval', 'auto_match'].includes(scenario);
   const required = needsFile ? ['text', 'read_file'] : ['text'];
-  const readOnlyBinds = needsFile ? [RESUMES_DIR] : undefined;
+  const readOnlyBinds = needsFile ? readOnlyPaths : undefined;
   return gwCall(scenario, prompt, { required, readOnlyBinds });
 }
 
@@ -210,7 +210,7 @@ export async function evaluateResume(candidateId) {
   const expectedPortrait = role?.expected_portrait || null;
 
   const prompt = buildPrompt(resumeAbsPath, role, companyProfile, roleJd, expectedPortrait, company?.eval_prompt, role?.eval_prompt, candidate.extra_info);
-  const { text, runtime, model, effort } = await runCli(prompt);
+  const { text, runtime, model, effort } = await runCli(prompt, 'resume_eval', [resumeAbsPath]);
   console.log(`[recruit] AI evaluation: CLI returned (${((Date.now() - t0) / 1000).toFixed(1)}s), parsing response...`);
 
   let parsed;
@@ -322,7 +322,7 @@ ${rolesText}
 只输出 JSON，不要其他文字。`;
 
   console.log(`[recruit] Auto-match from resume: candidate #${candidateId} against ${activeRoles.length} active roles...`);
-  const { text } = await runCli(prompt, 'auto_match');
+  const { text } = await runCli(prompt, 'auto_match', [resumeAbsPath]);
 
   let parsed;
   try {
@@ -386,7 +386,7 @@ ${rolesText}
 只输出 JSON，不要其他文字。`;
 
   console.log(`[recruit] Rank roles from resume: candidate #${candidateId} against ${activeRoles.length} active roles...`);
-  const { text } = await runCli(prompt, 'auto_match');
+  const { text } = await runCli(prompt, 'auto_match', [resumeAbsPath]);
 
   let parsed;
   try {
@@ -489,7 +489,7 @@ export async function evaluateResumeStream(candidateId, onEvent) {
     emit({ type: 'status', text: '正在评估...' });
     let fullText = '';
     const required = ['text', 'read_file'];
-    for await (const chunk of gwStream('resume_eval', prompt, { required, readOnlyBinds: [RESUMES_DIR] })) {
+    for await (const chunk of gwStream('resume_eval', prompt, { required, readOnlyBinds: [resumeAbsPath] })) {
       fullText += chunk;
       emit({ type: 'chunk', text: chunk });
     }
