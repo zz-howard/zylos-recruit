@@ -12,8 +12,33 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { spawnSandboxed } from './sandbox.js';
+
+const ALWAYS_DENIED = ['write_file', 'replace', 'skill-creator', 'generalist'];
+
+const SCENARIO_DENY = {
+  chat:                 [],
+  chat_summary:         [],
+  portrait:             [],
+  resume_eval:          [],
+  auto_match:           [],
+  interview_questions:  [],
+};
+
+function buildPolicyFile(scenario) {
+  const denied = [...ALWAYS_DENIED, ...(SCENARIO_DENY[scenario] || [])];
+  const rules = denied.map((name) => `    - action: deny\n      tool:\n        name: ${name}`);
+  const yaml = `- description: "recruit ${scenario} restrictions"\n  rules:\n${rules.join('\n')}`;
+  const dir = join(tmpdir(), 'zylos-recruit-policies');
+  mkdirSync(dir, { recursive: true });
+  const filePath = join(dir, `${scenario}.yaml`);
+  writeFileSync(filePath, yaml);
+  return filePath;
+}
 
 function buildSandbox(readOnlyBinds = [], scenario = 'unknown') {
   return {
@@ -39,7 +64,8 @@ export default {
   },
 
   async call(prompt, { model, sessionId, readOnlyBinds, scenario }) {
-    const args = ['-p', prompt, '--model', model, '-y', '-o', 'json'];
+    const policyPath = buildPolicyFile(scenario);
+    const args = ['-p', prompt, '--model', model, '-y', '--admin-policy', policyPath, '-o', 'json'];
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1' };
 
@@ -73,7 +99,8 @@ export default {
   },
 
   async *stream(prompt, { model, sessionId, readOnlyBinds, scenario }) {
-    const args = ['-p', prompt, '--model', model, '-y', '-o', 'text'];
+    const policyPath = buildPolicyFile(scenario);
+    const args = ['-p', prompt, '--model', model, '-y', '--admin-policy', policyPath, '-o', 'text'];
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1' };
 
