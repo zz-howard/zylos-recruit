@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.18] - 2026-05-03
+
+### Fixed
+- **Add SRT vendor directory to allowRead** (#30): SRT's `apply-seccomp` binary lives under `~/zylos/` (in `node_modules/`). The ZYLOS_DIR deny policy blocked it, causing all sandbox scenarios (portrait/chat/summary) to fail with exit 127. Fix: dynamically resolve the SRT vendor directory via `import.meta.resolve` and add to `allowRead`. Only SRT seccomp vendor assets are exposed — no sensitive data.
+
 ## [0.2.17] - 2026-05-03
 
 ### Fixed
