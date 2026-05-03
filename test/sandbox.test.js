@@ -77,6 +77,21 @@ test('home-installed command support exposes directories, not executable files',
   assert.equal(cfg.filesystem.allowRead.includes(homeBin), true);
 });
 
+test('support paths overlapping zylos directory are excluded from allowRead', () => {
+  const cfg = buildSandboxRuntimeConfig('node', {}, {
+    scenario: 'chat',
+    runtime: 'claude',
+    authStatePaths: [],
+    readOnlyPaths: [],
+    supportReadPaths: [ZYLOS_DIR, path.join(ZYLOS_DIR, 'memory')],
+  });
+
+  const zylosLeaked = cfg.filesystem.allowRead.some(
+    (p) => p === ZYLOS_DIR || p.startsWith(ZYLOS_DIR + path.sep),
+  );
+  assert.equal(zylosLeaked, false, 'allowRead must not re-expose zylos directory');
+});
+
 test('quoted command preserves argv boundaries for shell-sensitive input', () => {
   const expected = [
     'space value',
