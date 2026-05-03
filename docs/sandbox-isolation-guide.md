@@ -152,14 +152,53 @@ args.push('--disallowedTools', DISALLOWED_TOOLS.join(','));
 
 `--disallowedTools "*"` 或 `"all"` 无效。必须逐个列出工具名。
 
+### 纯对话模式：`--tools ""`
+
+Claude CLI 支持 `--tools` 参数直接指定可用工具列表。传空字符串可禁用所有工具：
+
+```bash
+claude -p "..." --tools ""          # 禁用所有工具（纯对话）
+claude -p "..." --tools "Read"      # 只允许 Read
+claude -p "..." --tools "default"   # 使用全部默认工具
+```
+
+适用场景：不需要任何工具能力的纯文本生成（如总结、翻译、评估）。比 `--disallowedTools` 逐个列出更简洁，且不会因为 Claude CLI 新增工具而出现遗漏。
+
 ### 其他运行时
 
 | 运行时 | 工具限制机制 |
 |--------|-------------|
-| Claude CLI | `--disallowedTools` + `--allowedTools`（已实现） |
-| Codex CLI | `--sandbox read-only`（Codex 自有沙箱机制） |
+| Claude CLI | `--disallowedTools` + `--allowedTools`；或 `--tools ""` 禁用全部 |
+| Codex CLI | `--disable <feature>` 逐个禁用功能 + `--sandbox read-only` |
 | Gemini CLI | `-y` 自动确认（待验证工具限制能力） |
 | ChatGPT (HTTP) | HTTP API 调用，无工具定义（天然安全） |
+
+### Codex CLI 工具控制
+
+Codex CLI 没有 `--allowedTools` / `--disallowedTools`，但提供 feature flags 控制具体能力：
+
+```bash
+codex exec --disable shell_tool \        # 禁用 Shell 执行
+           --disable browser_use \       # 禁用浏览器
+           --disable computer_use \      # 禁用桌面控制
+           --disable image_generation \  # 禁用图片生成
+           --disable multi_agent \       # 禁用多代理
+           --sandbox read-only \         # 文件系统只读
+           ...
+```
+
+验证结果（2026-05-03）：传 `--disable shell_tool` 后，模型报告 "this session has no shell execution tool exposed"，确认无法执行 bash。
+
+可用的工具相关 feature flags（通过 `codex features list` 查看）：
+
+| Feature | 默认状态 | 说明 |
+|---------|---------|------|
+| `shell_tool` | stable / true | Shell 命令执行（核心能力） |
+| `browser_use` | stable / true | 浏览器自动化 |
+| `computer_use` | stable / true | 桌面控制 |
+| `image_generation` | stable / true | 图片生成 |
+| `multi_agent` | stable / true | 多代理协作 |
+| `tool_search` | stable / true | 工具发现 |
 
 ## Layer 3: Claude Code 权限层
 
