@@ -58,8 +58,11 @@ function buildConversationPrompt(systemPrompt, messages, newUserMessage, company
  * Build a resume prompt — only the new user message.
  * Used when resuming a session (the AI already has full context).
  */
-function buildResumePrompt(newUserMessage) {
-  return `被访谈人：${newUserMessage}\n\n请作为AI访谈专家回复。注意：只回复你的回答内容，不要加角色标签前缀。`;
+function buildResumePrompt(newUserMessage, companyContext) {
+  let prompt = '';
+  if (companyContext) prompt += `[公司背景提醒]${companyContext}\n\n`;
+  prompt += `被访谈人：${newUserMessage}\n\n请作为AI访谈专家回复。注意：只回复你的回答内容，不要加角色标签前缀。`;
+  return prompt;
 }
 
 /**
@@ -188,8 +191,8 @@ export function chatRouter() {
       const companyContext = buildCompanyContext(company);
 
       if (sessionId) {
-        // Resume session — send only the new message (AI has full context)
-        prompt = buildResumePrompt(userMessage);
+        // Resume session — include company context reminder since session may predate profile changes
+        prompt = buildResumePrompt(userMessage, companyContext);
         console.log(`[recruit] Chat: interview #${interview.id} — resuming session ${sessionId.slice(0, 8)}…`);
       } else {
         // First message or no session — send full conversation prompt
