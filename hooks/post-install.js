@@ -93,18 +93,15 @@ try {
     } catch {
       console.error('⚠ apt install failed. Try: sudo apt install bubblewrap');
     }
-  } else if (platform === 'darwin') {
-    console.warn('\nbwrap not found, attempting install via Homebrew...');
-    try {
-      execSync('brew install bubblewrap', { stdio: 'inherit' });
-      console.log('bwrap installed ✓');
-    } catch {
-      console.error('⚠ brew install failed. Try: brew install bubblewrap');
-    }
   } else {
     console.warn(`\n⚠ bwrap not found (platform: ${platform}).`);
-    console.warn('Please install bubblewrap manually, or ask your AI agent to assist.');
-    console.warn('Without bwrap, AI sandbox isolation will be limited to tool whitelisting only.');
+    if (platform === 'darwin') {
+      console.warn('bubblewrap relies on Linux namespaces and is not supported on macOS.');
+      console.warn('AI sandbox isolation will fall back to tool whitelisting only.');
+    } else {
+      console.warn('Please install bubblewrap manually, or ask your AI agent to assist.');
+      console.warn('Without bwrap, AI sandbox isolation will be limited to tool whitelisting only.');
+    }
   }
 }
 
