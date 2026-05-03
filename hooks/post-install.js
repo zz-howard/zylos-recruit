@@ -10,6 +10,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
+import { execSync } from 'node:child_process';
 
 const HOME = process.env.HOME;
 const DATA_DIR = path.join(HOME, 'zylos/components/recruit');
@@ -74,6 +76,35 @@ if (!fs.existsSync(CONFIG_PATH)) {
     }
   } catch {
     console.log('\nConfig already exists (unreadable), skipping.');
+  }
+}
+
+// 3. Ensure bwrap (bubblewrap) is available for AI sandbox isolation
+try {
+  execSync('which bwrap', { stdio: 'ignore' });
+  console.log('\nbwrap detected ✓');
+} catch {
+  const platform = os.platform();
+  if (platform === 'linux') {
+    console.warn('\nbwrap not found, attempting install via apt...');
+    try {
+      execSync('sudo apt install -y bubblewrap', { stdio: 'inherit' });
+      console.log('bwrap installed ✓');
+    } catch {
+      console.error('⚠ apt install failed. Try: sudo apt install bubblewrap');
+    }
+  } else if (platform === 'darwin') {
+    console.warn('\nbwrap not found, attempting install via Homebrew...');
+    try {
+      execSync('brew install bubblewrap', { stdio: 'inherit' });
+      console.log('bwrap installed ✓');
+    } catch {
+      console.error('⚠ brew install failed. Try: brew install bubblewrap');
+    }
+  } else {
+    console.warn(`\n⚠ bwrap not found (platform: ${platform}).`);
+    console.warn('Please install bubblewrap manually, or ask your AI agent to assist.');
+    console.warn('Without bwrap, AI sandbox isolation will be limited to tool whitelisting only.');
   }
 }
 
