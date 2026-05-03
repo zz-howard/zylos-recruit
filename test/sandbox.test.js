@@ -53,6 +53,45 @@ test('sandbox default network policy denies local and metadata endpoints', () =>
   assert.equal(cfg.network.deniedDomains.includes('localhost'), true);
 });
 
+test('home-installed command support exposes directories, not executable files', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'recruit-sandbox-home-'));
+  const homeBin = path.join(dir, '.local/bin');
+  const command = path.join(homeBin, 'claude');
+  fs.mkdirSync(homeBin, { recursive: true });
+  fs.writeFileSync(command, '#!/bin/sh\n');
+  fs.chmodSync(command, 0o755);
+
+  const cfg = buildSandboxRuntimeConfig('claude', {
+    env: {
+      ...process.env,
+      PATH: `${homeBin}:${process.env.PATH}`,
+    },
+  }, {
+    scenario: 'resume_eval',
+    runtime: 'claude',
+    authStatePaths: [],
+    readOnlyPaths: [],
+  });
+
+  assert.equal(cfg.filesystem.allowRead.includes(command), false);
+  assert.equal(cfg.filesystem.allowRead.includes(homeBin), true);
+});
+
+test('support paths overlapping zylos directory are excluded from allowRead', () => {
+  const cfg = buildSandboxRuntimeConfig('node', {}, {
+    scenario: 'chat',
+    runtime: 'claude',
+    authStatePaths: [],
+    readOnlyPaths: [],
+    supportReadPaths: [ZYLOS_DIR, path.join(ZYLOS_DIR, 'memory')],
+  });
+
+  const zylosLeaked = cfg.filesystem.allowRead.some(
+    (p) => p === ZYLOS_DIR || p.startsWith(ZYLOS_DIR + path.sep),
+  );
+  assert.equal(zylosLeaked, false, 'allowRead must not re-expose zylos directory');
+});
+
 test('quoted command preserves argv boundaries for shell-sensitive input', () => {
   const expected = [
     'space value',
