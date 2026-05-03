@@ -16,8 +16,14 @@ import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { spawnSandboxed } from './sandbox.js';
 
-const DISALLOWED_TOOLS = ['Bash', 'Edit', 'Write', 'NotebookEdit', 'WebSearch', 'Agent'];
-const ALLOWED_TOOLS = ['WebFetch', 'Read'];
+const SCENARIO_TOOLS = {
+  chat:                 'WebFetch',
+  chat_summary:         '',
+  portrait:             '',
+  resume_eval:          'Read,WebFetch',
+  auto_match:           'Read',
+  interview_questions:  'Read,WebFetch',
+};
 
 function buildSandbox(readOnlyBinds = [], scenario = 'unknown') {
   return {
@@ -44,8 +50,9 @@ export default {
 
   async call(prompt, { model, effort, capabilities = [], sessionId, readOnlyBinds, scenario }) {
     const args = ['-p', prompt, '--output-format', 'json', '--model', model, '--effort', effort];
-    args.push('--allowedTools', ALLOWED_TOOLS.join(','));
-    args.push('--disallowedTools', DISALLOWED_TOOLS.join(','));
+    const tools = SCENARIO_TOOLS[scenario] ?? '';
+    args.push('--tools', tools);
+    if (tools) args.push('--allowedTools', tools);
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1' };
     delete env.ANTHROPIC_API_KEY;
@@ -81,8 +88,9 @@ export default {
 
   async *stream(prompt, { model, effort, capabilities = [], sessionId, readOnlyBinds, scenario }) {
     const args = ['-p', prompt, '--output-format', 'stream-json', '--model', model, '--effort', effort];
-    args.push('--allowedTools', ALLOWED_TOOLS.join(','));
-    args.push('--disallowedTools', DISALLOWED_TOOLS.join(','));
+    const tools = SCENARIO_TOOLS[scenario] ?? '';
+    args.push('--tools', tools);
+    if (tools) args.push('--allowedTools', tools);
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1' };
     delete env.ANTHROPIC_API_KEY;
