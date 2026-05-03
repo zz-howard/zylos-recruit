@@ -2,9 +2,8 @@
  * Gemini CLI runtime adapter.
  *
  * Calls `gemini -p` subprocess. The -y flag auto-approves tool use; filesystem
- * safety is provided by sandbox.js in minimalFS mode: $HOME is tmpfs,
- * only ~/.gemini (auth/state) is rw-bound, and caller-supplied roBinds
- * (e.g. resumes/) are the only readable scenario data.
+ * safety is provided by sandbox.js through SRT: $HOME and ~/zylos are denied by
+ * default, then ~/.gemini auth/state and scenario read paths are allowed back.
  *
  * Auth: GEMINI_API_KEY (configured in the CLI).
  *
@@ -16,11 +15,12 @@ import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { spawnSandboxed } from './sandbox.js';
 
-function buildSandbox(readOnlyBinds = []) {
+function buildSandbox(readOnlyBinds = [], scenario = 'unknown') {
   return {
-    minimalFS: true,
-    rwBinds: [`${homedir()}/.gemini`],
-    roBinds: readOnlyBinds,
+    scenario,
+    runtime: 'gemini',
+    authStatePaths: [`${homedir()}/.gemini`],
+    readOnlyPaths: readOnlyBinds,
   };
 }
 
@@ -38,7 +38,7 @@ export default {
     } catch { return false; }
   },
 
-  async call(prompt, { model, sessionId, readOnlyBinds }) {
+  async call(prompt, { model, sessionId, readOnlyBinds, scenario }) {
     const args = ['-p', prompt, '--model', model, '-y', '-o', 'json'];
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1' };
@@ -47,7 +47,7 @@ export default {
       const child = spawnSandboxed('gemini', args, {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
-      }, buildSandbox(readOnlyBinds));
+      }, buildSandbox(readOnlyBinds, scenario));
       let out = '';
       let err = '';
       const timer = setTimeout(() => {
@@ -72,12 +72,12 @@ export default {
     }
   },
 
-  async *stream(prompt, { model, sessionId, readOnlyBinds }) {
+  async *stream(prompt, { model, sessionId, readOnlyBinds, scenario }) {
     const args = ['-p', prompt, '--model', model, '-y', '-o', 'text'];
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1' };
 
-    const child = spawnSandboxed('gemini', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, buildSandbox(readOnlyBinds));
+    const child = spawnSandboxed('gemini', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, buildSandbox(readOnlyBinds, scenario));
     let buf = '';
     for await (const chunk of child.stdout) {
       buf += chunk.toString('utf8');

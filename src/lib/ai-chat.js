@@ -3,8 +3,8 @@
  *
  * Security: interview prompts include user-controlled content (prompt injection
  * risk). Protection model:
- *   - CLI runtimes (Claude/Codex/Gemini): wrapped in bwrap sandbox
- *     (runtimes/sandbox.js) — filesystem read-only, secrets masked, tmpfs /tmp.
+ *   - CLI runtimes (Claude/Codex/Gemini): wrapped by the SRT sandbox
+ *     (runtimes/sandbox.js) with deny-default file and network policy.
  *     Tools remain enabled; filesystem exfiltration is blocked at the kernel
  *     namespace layer rather than via CLI flag restrictions.
  *   - HTTP runtimes (ChatGPT): no tools defined in request body.
