@@ -4,6 +4,7 @@ import { jsonrepair } from 'jsonrepair';
 import {
   listInternalInterviews, getInternalInterview, createInternalInterview,
   deleteInternalInterview, restoreInternalInterview, listInterviewMessages,
+  getCompany,
 } from '../lib/db.js';
 import { runClaude } from '../lib/ai-chat.js';
 import { resolveAiConfig } from '../lib/config.js';
@@ -86,9 +87,19 @@ export function internalInterviewsRouter() {
 
     // Collect summaries from selected interviews
     const parts = [];
+    let companyContext = '';
     for (const id of interview_ids) {
       const iv = getInternalInterview(Number(id));
       if (!iv) continue;
+      if (!companyContext && iv.company_id) {
+        const company = getCompany(iv.company_id);
+        if (company) {
+          const lines = [`公司名称：${company.name}`];
+          if (company.profile?.content) lines.push(company.profile.content);
+          if (company.eval_prompt) lines.push(`招聘要求：${company.eval_prompt}`);
+          companyContext = lines.join('\n');
+        }
+      }
       if (iv.summary) {
         parts.push(`### ${iv.interviewee_name} 的访谈汇总\n\n${iv.summary}`);
       } else {
@@ -109,7 +120,7 @@ export function internalInterviewsRouter() {
     }
 
     const prompt = `你是一位资深招聘专家。以下是多位团队成员关于岗位需求的访谈记录/汇总。请综合输入，生成岗位画像（expected portrait）。
-
+${companyContext ? `\n## 公司背景\n${companyContext}\n` : ''}
 ${parts.join('\n\n---\n\n')}
 
 ---
