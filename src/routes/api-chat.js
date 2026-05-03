@@ -13,6 +13,7 @@ import path from 'node:path';
 import {
   getInternalInterviewByToken, updateInternalInterview,
   listInterviewMessages, addInterviewMessage,
+  getCompany,
 } from '../lib/db.js';
 import { runClaude } from '../lib/ai-chat.js';
 
@@ -22,12 +23,21 @@ function loadSystemPrompt() {
   return fs.readFileSync(PROMPT_PATH, 'utf8');
 }
 
+function buildCompanyContext(company) {
+  if (!company) return '';
+  const parts = ['\n\n## 公司背景'];
+  parts.push(`公司名称：${company.name}`);
+  if (company.profile?.content) parts.push(company.profile.content);
+  if (company.eval_prompt) parts.push(`\n### 公司招聘要求\n${company.eval_prompt}`);
+  return parts.join('\n');
+}
+
 /**
  * Build a full conversation prompt including system instructions + all prior messages.
  * Used for the first message (no session to resume) or non-resumable runtimes.
  */
-function buildConversationPrompt(systemPrompt, messages, newUserMessage) {
-  let prompt = systemPrompt + '\n\n';
+function buildConversationPrompt(systemPrompt, messages, newUserMessage, companyContext) {
+  let prompt = systemPrompt + (companyContext || '') + '\n\n';
 
   if (messages.length > 0) {
     prompt += '--- 以下是此前的对话记录 ---\n\n';
@@ -48,15 +58,19 @@ function buildConversationPrompt(systemPrompt, messages, newUserMessage) {
  * Build a resume prompt — only the new user message.
  * Used when resuming a session (the AI already has full context).
  */
-function buildResumePrompt(newUserMessage) {
-  return `被访谈人：${newUserMessage}\n\n请作为AI访谈专家回复。注意：只回复你的回答内容，不要加角色标签前缀。`;
+function buildResumePrompt(newUserMessage, companyContext) {
+  let prompt = '';
+  if (companyContext) prompt += `[公司背景提醒]${companyContext}\n\n`;
+  prompt += `被访谈人：${newUserMessage}\n\n请作为AI访谈专家回复。注意：只回复你的回答内容，不要加角色标签前缀。`;
+  return prompt;
 }
 
 /**
  * Build a summary prompt to generate a structured interview summary.
  */
-function buildSummaryPrompt(messages) {
+function buildSummaryPrompt(messages, companyContext) {
   let prompt = '请根据以下访谈对话内容，生成结构化的岗位需求汇总。\n\n';
+  if (companyContext) prompt += companyContext + '\n\n';
   prompt += '对话记录：\n\n';
   for (const msg of messages) {
     const label = msg.role === 'user' ? '被访谈人' : 'AI访谈专家';
@@ -96,12 +110,12 @@ const chatLocks = new Set();
 // Track in-progress summary generation (exported for use by interview list API)
 export const summaryInProgress = new Set();
 
-function generateSummaryAsync(interviewId, messages, overrides) {
+function generateSummaryAsync(interviewId, messages, overrides, companyContext) {
   if (summaryInProgress.has(interviewId)) return;
   summaryInProgress.add(interviewId);
   console.log(`[recruit] Chat: interview #${interviewId} — generating summary in background...`);
 
-  const summaryPrompt = buildSummaryPrompt(messages);
+  const summaryPrompt = buildSummaryPrompt(messages, companyContext);
   runClaude(summaryPrompt, 'chat_summary', overrides)
     .then(({ text: summary }) => {
       console.log(`[recruit] Chat: interview #${interviewId} — summary generated (${summary.length} chars)`);
@@ -173,20 +187,23 @@ export function chatRouter() {
       let sessionId = interview.session_id || undefined;
       let conversation;
 
+      const company = getCompany(interview.company_id);
+      const companyContext = buildCompanyContext(company);
+
       if (sessionId) {
-        // Resume session — send only the new message (AI has full context)
-        prompt = buildResumePrompt(userMessage);
+        // Resume session — include company context reminder since session may predate profile changes
+        prompt = buildResumePrompt(userMessage, companyContext);
         console.log(`[recruit] Chat: interview #${interview.id} — resuming session ${sessionId.slice(0, 8)}…`);
       } else {
         // First message or no session — send full conversation prompt
         const allMessages = listInterviewMessages(interview.id);
         const history = allMessages.slice(0, -1);
         const systemPrompt = loadSystemPrompt();
-        prompt = buildConversationPrompt(systemPrompt, history, userMessage);
+        prompt = buildConversationPrompt(systemPrompt, history, userMessage, companyContext);
 
         // Structured conversation for HTTP runtimes (native multi-turn)
         conversation = {
-          systemPrompt,
+          systemPrompt: systemPrompt + companyContext,
           messages: allMessages.map(m => ({ role: m.role, content: m.content })),
         };
 
@@ -236,7 +253,8 @@ export function chatRouter() {
       effort: interview.effort,
     } : undefined;
     if (messages.length > 0) {
-      generateSummaryAsync(interview.id, messages, overrides);
+      const company = getCompany(interview.company_id);
+      generateSummaryAsync(interview.id, messages, overrides, buildCompanyContext(company));
     }
 
     res.json({ interview: getInternalInterviewByToken(req.params.token) });
@@ -263,7 +281,8 @@ export function chatRouter() {
       model: interview.model,
       effort: interview.effort,
     } : undefined;
-    generateSummaryAsync(interview.id, messages, overrides);
+    const company = getCompany(interview.company_id);
+    generateSummaryAsync(interview.id, messages, overrides, buildCompanyContext(company));
     res.json({ status: 'generating' });
   });
 
