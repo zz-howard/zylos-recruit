@@ -53,6 +53,30 @@ test('sandbox default network policy denies local and metadata endpoints', () =>
   assert.equal(cfg.network.deniedDomains.includes('localhost'), true);
 });
 
+test('home-installed command support exposes directories, not executable files', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'recruit-sandbox-home-'));
+  const homeBin = path.join(dir, '.local/bin');
+  const command = path.join(homeBin, 'claude');
+  fs.mkdirSync(homeBin, { recursive: true });
+  fs.writeFileSync(command, '#!/bin/sh\n');
+  fs.chmodSync(command, 0o755);
+
+  const cfg = buildSandboxRuntimeConfig('claude', {
+    env: {
+      ...process.env,
+      PATH: `${homeBin}:${process.env.PATH}`,
+    },
+  }, {
+    scenario: 'resume_eval',
+    runtime: 'claude',
+    authStatePaths: [],
+    readOnlyPaths: [],
+  });
+
+  assert.equal(cfg.filesystem.allowRead.includes(command), false);
+  assert.equal(cfg.filesystem.allowRead.includes(homeBin), true);
+});
+
 test('quoted command preserves argv boundaries for shell-sensitive input', () => {
   const expected = [
     'space value',

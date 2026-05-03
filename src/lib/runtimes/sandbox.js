@@ -92,7 +92,7 @@ function resolveCommandPath(cmd, env) {
 function commandSupportPaths(cmd, env) {
   const resolved = resolveCommandPath(cmd, env);
   if (!resolved) return [];
-  const paths = [resolved, path.dirname(resolved)];
+  const paths = [path.dirname(resolved)];
   if (resolved.startsWith(HOME + path.sep)) {
     const segments = resolved.slice(HOME.length + 1).split(path.sep);
     if (segments[0]) paths.push(path.join(HOME, segments[0]));
