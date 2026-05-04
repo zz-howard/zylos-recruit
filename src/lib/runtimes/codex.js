@@ -119,9 +119,14 @@ export default {
     const sandboxFlags = isDarwin
       ? ['--dangerously-bypass-approvals-and-sandbox']
       : ['--sandbox', 'read-only'];
+    // `codex exec resume` does not accept --sandbox; only --dangerously-bypass is valid.
+    const resumeSandboxFlags = isDarwin
+      ? ['--dangerously-bypass-approvals-and-sandbox']
+      : [];
     if (sessionId) {
       args = [
         'exec', 'resume', sessionId, prompt,
+        ...resumeSandboxFlags,
         '--json',
         '--skip-git-repo-check',
         ...disableFlags,
@@ -174,9 +179,13 @@ export default {
     const sandboxFlags = isDarwin
       ? ['--dangerously-bypass-approvals-and-sandbox']
       : ['--sandbox', 'read-only'];
+    const resumeSandboxFlags = isDarwin
+      ? ['--dangerously-bypass-approvals-and-sandbox']
+      : [];
     if (sessionId) {
       args = [
         'exec', 'resume', sessionId, prompt,
+        ...resumeSandboxFlags,
         '--json',
         '--skip-git-repo-check',
         ...disableFlags,
