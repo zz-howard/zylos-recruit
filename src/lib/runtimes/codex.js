@@ -8,15 +8,19 @@
  * Session resume: uses --json to capture thread_id from JSONL output,
  * then `codex exec resume <id> <prompt>` on subsequent calls.
  *
- * Filesystem-level safety is provided by sandbox.js through SRT:
- * $HOME and ~/zylos are denied by default, then ~/.codex auth/state and
- * caller-supplied scenario read paths are allowed back.
- * This sits on top of codex's own Landlock sandbox; prompt injection
- * that escapes the CLI layer still cannot reach the host filesystem.
+ * Sandbox strategy (platform-dependent):
+ * - Linux: SRT bwrap (outer) + Codex Landlock (inner, --sandbox read-only).
+ *   Both coexist; /tmp write access enables Landlock initialization.
+ * - macOS: SRT seatbelt conflicts with Codex exec (nested sandbox-exec
+ *   denied). Codex's own sandbox is used as the sole protection layer
+ *   (--sandbox read-only + disk-full-read-access for resume file reads).
  */
 
-import { execFileSync } from 'node:child_process';
-import { homedir } from 'node:os';
+import { execFileSync, spawn } from 'node:child_process';
+import { homedir, tmpdir } from 'node:os';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
 import { spawnSandboxed } from './sandbox.js';
 
 const ALWAYS_DISABLED = ['image_generation', 'multi_agent', 'computer_use'];
@@ -69,6 +73,19 @@ function buildSandbox(readOnlyBinds = [], scenario = 'unknown') {
   };
 }
 
+const SANDBOX_CWD = path.join(tmpdir(), 'zylos-recruit-sandbox-cwd');
+
+function spawnCodex(args, opts) {
+  if (os.platform() !== 'darwin') {
+    return spawnSandboxed('codex', args, opts, buildSandbox(opts._readOnlyBinds, opts._scenario));
+  }
+  // macOS: SRT seatbelt conflicts with Codex exec. Use Codex's own sandbox
+  // (read-only + disk-full-read-access) as the sole protection layer.
+  fs.mkdirSync(SANDBOX_CWD, { recursive: true });
+  const { _readOnlyBinds, _scenario, ...spawnOpts } = opts;
+  return spawn('codex', args, { ...spawnOpts, cwd: SANDBOX_CWD });
+}
+
 /**
  * Parse Codex JSONL output. Returns { text, sessionId }.
  * Format: one JSON object per line with types: thread.started, item.completed, turn.completed
@@ -105,7 +122,14 @@ export default {
 
   async call(prompt, { model, effort, sessionId, readOnlyBinds, scenario }) {
     let args;
+    const isDarwin = os.platform() === 'darwin';
     const disableFlags = disabledFeatures(scenario).flatMap((f) => ['--disable', f]);
+    // macOS: SRT seatbelt conflicts with Codex exec. Use Codex's own sandbox
+    // (read-only + disk-full-read-access) without SRT wrapping.
+    // Linux: Codex Landlock + SRT bwrap coexist; keep --sandbox read-only.
+    const sandboxFlags = isDarwin
+      ? ['--sandbox', 'read-only', '-c', 'sandbox_permissions=["disk-full-read-access"]']
+      : ['--sandbox', 'read-only'];
     if (sessionId) {
       args = [
         'exec', 'resume', sessionId, prompt,
@@ -118,7 +142,7 @@ export default {
     } else {
       args = [
         'exec',
-        '--sandbox', 'read-only',
+        ...sandboxFlags,
         '--json',
         '--skip-git-repo-check',
         ...disableFlags,
@@ -130,10 +154,12 @@ export default {
     const env = { ...process.env, NO_COLOR: '1', TMPDIR: '/tmp' };
 
     const stdout = await new Promise((resolve, reject) => {
-      const child = spawnSandboxed('codex', args, {
+      const child = spawnCodex(args, {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
-      }, buildSandbox(readOnlyBinds, scenario));
+        _readOnlyBinds: readOnlyBinds,
+        _scenario: scenario,
+      });
       let out = '';
       let err = '';
       const timer = setTimeout(() => {
@@ -154,7 +180,11 @@ export default {
 
   async *stream(prompt, { model, effort, sessionId, readOnlyBinds, scenario }) {
     let args;
+    const isDarwin = os.platform() === 'darwin';
     const disableFlags = disabledFeatures(scenario).flatMap((f) => ['--disable', f]);
+    const sandboxFlags = isDarwin
+      ? ['--sandbox', 'read-only', '-c', 'sandbox_permissions=["disk-full-read-access"]']
+      : ['--sandbox', 'read-only'];
     if (sessionId) {
       args = [
         'exec', 'resume', sessionId, prompt,
@@ -167,7 +197,7 @@ export default {
     } else {
       args = [
         'exec',
-        '--sandbox', 'read-only',
+        ...sandboxFlags,
         '--json',
         '--skip-git-repo-check',
         ...disableFlags,
@@ -178,7 +208,7 @@ export default {
     }
     const env = { ...process.env, NO_COLOR: '1', TMPDIR: '/tmp' };
 
-    const child = spawnSandboxed('codex', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, buildSandbox(readOnlyBinds, scenario));
+    const child = spawnCodex(args, { env, stdio: ['ignore', 'pipe', 'pipe'], _readOnlyBinds: readOnlyBinds, _scenario: scenario });
     let buf = '';
     for await (const chunk of child.stdout) {
       buf += chunk.toString('utf8');

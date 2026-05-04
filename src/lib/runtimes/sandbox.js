@@ -155,6 +155,8 @@ export function buildSandboxRuntimeConfig(cmd, opts = {}, sandbox = {}) {
     path.join(tmpdir(), 'claude'),
     path.join(tmpdir(), 'zylos-recruit-sandbox'),
     path.join(tmpdir(), 'zylos-recruit-sandbox-cwd'),
+    // macOS: Codex sets TMPDIR=/tmp; ensure both /tmp and /private/tmp are writable
+    ...(os.platform() === 'darwin' ? ['/tmp', '/private/tmp'] : []),
     ...(sandbox.writePaths || []),
   ]);
 
