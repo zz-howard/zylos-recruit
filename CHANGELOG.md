@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.20] - 2026-05-04
+
+### Fixed
+- **macOS sandbox compatibility for Codex and Gemini** (#32): macOS sandbox-exec (Seatbelt) conflicts with Codex's nested sandbox-exec. Solution: Codex uses `--dangerously-bypass-approvals-and-sandbox` on macOS (SRT seatbelt is sole protection); Linux dual-sandbox unchanged.
+- **Codex resume path sandbox flags** (#32): `codex exec resume` does not accept `--sandbox` flag (only `--dangerously-bypass`). macOS resume now passes `--dangerously-bypass`; Linux resume relies on SRT bwrap as outer sandbox.
+- **Claude CLI empty stdout on macOS** (#32): SRT seatbelt `subpath "~/.claude"` does not cover `~/.claude.json` (a sibling file, not a child path). Added to `allowRead` via new `runtimeReadOnlyConfigPaths`.
+- **Gemini CLI file access on macOS** (#32): Added `--include-directories` for scenario read paths.
+
+### Security
+- **`.claude.json` is read-only in sandbox** (#32): Moved from `runtimeAuthStatePaths` (rw) to `runtimeReadOnlyConfigPaths` (ro). Sandboxed CLI can read but not modify global Claude Code config. Regression test added.
+
 ## [0.2.19] - 2026-05-04
 
 ### Fixed
