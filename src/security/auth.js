@@ -4,6 +4,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { CONFIG_PATH, saveConfig } from '../lib/config.js';
+import { browserBaseFromRequest, browserPath, browserRoot } from '../lib/browser-base.js';
 
 const SCRYPT_KEYLEN = 64;
 const COOKIE_NAME = '__Host-zylos_recruit_session';
@@ -192,8 +193,29 @@ function clearFailures(ip) {
 
 function isSafeRedirect(p) {
   if (!p || typeof p !== 'string') return false;
-  return p.startsWith('/') && !p.startsWith('//') && !p.includes('://')
-    && !p.includes('\\') && !/[\x00-\x1f]/.test(p);
+  if (p.startsWith('//') || p.includes('://') || p.includes('\\')
+      || /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(p) || /[\x00-\x1f]/.test(p)) {
+    return false;
+  }
+  try {
+    const decoded = decodeURIComponent(p);
+    const pathPart = decoded.split(/[?#]/, 1)[0];
+    if (pathPart.split('/').includes('..')) return false;
+    const parsed = new URL(p, 'https://zylos.local/current/');
+    return parsed.origin === 'https://zylos.local' && !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
+}
+
+function nextTarget(req, baseUrl) {
+  const rawNext = req.originalUrl || req.url || '/';
+  if (baseUrl && baseUrl !== '.') {
+    const suffix = rawNext === '/' ? '/' : `/${rawNext.replace(/^\/+/, '')}`;
+    return `${baseUrl}${suffix}`;
+  }
+  if (rawNext === '/') return './';
+  return rawNext.replace(/^\/+/, '');
 }
 
 // ─── Login template ──────────────────────────────────────────────────
@@ -233,8 +255,11 @@ export function setupAuth(app, authConfig, baseUrl) {
     console.log('[recruit] Auth: API token generated');
   }
 
+  const loginPath = '/login';
+  const logoutPath = '/logout';
+
   // Parse URL-encoded body only for login
-  app.use('/login', (req, res, next) => {
+  function parseLoginBody(req, res, next) {
     if (req.method === 'POST') {
       let body = '';
       req.on('data', chunk => { body += chunk.toString(); if (body.length > 4096) req.destroy(); });
@@ -245,22 +270,28 @@ export function setupAuth(app, authConfig, baseUrl) {
     } else {
       next();
     }
-  });
+  }
 
-  app.get('/login', (req, res) => {
+  app.use(loginPath, parseLoginBody);
+
+  function loginGet(req, res) {
+    const browserBase = browserBaseFromRequest(req, baseUrl);
     if (validateSession(getSessionCookie(req))) {
-      return res.redirect(baseUrl + '/');
+      return res.redirect(browserRoot(browserBase));
     }
     res.setHeader('Cache-Control', 'no-store');
-    res.send(loginPageHtml(baseUrl, null, req.query.next));
-  });
+    res.send(loginPageHtml(browserBase, null, req.query.next));
+  }
 
-  app.post('/login', (req, res) => {
+  app.get(loginPath, loginGet);
+
+  function loginPost(req, res) {
     const ip = getClientIp(req);
+    const browserBase = browserBaseFromRequest(req, baseUrl);
 
     if (isLockedOut(ip) || isGlobalLimited()) {
       res.setHeader('Cache-Control', 'no-store');
-      return res.status(429).send(loginPageHtml(baseUrl, 'Too many attempts. Try again later.', req.body?.next));
+      return res.status(429).send(loginPageHtml(browserBase, 'Too many attempts. Try again later.', req.body?.next));
     }
 
     const password = req.body?.password || '';
@@ -268,7 +299,7 @@ export function setupAuth(app, authConfig, baseUrl) {
     if (!verifyPassword(password, authConfig.password)) {
       recordFailure(ip);
       res.setHeader('Cache-Control', 'no-store');
-      return res.send(loginPageHtml(baseUrl, 'Incorrect password.', req.body?.next));
+      return res.send(loginPageHtml(browserBase, 'Incorrect password.', req.body?.next));
     }
 
     clearFailures(ip);
@@ -276,11 +307,13 @@ export function setupAuth(app, authConfig, baseUrl) {
     setSessionCookie(res, token);
 
     const next = req.body?.next;
-    const redirectTo = (next && isSafeRedirect(next)) ? next : baseUrl + '/';
+    const redirectTo = (next && isSafeRedirect(next)) ? next : browserRoot(browserBase);
     res.redirect(302, redirectTo);
-  });
+  }
 
-  app.post('/logout', (req, res) => {
+  app.post(loginPath, loginPost);
+
+  function logoutPost(req, res) {
     console.log(`[recruit] Logout: host=${req.headers.host}, x-fwd-host=${req.headers['x-forwarded-host']}, origin=${req.headers.origin}, referer=${req.headers.referer}`);
     const expectedHost = req.headers['x-forwarded-host'] || req.headers.host;
     const origin = req.headers.origin;
@@ -303,17 +336,22 @@ export function setupAuth(app, authConfig, baseUrl) {
 
     destroySession(getSessionCookie(req));
     clearSessionCookie(res);
-    res.redirect(302, baseUrl + '/login');
-  });
+    const browserBase = browserBaseFromRequest(req, baseUrl);
+    res.redirect(302, `${browserPath(browserBase, 'login')}?next=${encodeURIComponent(browserRoot(browserBase))}`);
+  }
+
+  app.post(logoutPath, logoutPost);
 
   // Auth gate for everything else
   app.use((req, res, next) => {
     if (!authConfig.enabled || !authConfig.password) return next();
 
-    const isApiPath = req.path.startsWith('/api/') || req.path.startsWith(baseUrl + '/api/');
+    const isApiPath = req.path.startsWith('/api/');
 
-    if (req.path.startsWith('/_assets') || req.path === '/login' || req.path === '/logout'
-        || req.path.startsWith('/chat/') || req.path.startsWith('/api/chat/')) {
+    if (req.path.startsWith('/_assets')
+        || req.path === loginPath || req.path === logoutPath
+        || req.path.startsWith('/chat/')
+        || req.path.startsWith('/api/chat/')) {
       return next();
     }
 
@@ -332,9 +370,9 @@ export function setupAuth(app, authConfig, baseUrl) {
       return res.status(401).json({ error: 'unauthorized' });
     }
 
-    const rawNext = req.originalUrl || req.url;
-    const next_url = rawNext === '/' ? baseUrl + '/' : baseUrl + rawNext;
+    const browserBase = browserBaseFromRequest(req, baseUrl);
+    const next_url = nextTarget(req, browserBase);
     const safeNext = isSafeRedirect(next_url) ? `?next=${encodeURIComponent(next_url)}` : '';
-    res.redirect(302, `${baseUrl}/login${safeNext}`);
+    res.redirect(302, `${browserPath(browserBase, 'login')}${safeNext}`);
   });
 }
