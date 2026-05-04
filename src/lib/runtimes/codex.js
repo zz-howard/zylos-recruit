@@ -118,7 +118,7 @@ export default {
     } else {
       args = [
         'exec',
-        '--sandbox', 'read-only',
+        '--dangerously-bypass-approvals-and-sandbox',
         '--json',
         '--skip-git-repo-check',
         ...disableFlags,
@@ -167,7 +167,7 @@ export default {
     } else {
       args = [
         'exec',
-        '--sandbox', 'read-only',
+        '--dangerously-bypass-approvals-and-sandbox',
         '--json',
         '--skip-git-repo-check',
         ...disableFlags,

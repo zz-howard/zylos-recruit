@@ -387,6 +387,7 @@ ${rolesText}
 
   console.log(`[recruit] Rank roles from resume: candidate #${candidateId} against ${activeRoles.length} active roles...`);
   const { text } = await runCli(prompt, 'auto_match', [resumeAbsPath]);
+  console.log(`[recruit] Rank roles raw output (first 800 chars): ${typeof text === 'string' ? text.slice(0, 800) : `<non-string: ${typeof text}>`}`);
 
   let parsed;
   try {
