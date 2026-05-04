@@ -11,16 +11,15 @@
  * Sandbox strategy (platform-dependent):
  * - Linux: SRT bwrap (outer) + Codex Landlock (inner, --sandbox read-only).
  *   Both coexist; /tmp write access enables Landlock initialization.
- * - macOS: SRT seatbelt conflicts with Codex exec (nested sandbox-exec
- *   denied). Codex's own sandbox is used as the sole protection layer
- *   (--sandbox read-only + disk-full-read-access for resume file reads).
+ * - macOS: SRT seatbelt (outer) + Codex sandbox disabled. Nested
+ *   sandbox-exec profiles conflict (inner overrides outer allow rules),
+ *   so Codex runs with --dangerously-bypass-approvals-and-sandbox and
+ *   SRT seatbelt is the sole file-access control layer.
  */
 
-import { execFileSync, spawn } from 'node:child_process';
-import { homedir, tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { homedir } from 'node:os';
 import os from 'node:os';
-import path from 'node:path';
-import fs from 'node:fs';
 import { spawnSandboxed } from './sandbox.js';
 
 const ALWAYS_DISABLED = ['image_generation', 'multi_agent', 'computer_use'];
@@ -73,17 +72,8 @@ function buildSandbox(readOnlyBinds = [], scenario = 'unknown') {
   };
 }
 
-const SANDBOX_CWD = path.join(tmpdir(), 'zylos-recruit-sandbox-cwd');
-
 function spawnCodex(args, opts) {
-  if (os.platform() !== 'darwin') {
-    return spawnSandboxed('codex', args, opts, buildSandbox(opts._readOnlyBinds, opts._scenario));
-  }
-  // macOS: SRT seatbelt conflicts with Codex exec. Use Codex's own sandbox
-  // (read-only + disk-full-read-access) as the sole protection layer.
-  fs.mkdirSync(SANDBOX_CWD, { recursive: true });
-  const { _readOnlyBinds, _scenario, ...spawnOpts } = opts;
-  return spawn('codex', args, { ...spawnOpts, cwd: SANDBOX_CWD });
+  return spawnSandboxed('codex', args, opts, buildSandbox(opts._readOnlyBinds, opts._scenario));
 }
 
 /**
@@ -124,11 +114,10 @@ export default {
     let args;
     const isDarwin = os.platform() === 'darwin';
     const disableFlags = disabledFeatures(scenario).flatMap((f) => ['--disable', f]);
-    // macOS: SRT seatbelt conflicts with Codex exec. Use Codex's own sandbox
-    // (read-only + disk-full-read-access) without SRT wrapping.
-    // Linux: Codex Landlock + SRT bwrap coexist; keep --sandbox read-only.
+    // macOS: SRT seatbelt is sole protection; Codex sandbox disabled.
+    // Linux: SRT bwrap + Codex Landlock coexist (dual sandbox).
     const sandboxFlags = isDarwin
-      ? ['--sandbox', 'read-only', '-c', 'sandbox_permissions=["disk-full-read-access"]']
+      ? ['--dangerously-bypass-approvals-and-sandbox']
       : ['--sandbox', 'read-only'];
     if (sessionId) {
       args = [
@@ -183,7 +172,7 @@ export default {
     const isDarwin = os.platform() === 'darwin';
     const disableFlags = disabledFeatures(scenario).flatMap((f) => ['--disable', f]);
     const sandboxFlags = isDarwin
-      ? ['--sandbox', 'read-only', '-c', 'sandbox_permissions=["disk-full-read-access"]']
+      ? ['--dangerously-bypass-approvals-and-sandbox']
       : ['--sandbox', 'read-only'];
     if (sessionId) {
       args = [
