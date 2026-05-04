@@ -18,25 +18,27 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSandboxed } from './sandbox.js';
 
-const ALWAYS_DENIED = ['write_file', 'replace', 'skill-creator', 'generalist'];
+const ALWAYS_DENIED = ['write_file', 'replace', 'save_memory', 'activate_skill'];
 
 const SCENARIO_DENY = {
-  chat:                 [],
-  chat_summary:         [],
-  portrait:             [],
+  chat:                 ['run_shell_command'],
+  chat_summary:         ['run_shell_command', 'web_fetch'],
+  portrait:             ['run_shell_command', 'web_fetch'],
   resume_eval:          [],
-  auto_match:           [],
+  auto_match:           ['web_fetch'],
   interview_questions:  [],
 };
 
 function buildPolicyFile(scenario) {
   const denied = [...ALWAYS_DENIED, ...(SCENARIO_DENY[scenario] || [])];
-  const rules = denied.map((name) => `    - action: deny\n      tool:\n        name: ${name}`);
-  const yaml = `- description: "recruit ${scenario} restrictions"\n  rules:\n${rules.join('\n')}`;
+  const lines = [`# recruit ${scenario} policy (admin tier — priority 5.x)`];
+  for (const name of denied) {
+    lines.push('', '[[rule]]', `toolName = "${name}"`, 'decision = "deny"', 'priority = 900');
+  }
   const dir = join(tmpdir(), 'zylos-recruit-policies');
   mkdirSync(dir, { recursive: true });
-  const filePath = join(dir, `${scenario}.yaml`);
-  writeFileSync(filePath, yaml);
+  const filePath = join(dir, `${scenario}.toml`);
+  writeFileSync(filePath, lines.join('\n') + '\n');
   return filePath;
 }
 
@@ -65,9 +67,9 @@ export default {
 
   async call(prompt, { model, sessionId, readOnlyBinds, scenario }) {
     const policyPath = buildPolicyFile(scenario);
-    const args = ['-p', prompt, '--model', model, '-y', '--admin-policy', policyPath, '-o', 'json'];
+    const args = ['-p', prompt, '--model', model, '-y', '--skip-trust', '--admin-policy', policyPath, '-o', 'json'];
     if (sessionId) args.push('--resume', sessionId);
-    const env = { ...process.env, NO_COLOR: '1' };
+    const env = { ...process.env, NO_COLOR: '1', GEMINI_CLI_TRUST_WORKSPACE: 'true' };
 
     const stdout = await new Promise((resolve, reject) => {
       const child = spawnSandboxed('gemini', args, {
@@ -100,9 +102,9 @@ export default {
 
   async *stream(prompt, { model, sessionId, readOnlyBinds, scenario }) {
     const policyPath = buildPolicyFile(scenario);
-    const args = ['-p', prompt, '--model', model, '-y', '--admin-policy', policyPath, '-o', 'text'];
+    const args = ['-p', prompt, '--model', model, '-y', '--skip-trust', '--admin-policy', policyPath, '-o', 'text'];
     if (sessionId) args.push('--resume', sessionId);
-    const env = { ...process.env, NO_COLOR: '1' };
+    const env = { ...process.env, NO_COLOR: '1', GEMINI_CLI_TRUST_WORKSPACE: 'true' };
 
     const child = spawnSandboxed('gemini', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, buildSandbox(readOnlyBinds, scenario));
     let buf = '';
