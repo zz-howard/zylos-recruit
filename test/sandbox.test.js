@@ -44,7 +44,7 @@ test('resume sandbox allows an exact existing resume file', () => {
   assert.equal(cfg.filesystem.allowRead.includes(sibling), false);
 });
 
-test('sandbox default network policy denies local and metadata endpoints', () => {
+test('sandbox network policy remains disabled for WebFetch scenarios', () => {
   const cfg = buildSandboxRuntimeConfig('node', {}, {
     scenario: 'chat',
     runtime: 'codex',
@@ -52,10 +52,7 @@ test('sandbox default network policy denies local and metadata endpoints', () =>
     readOnlyPaths: [],
   });
 
-  assert.equal(cfg.network.deniedDomains.includes('metadata.google.internal'), true);
-  assert.equal(cfg.network.deniedDomains.includes('169.254.169.254'), true);
-  assert.equal(cfg.network.deniedDomains.includes('127.0.0.1'), true);
-  assert.equal(cfg.network.deniedDomains.includes('localhost'), true);
+  assert.deepEqual(cfg.network, {});
 });
 
 test('home-installed command support exposes directories, not executable files', () => {
