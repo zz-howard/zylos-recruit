@@ -27,8 +27,6 @@ import { chatRouter } from './routes/api-chat.js';
 import { chatPageRoute } from './routes/ui-chat.js';
 import { detectRuntimes } from './lib/ai.js';
 
-const BASE_URL = '/recruit';
-
 console.log('[recruit] Starting...');
 console.log('[recruit] Data directory:', DATA_DIR);
 
@@ -69,6 +67,7 @@ watchConfig((newConfig) => {
 
 async function main() {
   const app = express();
+  const browserBase = '.';
 
   // Trust first proxy hop (Caddy on localhost)
   app.set('trust proxy', 'loopback');
@@ -96,21 +95,18 @@ async function main() {
   const assetsDir = path.join(import.meta.dirname, '..', 'assets');
   const staticOpts = { maxAge: '1h' };
   app.use('/_assets', express.static(assetsDir, staticOpts));
-  // Also mount at BASE_URL/_assets so it works without a reverse proxy
-  app.use(BASE_URL + '/_assets', express.static(assetsDir, staticOpts));
 
   // Chat routes (token-based, no login required — mounted before auth gate)
   const chat = chatRouter();
   app.use('/api/chat', chat);
-  app.use(BASE_URL + '/api/chat', chat);
-  app.get('/chat/:token', chatPageRoute(BASE_URL));
-  app.get(BASE_URL + '/chat/:token', chatPageRoute(BASE_URL));
+  app.get('/chat/:token', chatPageRoute('..'));
 
   // Auth (login/logout + gate)
-  setupAuth(app, config.auth || {}, BASE_URL);
+  setupAuth(app, config.auth || {}, browserBase);
 
   // Routes (authenticated)
-  app.get('/', uiRoute(BASE_URL));
+  const ui = uiRoute(browserBase);
+  app.get('/', ui);
   const companies = companiesRouter();
   const roles = rolesRouter();
   const candidates = candidatesRouter();
@@ -125,14 +121,15 @@ async function main() {
   app.use('/api', interviewQuestions);
   const interviews = internalInterviewsRouter();
   app.use('/api/internal-interviews', interviews);
-  // Also mount at BASE_URL/api/* so it works without a reverse proxy
-  app.use(BASE_URL + '/api/companies', companies);
-  app.use(BASE_URL + '/api/roles', roles);
-  app.use(BASE_URL + '/api/candidates', candidates);
-  app.use(BASE_URL + '/api/candidates', resumes);
-  app.use(BASE_URL + '/api/settings', settings);
-  app.use(BASE_URL + '/api', interviewQuestions);
-  app.use(BASE_URL + '/api/internal-interviews', interviews);
+
+  // UI fallback for browser-side routes.
+  app.get('/:path(*)', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/_assets')
+        || req.path === '/login' || req.path === '/logout') {
+      return next();
+    }
+    return ui(req, res);
+  });
 
   // Error handler
   app.use((err, req, res, _next) => {

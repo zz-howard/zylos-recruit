@@ -4,8 +4,19 @@ const ASSET_VERSION = Date.now();
 
 function isSafeRedirect(p) {
   if (!p || typeof p !== 'string') return false;
-  return p.startsWith('/') && !p.startsWith('//') && !p.includes('://')
-    && !p.includes('\\') && !/[\x00-\x1f]/.test(p);
+  if (p.startsWith('//') || p.includes('://') || p.includes('\\')
+      || /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(p) || /[\x00-\x1f]/.test(p)) {
+    return false;
+  }
+  try {
+    const decoded = decodeURIComponent(p);
+    const pathPart = decoded.split(/[?#]/, 1)[0];
+    if (pathPart.split('/').includes('..')) return false;
+    const parsed = new URL(p, 'https://zylos.local/current/');
+    return parsed.origin === 'https://zylos.local' && !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
 }
 
 function escapeAttr(s) {
