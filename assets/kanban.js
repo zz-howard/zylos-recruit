@@ -1421,12 +1421,12 @@
     api('GET', '/settings').then(function (r) {
       var ai = r.ai;
       var raw = ai.raw || {};
-      var defaultModelMap = { claude: 'sonnet', codex: 'gpt-5.4', chatgpt: 'gpt-5.4', gemini: 'gemini-2.5-flash' };
-      var runtimeLabels = { claude: 'Claude CLI', codex: 'Codex CLI', chatgpt: 'ChatGPT (Pro subscription)', gemini: 'Gemini CLI' };
+      var defaultModelMap = { claude: 'sonnet', codex: 'gpt-5.4', 'codex-api': 'gpt-5.4', gemini: 'gemini-2.5-flash' };
+      var runtimeLabels = { claude: 'Claude CLI', codex: 'Codex CLI', 'codex-api': 'Codex API', gemini: 'Gemini CLI' };
 
       function makeRuntimeOptions(selected) {
         var opts = [{ value: '', label: '跟随默认' }, { value: 'auto', label: 'Auto (' + ai.envRuntime + ')' }];
-        ['claude', 'codex', 'chatgpt', 'gemini'].forEach(function (rt) {
+        ['claude', 'codex', 'codex-api', 'gemini'].forEach(function (rt) {
           var installed = ai.availableRuntimes.indexOf(rt) !== -1;
           var label = runtimeLabels[rt] || rt;
           opts.push({ value: rt, label: label + (installed ? '' : ' (not installed)'), disabled: !installed });

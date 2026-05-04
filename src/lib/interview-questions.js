@@ -316,7 +316,10 @@ export async function generateInterviewQuestions(candidateId, { customPrompt } =
     ...(fs.existsSync(KNOWLEDGE_DIR) ? [KNOWLEDGE_DIR] : []),
     ...(hasResume ? [resumeAbsPath] : []),
   ];
+  const startTime = Date.now();
   const { text, runtime, model, effort } = await aiCall('interview_questions', prompt, { required, readOnlyBinds });
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[recruit] Interview questions generated for candidate #${candidate.id} "${candidate.name || ''}" (${elapsed}s, ${runtime}/${model})`);
 
   const body = cleanGeneratedMarkdown(text);
   const title = inferMarkdownTitle(body, `Reference Interview Questions - ${safeTitlePart(candidate.name || 'Candidate')}`);

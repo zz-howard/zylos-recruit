@@ -308,7 +308,7 @@ export async function autoMatchFromResume(candidateId) {
 
   const prompt = `你是一位资深招聘专家。请阅读以下简历文件，并与可匹配的岗位进行比对，选出最合适的岗位。
 
-请先使用 Read 工具阅读简历文件：${resumeAbsPath}
+请先阅读简历文件：${resumeAbsPath}
 
 ## 可匹配的岗位
 
@@ -372,7 +372,7 @@ export async function rankRolesFromResume(candidateId) {
 
   const prompt = `你是一位资深招聘专家。请阅读以下简历文件，并与所有可匹配的岗位逐一比对，给出匹配度评分和原因。
 
-请先使用 Read 工具阅读简历文件：${resumeAbsPath}
+请先阅读简历文件：${resumeAbsPath}
 
 ## 可匹配的岗位
 
@@ -387,6 +387,7 @@ ${rolesText}
 
   console.log(`[recruit] Rank roles from resume: candidate #${candidateId} against ${activeRoles.length} active roles...`);
   const { text } = await runCli(prompt, 'auto_match', [resumeAbsPath]);
+  console.log(`[recruit] Rank roles raw output (first 800 chars): ${typeof text === 'string' ? text.slice(0, 800) : `<non-string: ${typeof text}>`}`);
 
   let parsed;
   try {

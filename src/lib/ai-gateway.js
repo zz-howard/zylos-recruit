@@ -9,24 +9,27 @@
 import { resolveAiConfig } from './config.js';
 import claudeAdapter from './runtimes/claude.js';
 import codexAdapter from './runtimes/codex.js';
-import chatgptAdapter from './runtimes/chatgpt.js';
+import codexApiAdapter from './runtimes/codex-api.js';
 import geminiAdapter from './runtimes/gemini.js';
 
 const adapters = {};
 const envRuntime = () => (process.env.ZYLOS_RUNTIME || 'claude').toLowerCase();
 
 // Register built-in adapters
-for (const a of [claudeAdapter, codexAdapter, chatgptAdapter, geminiAdapter]) {
+for (const a of [claudeAdapter, codexAdapter, codexApiAdapter, geminiAdapter]) {
   adapters[a.name] = a;
 }
+adapters['chatgpt'] = codexApiAdapter;
 
 /**
  * Detect which runtimes are available on this system.
  */
 export function detectRuntimes() {
+  const seen = new Set();
   const available = [];
   for (const a of Object.values(adapters)) {
-    if (a.isAvailable()) available.push(a.name);
+    if (!seen.has(a.name) && a.isAvailable()) available.push(a.name);
+    seen.add(a.name);
   }
   console.log(`[recruit] Detected runtimes: [${available.join(', ')}], env: ${envRuntime()}`);
   return { available, envRuntime: envRuntime() };
@@ -90,7 +93,7 @@ export function checkCapability(adapter, required) {
  * @param {string[]} [opts.readOnlyBinds] - extra read-only files/dirs to expose
  *   to the sandboxed CLI (for example, an exact resume file for read_file scenarios).
  * @param {{ systemPrompt: string, messages: Array<{ role: string, content: string }> }} [opts.conversation] -
- *   structured conversation for HTTP runtimes (chatgpt). CLI runtimes ignore this.
+ *   structured conversation for HTTP runtimes (codex-api). CLI runtimes ignore this.
  * @returns {Promise<{ text: string, runtime: string, model: string, effort: string, sessionId?: string }>}
  */
 export async function call(scenario, prompt, { required = ['text'], overrides, sessionId, readOnlyBinds, conversation } = {}) {

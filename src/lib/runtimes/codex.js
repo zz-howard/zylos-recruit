@@ -19,6 +19,9 @@ import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { spawnSandboxed } from './sandbox.js';
 
+const ALWAYS_DISABLED = ['image_generation', 'multi_agent', 'computer_use'];
+const NEEDS_SHELL = new Set(['resume_eval', 'auto_match', 'interview_questions']);
+
 const BASE_MODELS = ['gpt-5.4', 'gpt-5.3-codex'];
 const GPT_55_MIN_CODEX_VERSION = '0.124.0';
 
@@ -49,6 +52,12 @@ function supportsGpt55() {
 
 function getModels() {
   return supportsGpt55() ? ['gpt-5.5', ...BASE_MODELS] : BASE_MODELS;
+}
+
+function disabledFeatures(scenario) {
+  const features = [...ALWAYS_DISABLED];
+  if (!NEEDS_SHELL.has(scenario)) features.push('shell_tool');
+  return features;
 }
 
 function buildSandbox(readOnlyBinds = [], scenario = 'unknown') {
@@ -96,13 +105,13 @@ export default {
 
   async call(prompt, { model, effort, sessionId, readOnlyBinds, scenario }) {
     let args;
+    const disableFlags = disabledFeatures(scenario).flatMap((f) => ['--disable', f]);
     if (sessionId) {
-      // Resume: `codex exec resume <id> <prompt> --json -c model=...`
-      // Note: resume subcommand doesn't support --sandbox
       args = [
         'exec', 'resume', sessionId, prompt,
         '--json',
         '--skip-git-repo-check',
+        ...disableFlags,
         '-c', `model="${model}"`,
         '-c', `model_reasoning_effort=${effort}`,
       ];
@@ -112,12 +121,13 @@ export default {
         '--sandbox', 'read-only',
         '--json',
         '--skip-git-repo-check',
+        ...disableFlags,
         '-c', `model="${model}"`,
         '-c', `model_reasoning_effort=${effort}`,
         prompt,
       ];
     }
-    const env = { ...process.env, NO_COLOR: '1' };
+    const env = { ...process.env, NO_COLOR: '1', TMPDIR: '/tmp' };
 
     const stdout = await new Promise((resolve, reject) => {
       const child = spawnSandboxed('codex', args, {
@@ -144,11 +154,13 @@ export default {
 
   async *stream(prompt, { model, effort, sessionId, readOnlyBinds, scenario }) {
     let args;
+    const disableFlags = disabledFeatures(scenario).flatMap((f) => ['--disable', f]);
     if (sessionId) {
       args = [
         'exec', 'resume', sessionId, prompt,
         '--json',
         '--skip-git-repo-check',
+        ...disableFlags,
         '-c', `model="${model}"`,
         '-c', `model_reasoning_effort=${effort}`,
       ];
@@ -158,12 +170,13 @@ export default {
         '--sandbox', 'read-only',
         '--json',
         '--skip-git-repo-check',
+        ...disableFlags,
         '-c', `model="${model}"`,
         '-c', `model_reasoning_effort=${effort}`,
         prompt,
       ];
     }
-    const env = { ...process.env, NO_COLOR: '1' };
+    const env = { ...process.env, NO_COLOR: '1', TMPDIR: '/tmp' };
 
     const child = spawnSandboxed('codex', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, buildSandbox(readOnlyBinds, scenario));
     let buf = '';
