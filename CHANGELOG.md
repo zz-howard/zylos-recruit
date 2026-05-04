@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.19] - 2026-05-04
+
+### Fixed
+- **Restore Codex dual-sandbox with /tmp write access** (#31): Codex CLI's Landlock sandbox initialization requires writable `/tmp`. SRT sandbox previously denied this, causing all Codex file-reading scenarios (auto_match, resume_eval) to fail with 0 scores. Fix: add `/tmp` to SRT `allowWrite` and set `TMPDIR=/tmp`. Both SRT bwrap and Codex Landlock now coexist (defense-in-depth).
+- **Interview question generation completion logging**: Added timing and runtime info log on successful generation.
+
+### Changed
+- **Per-scenario tool restrictions for Claude/Codex/Gemini** (#31): Claude uses `--tools` whitelist per scenario (chat=WebFetch, portrait/summary=none, resume_eval/interview_questions=Read+WebFetch, auto_match=Read). Codex uses `--disable` flags (image_generation/multi_agent/computer_use always; shell_tool for non-file scenarios). Gemini uses TOML admin-policy with per-scenario deny rules.
+- **Rename chatgpt runtime to codex-api** (#31): `chatgpt.js` → `codex-api.js`, runtime name `chatgpt` → `codex-api`, UI label updated. Backward-compat alias preserved in ai-gateway.
+- **Reduce redundant company context in resume prompts** (#31): `buildResumePrompt` no longer re-injects company background on resumed sessions.
+
+### Security
+- **Network isolation disabled for SRT sandbox** (#31): Changed to `network: {}` to fix `parentProxy` undefined crash in SRT network config. Acceptable: SRT still provides filesystem deny-default + seccomp.
+
 ## [0.2.18] - 2026-05-03
 
 ### Fixed
