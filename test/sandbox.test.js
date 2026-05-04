@@ -118,6 +118,23 @@ test('SRT vendor directory is in allowRead for apply-seccomp access', () => {
     'SRT vendor dir must be in allowRead so apply-seccomp is accessible inside sandbox');
 });
 
+test('.claude.json is in allowRead but not allowWrite for claude runtime', () => {
+  const claudeJson = path.join(HOME, '.claude.json');
+  if (!fs.existsSync(claudeJson)) {
+    return; // skip if file doesn't exist on this machine
+  }
+
+  const cfg = buildSandboxRuntimeConfig('claude', {}, {
+    scenario: 'chat',
+    runtime: 'claude',
+  });
+
+  assert.equal(cfg.filesystem.allowRead.includes(claudeJson), true,
+    '.claude.json must be in allowRead');
+  assert.equal(cfg.filesystem.allowWrite.includes(claudeJson), false,
+    '.claude.json must NOT be in allowWrite');
+});
+
 test('quoted command preserves argv boundaries for shell-sensitive input', () => {
   const expected = [
     'space value',

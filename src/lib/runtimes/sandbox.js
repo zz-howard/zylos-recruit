@@ -78,11 +78,18 @@ function sandboxConfigFromGlobalConfig() {
 
 function runtimeAuthStatePaths(runtime, legacyRwBinds = []) {
   const defaults = {
-    claude: [path.join(HOME, '.claude'), path.join(HOME, '.claude.json')],
+    claude: [path.join(HOME, '.claude')],
     codex: [path.join(HOME, '.codex')],
     gemini: [path.join(HOME, '.gemini')],
   };
   return existingPaths([...legacyRwBinds, ...(defaults[runtime] || [])]);
+}
+
+function runtimeReadOnlyConfigPaths(runtime) {
+  const defaults = {
+    claude: [path.join(HOME, '.claude.json')],
+  };
+  return existingPaths(defaults[runtime] || []);
 }
 
 function resolveCommandPath(cmd, env) {
@@ -141,6 +148,7 @@ export function buildSandboxRuntimeConfig(cmd, opts = {}, sandbox = {}) {
     ...runtimeAuthStatePaths(runtime, legacyRwBinds),
     ...(sandbox.authStatePaths || []),
   ]);
+  const configReadPaths = runtimeReadOnlyConfigPaths(runtime);
   const readOnlyPaths = existingPaths([
     ...legacyRoBinds,
     ...(sandbox.readOnlyPaths || []),
@@ -168,6 +176,7 @@ export function buildSandboxRuntimeConfig(cmd, opts = {}, sandbox = {}) {
         ...supportPaths,
         ...srtVendorPaths(),
         ...authStatePaths,
+        ...configReadPaths,
         ...readOnlyPaths,
       ],
       allowWrite: [
