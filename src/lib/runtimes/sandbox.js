@@ -78,7 +78,7 @@ function sandboxConfigFromGlobalConfig() {
 
 function runtimeAuthStatePaths(runtime, legacyRwBinds = []) {
   const defaults = {
-    claude: [path.join(HOME, '.claude')],
+    claude: [path.join(HOME, '.claude'), path.join(HOME, '.claude.json')],
     codex: [path.join(HOME, '.codex')],
     gemini: [path.join(HOME, '.gemini')],
   };
