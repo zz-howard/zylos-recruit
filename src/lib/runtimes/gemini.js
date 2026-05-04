@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { spawnSandboxed } from './sandbox.js';
 
 const ALWAYS_DENIED = ['write_file', 'replace', 'save_memory', 'activate_skill'];
@@ -51,6 +51,11 @@ function buildSandbox(readOnlyBinds = [], scenario = 'unknown') {
   };
 }
 
+function includeDirectoryArgs(readOnlyBinds = []) {
+  const dirs = [...new Set((readOnlyBinds || []).map(p => dirname(p)))];
+  return dirs.flatMap(d => ['--include-directories', d]);
+}
+
 export default {
   name: 'gemini',
   capabilities: ['text', 'read_file'],
@@ -67,7 +72,7 @@ export default {
 
   async call(prompt, { model, sessionId, readOnlyBinds, scenario }) {
     const policyPath = buildPolicyFile(scenario);
-    const args = ['-p', prompt, '--model', model, '-y', '--skip-trust', '--admin-policy', policyPath, '-o', 'json'];
+    const args = ['-p', prompt, '--model', model, '-y', '--skip-trust', '--admin-policy', policyPath, ...includeDirectoryArgs(readOnlyBinds), '-o', 'json'];
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1', GEMINI_CLI_TRUST_WORKSPACE: 'true' };
 
@@ -102,7 +107,7 @@ export default {
 
   async *stream(prompt, { model, sessionId, readOnlyBinds, scenario }) {
     const policyPath = buildPolicyFile(scenario);
-    const args = ['-p', prompt, '--model', model, '-y', '--skip-trust', '--admin-policy', policyPath, '-o', 'text'];
+    const args = ['-p', prompt, '--model', model, '-y', '--skip-trust', '--admin-policy', policyPath, ...includeDirectoryArgs(readOnlyBinds), '-o', 'text'];
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1', GEMINI_CLI_TRUST_WORKSPACE: 'true' };
 

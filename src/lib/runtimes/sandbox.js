@@ -85,6 +85,13 @@ function runtimeAuthStatePaths(runtime, legacyRwBinds = []) {
   return existingPaths([...legacyRwBinds, ...(defaults[runtime] || [])]);
 }
 
+function runtimeReadOnlyConfigPaths(runtime) {
+  const defaults = {
+    claude: [path.join(HOME, '.claude.json')],
+  };
+  return existingPaths(defaults[runtime] || []);
+}
+
 function resolveCommandPath(cmd, env) {
   if (!cmd || cmd.includes('/')) return cmd;
   try {
@@ -141,6 +148,7 @@ export function buildSandboxRuntimeConfig(cmd, opts = {}, sandbox = {}) {
     ...runtimeAuthStatePaths(runtime, legacyRwBinds),
     ...(sandbox.authStatePaths || []),
   ]);
+  const configReadPaths = runtimeReadOnlyConfigPaths(runtime);
   const readOnlyPaths = existingPaths([
     ...legacyRoBinds,
     ...(sandbox.readOnlyPaths || []),
@@ -155,6 +163,8 @@ export function buildSandboxRuntimeConfig(cmd, opts = {}, sandbox = {}) {
     path.join(tmpdir(), 'claude'),
     path.join(tmpdir(), 'zylos-recruit-sandbox'),
     path.join(tmpdir(), 'zylos-recruit-sandbox-cwd'),
+    // macOS: Codex sets TMPDIR=/tmp; ensure both /tmp and /private/tmp are writable
+    ...(os.platform() === 'darwin' ? ['/tmp', '/private/tmp'] : []),
     ...(sandbox.writePaths || []),
   ]);
 
@@ -166,6 +176,7 @@ export function buildSandboxRuntimeConfig(cmd, opts = {}, sandbox = {}) {
         ...supportPaths,
         ...srtVendorPaths(),
         ...authStatePaths,
+        ...configReadPaths,
         ...readOnlyPaths,
       ],
       allowWrite: [
