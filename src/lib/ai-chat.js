@@ -7,7 +7,7 @@
  *     (runtimes/sandbox.js) with deny-default file and network policy.
  *     Tools remain enabled; filesystem exfiltration is blocked at the kernel
  *     namespace layer rather than via CLI flag restrictions.
- *   - HTTP runtimes (ChatGPT): no tools defined in request body.
+ *   - HTTP runtimes (Codex API): no tools defined in request body.
  *
  * This module no longer handles runtime-specific logic — that lives in
  * the adapter layer (runtimes/*.js) dispatched via ai-gateway.
@@ -23,7 +23,7 @@ import { call, stream } from './ai-gateway.js';
  *   bypass config resolution (e.g. interview-locked settings from DB)
  * @param {string} [sessionId] - session ID for conversation resume (CLI runtimes)
  * @param {{ systemPrompt: string, messages: Array<{ role: string, content: string }> }} [conversation] -
- *   structured conversation for HTTP runtimes (chatgpt)
+ *   structured conversation for HTTP runtimes (codex-api)
  * @returns {Promise<{ text: string, sessionId?: string }>}
  */
 export async function runClaude(prompt, scenario, overrides, sessionId, conversation) {

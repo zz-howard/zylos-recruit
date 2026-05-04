@@ -1,7 +1,7 @@
 /**
- * ChatGPT runtime adapter.
+ * Codex API runtime adapter.
  *
- * Calls ChatGPT backend Responses API via OpenAI Node SDK + Codex OAuth token.
+ * Calls Codex Responses API via OpenAI Node SDK + Codex OAuth token.
  * Consumes the user's ChatGPT Pro subscription — zero API cost.
  * HTTP only — cannot read local files.
  *
@@ -103,7 +103,7 @@ async function createClient() {
   const token = auth.tokens.access_token;
   const payload = decodeJwtPayload(token);
   const accountId = payload?.['https://api.openai.com/auth']?.chatgpt_account_id;
-  if (!accountId) throw new Error('JWT missing chatgpt_account_id');
+  if (!accountId) throw new Error('JWT missing chatgpt_account_id (codex-api)');
 
   const opts = {
     apiKey: token,
@@ -195,7 +195,7 @@ async function consumeStream(stream) {
       usage = event.response?.usage;
     }
     if (event.type === 'error') {
-      throw new Error(`chatgpt error: ${event.error?.message || JSON.stringify(event)}`);
+      throw new Error(`codex-api error: ${event.error?.message || JSON.stringify(event)}`);
     }
   }
 
@@ -208,7 +208,7 @@ function logUsage(usage, webSearchCount, webFetchCount) {
   const parts = [`input=${usage.input_tokens}`, `output=${usage.output_tokens}`, `cached=${cached}`];
   if (webSearchCount) parts.push(`web_searches=${webSearchCount}`);
   if (webFetchCount) parts.push(`web_fetches=${webFetchCount}`);
-  console.log(`[recruit] ChatGPT usage: ${parts.join(', ')}`);
+  console.log(`[recruit] Codex API usage: ${parts.join(', ')}`);
 }
 
 /**
@@ -231,7 +231,7 @@ async function executeAndFormatFetchResults(functionCalls) {
 }
 
 export default {
-  name: 'chatgpt',
+  name: 'codex-api',
   capabilities: ['text', 'web_search', 'web_fetch'],
   models: ['gpt-5.5', 'gpt-5.4', 'gpt-5.3-codex'],
   defaultModel: 'gpt-5.4',
@@ -276,7 +276,7 @@ export default {
 
       if (fetchCalls.length === 0 || isLastRound) {
         logUsage(result.usage, totalWebSearches, totalWebFetches);
-        if (!result.text) throw new Error('chatgpt returned empty response');
+        if (!result.text) throw new Error('codex-api returned empty response');
         return { text: result.text.trim() };
       }
 
@@ -334,7 +334,7 @@ export default {
           }
         }
         if (event.type === 'error') {
-          throw new Error(`chatgpt error: ${event.error?.message || JSON.stringify(event)}`);
+          throw new Error(`codex-api error: ${event.error?.message || JSON.stringify(event)}`);
         }
       }
 
