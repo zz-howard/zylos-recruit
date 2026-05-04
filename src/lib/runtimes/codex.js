@@ -118,7 +118,7 @@ export default {
     } else {
       args = [
         'exec',
-        '--dangerously-bypass-approvals-and-sandbox',
+        '--sandbox', 'read-only',
         '--json',
         '--skip-git-repo-check',
         ...disableFlags,
@@ -127,7 +127,7 @@ export default {
         prompt,
       ];
     }
-    const env = { ...process.env, NO_COLOR: '1' };
+    const env = { ...process.env, NO_COLOR: '1', TMPDIR: '/tmp' };
 
     const stdout = await new Promise((resolve, reject) => {
       const child = spawnSandboxed('codex', args, {
@@ -167,7 +167,7 @@ export default {
     } else {
       args = [
         'exec',
-        '--dangerously-bypass-approvals-and-sandbox',
+        '--sandbox', 'read-only',
         '--json',
         '--skip-git-repo-check',
         ...disableFlags,
@@ -176,7 +176,7 @@ export default {
         prompt,
       ];
     }
-    const env = { ...process.env, NO_COLOR: '1' };
+    const env = { ...process.env, NO_COLOR: '1', TMPDIR: '/tmp' };
 
     const child = spawnSandboxed('codex', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, buildSandbox(readOnlyBinds, scenario));
     let buf = '';

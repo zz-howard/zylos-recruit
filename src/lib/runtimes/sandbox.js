@@ -151,6 +151,7 @@ export function buildSandboxRuntimeConfig(cmd, opts = {}, sandbox = {}) {
     ...(sandbox.supportReadPaths || []),
   ]).filter((p) => p !== ZYLOS_DIR && !p.startsWith(ZYLOS_DIR + path.sep));
   const tempWritePaths = existingPaths([
+    tmpdir(),
     path.join(tmpdir(), 'claude'),
     path.join(tmpdir(), 'zylos-recruit-sandbox'),
     path.join(tmpdir(), 'zylos-recruit-sandbox-cwd'),
