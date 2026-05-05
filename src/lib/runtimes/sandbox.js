@@ -33,21 +33,10 @@ const RUNNER_PATH = fileURLToPath(new URL('./sandbox-runner.js', import.meta.url
 const PAYLOAD_DIR = path.join(tmpdir(), 'zylos-recruit-sandbox');
 const SANDBOX_CWD = path.join(tmpdir(), 'zylos-recruit-sandbox-cwd');
 
-const DEFAULT_ALLOWED_DOMAINS = [
-  'api.anthropic.com',
-  'console.anthropic.com',
-  'api.openai.com',
-  'chatgpt.com',
-  'auth.openai.com',
-  'generativelanguage.googleapis.com',
-  '*.googleapis.com',
-];
-
 const DEFAULT_DENIED_DOMAINS = [
   'metadata.google.internal',
   '169.254.169.254',
   '127.0.0.1',
-  '::1',
   'localhost',
 ];
 
@@ -119,14 +108,25 @@ function commandSupportPaths(cmd, env) {
   return paths;
 }
 
+function listFromConfig(...values) {
+  return values.flatMap((value) => (Array.isArray(value) ? value : []));
+}
+
 function networkConfig(sandboxNetwork = {}) {
   const configured = sandboxConfigFromGlobalConfig().network || {};
+  const allowedDomains = listFromConfig(
+    configured.allowedDomains,
+    sandboxNetwork.allowedDomains,
+  );
+  // SRT network isolation is allow-only: defining allowedDomains enables the
+  // proxy and denies every host outside that list. Recruit's WebFetch flows
+  // need arbitrary candidate URLs, so the default remains unrestricted unless
+  // an operator explicitly provides an allowlist.
+  if (allowedDomains.length === 0) {
+    return {};
+  }
   return {
-    allowedDomains: [
-      ...DEFAULT_ALLOWED_DOMAINS,
-      ...(configured.allowedDomains || []),
-      ...(sandboxNetwork.allowedDomains || []),
-    ],
+    allowedDomains,
     deniedDomains: [
       ...DEFAULT_DENIED_DOMAINS,
       ...(configured.deniedDomains || []),
@@ -169,7 +169,7 @@ export function buildSandboxRuntimeConfig(cmd, opts = {}, sandbox = {}) {
   ]);
 
   return {
-    network: {},
+    network: networkConfig(sandbox.network),
     filesystem: {
       denyRead: [HOME, ZYLOS_DIR],
       allowRead: [

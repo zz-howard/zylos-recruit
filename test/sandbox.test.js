@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { homedir } from 'node:os';
+import { NetworkConfigSchema } from '@anthropic-ai/sandbox-runtime';
 import { buildSandboxRuntimeConfig, quoteSandboxCommand } from '../src/lib/runtimes/sandbox.js';
 
 const HOME = homedir();
@@ -44,7 +45,7 @@ test('resume sandbox allows an exact existing resume file', () => {
   assert.equal(cfg.filesystem.allowRead.includes(sibling), false);
 });
 
-test('sandbox network policy remains disabled for WebFetch scenarios', () => {
+test('sandbox network policy remains unrestricted by default for WebFetch scenarios', () => {
   const cfg = buildSandboxRuntimeConfig('node', {}, {
     scenario: 'chat',
     runtime: 'codex',
@@ -53,6 +54,41 @@ test('sandbox network policy remains disabled for WebFetch scenarios', () => {
   });
 
   assert.deepEqual(cfg.network, {});
+});
+
+test('sandbox network policy does not emit unsupported deny-only config', () => {
+  const cfg = buildSandboxRuntimeConfig('node', {}, {
+    scenario: 'chat',
+    runtime: 'codex',
+    authStatePaths: [],
+    readOnlyPaths: [],
+    network: {
+      deniedDomains: ['localhost'],
+    },
+  });
+
+  assert.deepEqual(cfg.network, {});
+});
+
+test('sandbox network policy adds priority-deny exclusions to explicit SRT allowlist', () => {
+  const cfg = buildSandboxRuntimeConfig('node', {}, {
+    scenario: 'chat',
+    runtime: 'codex',
+    authStatePaths: [],
+    readOnlyPaths: [],
+    network: {
+      allowedDomains: ['example.com', '*.example.org'],
+      deniedDomains: ['internal.example.com'],
+    },
+  });
+
+  assert.deepEqual(cfg.network.allowedDomains, ['example.com', '*.example.org']);
+  assert.equal(cfg.network.deniedDomains.includes('localhost'), true);
+  assert.equal(cfg.network.deniedDomains.includes('127.0.0.1'), true);
+  assert.equal(cfg.network.deniedDomains.includes('169.254.169.254'), true);
+  assert.equal(cfg.network.deniedDomains.includes('metadata.google.internal'), true);
+  assert.equal(cfg.network.deniedDomains.includes('internal.example.com'), true);
+  assert.equal(NetworkConfigSchema.safeParse(cfg.network).success, true);
 });
 
 test('home-installed command support exposes directories, not executable files', () => {
