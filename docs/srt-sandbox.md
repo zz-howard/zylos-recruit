@@ -2,7 +2,7 @@
 
 ## 简介
 
-SRT（Sandbox Runtime，`@anthropic-ai/sandbox-runtime`）是 Anthropic 发布的跨平台沙箱库，为 AI CLI 子进程提供内核级别的文件系统和网络隔离。在 zylos-recruit 中，SRT 保护宿主系统免受 prompt injection 攻击—��即使面试对话中的 AI 被恶意 prompt 操纵，也无法访问 `~/zylos/memory/`、`.env`、凭证等敏感数据。
+SRT（Sandbox Runtime，`@anthropic-ai/sandbox-runtime`）是 Anthropic 发布的跨平台沙箱库，为 AI CLI 子进程提供内核级别的文件系统和网络隔离。在 zylos-recruit 中，SRT 保护宿主系统免受 prompt injection 攻击—即使面试对话中的 AI 被恶意 prompt 操纵，也无法访问 `~/zylos/memory/`、`.env`、凭证等敏感数据。
 
 核心特性：
 - **跨平台**：Linux 使用 bwrap (bubblewrap) 命名空间隔离，macOS 使用 sandbox-exec (Seatbelt) 策略执行
@@ -28,19 +28,19 @@ spawnSandboxed(cmd, args, opts, sandbox)
     ├── 4. 读取并删除 payload 文件
     ├── 5. SandboxManager.initialize(runtimeConfig)
     ├── 6. SandboxManager.wrapWithSandbox(command, shell)
-    ├── 7. 以 shell 方��� spawn 包裹后的命令
+    ├── 7. 以 shell 方式 spawn 包裹后的命令
     ├── 8. 转发信号，等待退出
     └── 9. SandboxManager.cleanupAfterCommand()
 ```
 
 ### 文件系统策略
 
-deny-default 策略确保沙箱进程看不到任何非显式允许的路径：
+通过 deny `$HOME` + deny 项目敏感根目录（如 `~/zylos`），再精确 allow back 所需路径。注意这不是全文件系统 deny-all——系统路径（`/usr`、`/bin`、`/etc` 等）默认可读，deny 仅针对用户主目录和项目目录：
 
 ```javascript
 {
   filesystem: {
-    denyRead: [HOME, ZYLOS_DIR],      // 全面拒绝
+    denyRead: [HOME, ZYLOS_DIR],      // deny 用户主目录 + 项目目录
     allowRead: [                       // 精确放回
       ...supportPaths,                 // 运行时二进制依赖
       ...srtVendorPaths(),             // SRT 自身 seccomp 二进制
@@ -121,9 +121,9 @@ spawnSandboxed('claude', args, opts, {
 
 ### Linux (bwrap)
 
-- `--tmpfs /home`：用空内���文件系统覆盖 /home，宿主文件完全不可见
+- `--tmpfs /home`：用空内存文件系统覆盖 /home，宿主文件完全不可见
 - `--ro-bind`：按路径将文件/目录以只读方式暴露到沙箱
-- `--bind`：按路径以可读写方式暴���
+- `--bind`：按路径以可读写方式暴露
 - `--unshare-pid/ipc/uts/cgroup`：PID/IPC/主机名/cgroup 命名空间隔离
 - `--unshare-net`：网络命名空间隔离（启用网络策略时）
 - `--die-with-parent`：父进程退出时沙箱自动终止
@@ -225,7 +225,7 @@ sandbox-runner.js 的职责：
 3. 包裹命令：`SandboxManager.wrapWithSandbox(command, shell)`
 4. spawn shell 进程，继承 stdio
 5. 转发 SIGINT/SIGTERM/SIGHUP 给子进程
-6. 子进程退出后��用 `SandboxManager.cleanupAfterCommand()`
+6. 子进程退出后用 `SandboxManager.cleanupAfterCommand()`
 7. 以子进程的退出码退出
 
 ### fail-closed 实现
@@ -257,13 +257,13 @@ try {
 
 ### K1: deny-default 优于 deny-specific
 
-**结论**：必须使用 deny `$HOME` + deny `项目目录`，然后精确 allowRead。不能反过来只 deny 已知敏感路径——因为项目目录会随时新增组件、配置，漏掉一个就是安全漏洞���
+**结论**：必须使用 deny `$HOME` + deny `项目目录`，然后精确 allowRead。不能反过来只 deny 已知敏感路径——因为项目目录会随时新增组件、配置，漏掉一个就是安全漏洞。
 
 **验证**：最初考虑过 Direction B（只 deny memory/、.env 等具体路径），被否决。
 
 ### K2: SRT 自身二进制需要 allowRead
 
-**结论**：SRT 的 `apply-seccomp` 二进制在 `node_modules/@anthropic-ai/sandbox-runtime/vendor/` 目录下。��果该目录被 denyRead 覆盖（如安装在 `~/zylos/node_modules/` 下），SRT 初始化会失败（exit 127）。
+**结论**：SRT 的 `apply-seccomp` 二进制在 `node_modules/@anthropic-ai/sandbox-runtime/vendor/` 目录下。如果该目录被 denyRead 覆盖（如安装在 `~/zylos/node_modules/` 下），SRT 初始化会失败（exit 127）。
 
 **修复**：通过 `import.meta.resolve` 动态定位 SRT vendor 目录，加入 allowRead。不硬编码路径。
 
@@ -281,7 +281,7 @@ try {
 
 ### K5: macOS 嵌套 sandbox-exec 行为不可预测
 
-**结论**：两层 sandbox-exec 不是简单的规则交集。内层 sandbox-exec 可以覆盖外层的 allow 规则，���致外层明确允许的路径在内层也无法访问。`enableWeakerNestedSandbox: true` 无法解决（OS 层面限制）。
+**结论**：两层 sandbox-exec 不是简单的规则交集。内层 sandbox-exec 可以覆盖外层的 allow 规则，导致外层明确允许的路径在内层也无法访问。`enableWeakerNestedSandbox: true` 无法解决（OS 层面限制）。
 
 **修复**：macOS 上 Codex 使用 `--dangerously-bypass-approvals-and-sandbox` 禁用其自身 sandbox-exec，SRT seatbelt 作为唯一安全层。
 
@@ -299,7 +299,7 @@ try {
 
 ### K8: ~/.claude.json ≠ ~/.claude/
 
-**结论**：`~/.claude.json` 是 Claude Code 全局配置文件（启动次数、功能标记缓存���），与 `~/.claude/` 目录（session 数据）是兄弟关系。Seatbelt 对 `~/.claude` 的子路径规则不覆盖 `~/.claude.json`。
+**结论**：`~/.claude.json` 是 Claude Code 全局配置文件（启动次数、功能标记缓存等），与 `~/.claude/` 目录（session 数据）是兄弟关系。Seatbelt 对 `~/.claude` 的子路径规则不覆盖 `~/.claude.json`。
 
 **症状**：macOS 上 Claude CLI 启动时读取 `~/.claude.json` 被 Seatbelt 拦截 → 静默 exit 0，stdout 为空。
 
@@ -307,9 +307,9 @@ try {
 
 ### K9: --allowedTools ≠ 白名单
 
-**结论**：Claude CLI 的 `--allowedTools` 是"权限预批准"（additive），不是白名单。未列出的工具仍可用（只是需要人工确认���。在 `claude -p` 非交互模式下，未预批准的��具自动拒绝——但这依赖于非交互模式，不是工具本身被移除。
+**结论**：Claude CLI 的 `--allowedTools` 是"权限预批准"（additive），不是白名单。未列出的工具仍可用（只是需要人工确认）。在 `claude -p` 非交互模式下，未预批准的工具自动拒绝——但这依赖于非交互模式，不是工具本身被移除。
 
-**正确做��**：使用 `--tools "ToolA,ToolB"` 做白名单（只有列出的工具可用）。`--tools ""` = 纯对话模式。
+**正确做法**：使用 `--tools "ToolA,ToolB"` 做白名单（只有列出的工具可用）。`--tools ""` = 纯对话模式。
 
 ### K10: Gemini 策略文件必须是 TOML
 
