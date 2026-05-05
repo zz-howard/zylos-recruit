@@ -189,12 +189,6 @@ function clearFailures(ip) {
   failedAttempts.delete(ip);
 }
 
-// ─── Redirect safety ─────────────────────────────────────────────────
-
-function isSafeRedirect(p) {
-  return isPathWithinBase(p);
-}
-
 function nextTarget(req, baseUrl) {
   const rawNext = req.originalUrl || req.url || '/';
   if (baseUrl && baseUrl !== '.') {
@@ -359,7 +353,7 @@ export function setupAuth(app, authConfig, baseUrl) {
 
     const browserBase = browserBaseFromRequest(req, baseUrl);
     const next_url = nextTarget(req, browserBase);
-    const safeNext = isSafeRedirect(next_url) ? `?next=${encodeURIComponent(next_url)}` : '';
+    const safeNext = isPathWithinBase(next_url, browserBase) ? `?next=${encodeURIComponent(next_url)}` : '';
     res.redirect(302, `${browserPath(browserBase, 'login')}${safeNext}`);
   });
 }
