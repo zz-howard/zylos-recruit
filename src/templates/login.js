@@ -11,7 +11,7 @@ function isSafeRedirect(p) {
   try {
     const decoded = decodeURIComponent(p);
     const pathPart = decoded.split(/[?#]/, 1)[0];
-    if (pathPart.split('/').includes('..')) return false;
+    if (pathPart !== './' && pathPart.split('/').some(part => part === '..' || part === '.')) return false;
     const parsed = new URL(p, 'https://zylos.local/current/');
     return parsed.origin === 'https://zylos.local' && !parsed.username && !parsed.password;
   } catch {

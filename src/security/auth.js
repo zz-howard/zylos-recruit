@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { CONFIG_PATH, saveConfig } from '../lib/config.js';
-import { browserBaseFromRequest, browserPath, browserRoot } from '../lib/browser-base.js';
+import { browserBaseFromRequest, browserPath, browserRoot, isPathWithinBase } from '../lib/browser-base.js';
 
 const SCRYPT_KEYLEN = 64;
 const COOKIE_NAME = '__Host-zylos_recruit_session';
@@ -192,20 +192,7 @@ function clearFailures(ip) {
 // ─── Redirect safety ─────────────────────────────────────────────────
 
 function isSafeRedirect(p) {
-  if (!p || typeof p !== 'string') return false;
-  if (p.startsWith('//') || p.includes('://') || p.includes('\\')
-      || /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(p) || /[\x00-\x1f]/.test(p)) {
-    return false;
-  }
-  try {
-    const decoded = decodeURIComponent(p);
-    const pathPart = decoded.split(/[?#]/, 1)[0];
-    if (pathPart.split('/').includes('..')) return false;
-    const parsed = new URL(p, 'https://zylos.local/current/');
-    return parsed.origin === 'https://zylos.local' && !parsed.username && !parsed.password;
-  } catch {
-    return false;
-  }
+  return isPathWithinBase(p);
 }
 
 function nextTarget(req, baseUrl) {
@@ -307,7 +294,7 @@ export function setupAuth(app, authConfig, baseUrl) {
     setSessionCookie(res, token);
 
     const next = req.body?.next;
-    const redirectTo = (next && isSafeRedirect(next)) ? next : browserRoot(browserBase);
+    const redirectTo = (next && isPathWithinBase(next, browserBase)) ? next : browserRoot(browserBase);
     res.redirect(302, redirectTo);
   }
 

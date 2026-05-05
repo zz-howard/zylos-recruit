@@ -94,6 +94,51 @@ test('x-forwarded-prefix switches browser-facing login paths to proxy prefix', a
   }
 });
 
+test('unsafe x-forwarded-prefix falls back to relative local paths', async () => {
+  const { server, origin } = await makeServer();
+  try {
+    const withQuery = await fetch(`${origin}/candidates`, {
+      redirect: 'manual',
+      headers: { 'X-Forwarded-Prefix': '/recruit?next=//evil.test' },
+    });
+    assert.equal(withQuery.status, 302);
+    assert.equal(withQuery.headers.get('location'), 'login?next=candidates');
+
+    const withHtml = await fetch(`${origin}/login`, {
+      redirect: 'manual',
+      headers: { 'X-Forwarded-Prefix': '/recruit\"><base href=\"//evil.test/">' },
+    });
+    assert.equal(withHtml.status, 200);
+    const body = await withHtml.text();
+    assert.match(body, /action="\.\/login"/);
+    assert.doesNotMatch(body, /evil\.test/);
+  } finally {
+    server.close();
+  }
+});
+
+test('login next target cannot escape forwarded prefix with dot segments', async () => {
+  const { server, origin } = await makeServer();
+  try {
+    const response = await fetch(`${origin}/login`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Forwarded-Prefix': '/recruit',
+      },
+      body: new URLSearchParams({
+        password: 'secret',
+        next: '/recruit/../sensitive',
+      }),
+    });
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get('location'), '/recruit/');
+  } finally {
+    server.close();
+  }
+});
+
 test('ui templates use relative fallback and x-forwarded-prefix browser bases', async () => {
   const { server, origin } = await makeServer();
   try {
