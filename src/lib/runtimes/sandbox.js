@@ -33,21 +33,10 @@ const RUNNER_PATH = fileURLToPath(new URL('./sandbox-runner.js', import.meta.url
 const PAYLOAD_DIR = path.join(tmpdir(), 'zylos-recruit-sandbox');
 const SANDBOX_CWD = path.join(tmpdir(), 'zylos-recruit-sandbox-cwd');
 
-const DEFAULT_ALLOWED_DOMAINS = [
-  'api.anthropic.com',
-  'console.anthropic.com',
-  'api.openai.com',
-  'chatgpt.com',
-  'auth.openai.com',
-  'generativelanguage.googleapis.com',
-  '*.googleapis.com',
-];
-
 const DEFAULT_DENIED_DOMAINS = [
   'metadata.google.internal',
   '169.254.169.254',
   '127.0.0.1',
-  '::1',
   'localhost',
 ];
 
@@ -72,8 +61,16 @@ export function quoteSandboxCommand(cmd, args = []) {
   return shellquote.quote([cmd, ...args]);
 }
 
+function aiConfigFromGlobalConfig() {
+  return getConfig().ai || {};
+}
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
+
 function sandboxConfigFromGlobalConfig() {
-  return getConfig().ai?.sandbox || {};
+  return aiConfigFromGlobalConfig().sandbox || {};
 }
 
 function runtimeAuthStatePaths(runtime, legacyRwBinds = []) {
@@ -119,24 +116,36 @@ function commandSupportPaths(cmd, env) {
   return paths;
 }
 
-function networkConfig(sandboxNetwork = {}) {
-  const configured = sandboxConfigFromGlobalConfig().network || {};
+function listFromConfig(...values) {
+  return values.flatMap((value) => (Array.isArray(value) ? value : []));
+}
+
+export function networkConfigForSandbox(sandbox = {}, aiConfig = aiConfigFromGlobalConfig()) {
+  const scenarioSandbox = (sandbox.scenario && aiConfig[sandbox.scenario]?.sandbox) || {};
+  const selectedNetwork = hasOwn(sandbox, 'network')
+    ? (sandbox.network || {})
+    : hasOwn(scenarioSandbox, 'network')
+      ? (scenarioSandbox.network || {})
+      : (aiConfig.sandbox?.network || {});
+  const allowedDomains = listFromConfig(selectedNetwork.allowedDomains);
+  // SRT network isolation is allow-only: defining allowedDomains enables the
+  // proxy and denies every host outside that list. Recruit's WebFetch flows
+  // need arbitrary candidate URLs, so the default remains unrestricted. A
+  // scenario network block replaces the global default, including `{}` opt-out.
+  if (allowedDomains.length === 0) {
+    return {};
+  }
   return {
-    allowedDomains: [
-      ...DEFAULT_ALLOWED_DOMAINS,
-      ...(configured.allowedDomains || []),
-      ...(sandboxNetwork.allowedDomains || []),
-    ],
+    allowedDomains,
     deniedDomains: [
       ...DEFAULT_DENIED_DOMAINS,
-      ...(configured.deniedDomains || []),
-      ...(sandboxNetwork.deniedDomains || []),
+      ...(selectedNetwork.deniedDomains || []),
     ],
-    ...(configured.allowUnixSockets ? { allowUnixSockets: configured.allowUnixSockets } : {}),
-    ...(configured.allowAllUnixSockets ? { allowAllUnixSockets: true } : {}),
-    ...(configured.allowLocalBinding ? { allowLocalBinding: true } : {}),
-    ...(configured.allowMachLookup ? { allowMachLookup: configured.allowMachLookup } : {}),
-    ...(configured.parentProxy ? { parentProxy: configured.parentProxy } : {}),
+    ...(selectedNetwork.allowUnixSockets ? { allowUnixSockets: selectedNetwork.allowUnixSockets } : {}),
+    ...(selectedNetwork.allowAllUnixSockets ? { allowAllUnixSockets: true } : {}),
+    ...(selectedNetwork.allowLocalBinding ? { allowLocalBinding: true } : {}),
+    ...(selectedNetwork.allowMachLookup ? { allowMachLookup: selectedNetwork.allowMachLookup } : {}),
+    ...(selectedNetwork.parentProxy ? { parentProxy: selectedNetwork.parentProxy } : {}),
   };
 }
 
@@ -169,7 +178,7 @@ export function buildSandboxRuntimeConfig(cmd, opts = {}, sandbox = {}) {
   ]);
 
   return {
-    network: {},
+    network: networkConfigForSandbox(sandbox),
     filesystem: {
       denyRead: [HOME, ZYLOS_DIR],
       allowRead: [
