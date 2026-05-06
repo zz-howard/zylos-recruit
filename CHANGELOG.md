@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.22] - 2026-05-06
+
+### Fixed
+- **Harden base-path redirect handling** (#38): `login.js` drops independent `isSafeRedirect`, uses shared `isPathWithinBase(next, baseUrl)` from `browser-base.js`. `auth.js` passes `browserBase` consistently. 16 tests pass.
+- **Clarify SRT network policy semantics** (#39): Default and explicit opt-out both produce `network: {}` (unrestricted, allows external WebFetch). SRT allow-only network isolation activates only when `allowedDomains` is configured. `deniedDomains` serves as priority-deny exclusions within the allowlist path.
+
+### Changed
+- **AI Gateway and SRT Sandbox docs rewritten** (#37): Replaced `sandbox-isolation-guide.md` and `srt-sandbox-runtime-design.md` with new `docs/ai-gateway.md` and `docs/srt-sandbox.md` (Chinese).
+
 ## [0.2.21] - 2026-05-05
 
 ### Fixed
