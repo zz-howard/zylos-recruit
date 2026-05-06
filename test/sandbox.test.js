@@ -6,7 +6,11 @@ import path from 'node:path';
 import test from 'node:test';
 import { homedir } from 'node:os';
 import { NetworkConfigSchema } from '@anthropic-ai/sandbox-runtime';
-import { buildSandboxRuntimeConfig, quoteSandboxCommand } from '../src/lib/runtimes/sandbox.js';
+import {
+  buildSandboxRuntimeConfig,
+  networkConfigForSandbox,
+  quoteSandboxCommand,
+} from '../src/lib/runtimes/sandbox.js';
 
 const HOME = homedir();
 const ZYLOS_DIR = path.join(HOME, 'zylos');
@@ -89,6 +93,62 @@ test('sandbox network policy adds priority-deny exclusions to explicit SRT allow
   assert.equal(cfg.network.deniedDomains.includes('metadata.google.internal'), true);
   assert.equal(cfg.network.deniedDomains.includes('internal.example.com'), true);
   assert.equal(NetworkConfigSchema.safeParse(cfg.network).success, true);
+});
+
+test('sandbox network policy inherits global allowlist when scenario has no override', () => {
+  const network = networkConfigForSandbox({ scenario: 'chat' }, {
+    sandbox: {
+      network: {
+        allowedDomains: ['global.example.com'],
+        deniedDomains: ['blocked.global.example.com'],
+      },
+    },
+  });
+
+  assert.deepEqual(network.allowedDomains, ['global.example.com']);
+  assert.equal(network.deniedDomains.includes('blocked.global.example.com'), true);
+  assert.equal(NetworkConfigSchema.safeParse(network).success, true);
+});
+
+test('scenario network policy can narrow a global allowlist', () => {
+  const network = networkConfigForSandbox({ scenario: 'chat' }, {
+    sandbox: {
+      network: {
+        allowedDomains: ['global.example.com', 'wide.example.com'],
+        deniedDomains: ['blocked.global.example.com'],
+      },
+    },
+    chat: {
+      sandbox: {
+        network: {
+          allowedDomains: ['chat.example.com'],
+          deniedDomains: ['blocked.chat.example.com'],
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(network.allowedDomains, ['chat.example.com']);
+  assert.equal(network.deniedDomains.includes('blocked.chat.example.com'), true);
+  assert.equal(network.deniedDomains.includes('blocked.global.example.com'), false);
+  assert.equal(NetworkConfigSchema.safeParse(network).success, true);
+});
+
+test('scenario network policy can opt out of global allowlist', () => {
+  const network = networkConfigForSandbox({ scenario: 'chat' }, {
+    sandbox: {
+      network: {
+        allowedDomains: ['global.example.com'],
+      },
+    },
+    chat: {
+      sandbox: {
+        network: {},
+      },
+    },
+  });
+
+  assert.deepEqual(network, {});
 });
 
 test('home-installed command support exposes directories, not executable files', () => {

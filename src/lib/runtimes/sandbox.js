@@ -61,8 +61,16 @@ export function quoteSandboxCommand(cmd, args = []) {
   return shellquote.quote([cmd, ...args]);
 }
 
+function aiConfigFromGlobalConfig() {
+  return getConfig().ai || {};
+}
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
+
 function sandboxConfigFromGlobalConfig() {
-  return getConfig().ai?.sandbox || {};
+  return aiConfigFromGlobalConfig().sandbox || {};
 }
 
 function runtimeAuthStatePaths(runtime, legacyRwBinds = []) {
@@ -112,16 +120,18 @@ function listFromConfig(...values) {
   return values.flatMap((value) => (Array.isArray(value) ? value : []));
 }
 
-function networkConfig(sandboxNetwork = {}) {
-  const configured = sandboxConfigFromGlobalConfig().network || {};
-  const allowedDomains = listFromConfig(
-    configured.allowedDomains,
-    sandboxNetwork.allowedDomains,
-  );
+export function networkConfigForSandbox(sandbox = {}, aiConfig = aiConfigFromGlobalConfig()) {
+  const scenarioSandbox = (sandbox.scenario && aiConfig[sandbox.scenario]?.sandbox) || {};
+  const selectedNetwork = hasOwn(sandbox, 'network')
+    ? (sandbox.network || {})
+    : hasOwn(scenarioSandbox, 'network')
+      ? (scenarioSandbox.network || {})
+      : (aiConfig.sandbox?.network || {});
+  const allowedDomains = listFromConfig(selectedNetwork.allowedDomains);
   // SRT network isolation is allow-only: defining allowedDomains enables the
   // proxy and denies every host outside that list. Recruit's WebFetch flows
-  // need arbitrary candidate URLs, so the default remains unrestricted unless
-  // an operator explicitly provides an allowlist.
+  // need arbitrary candidate URLs, so the default remains unrestricted. A
+  // scenario network block replaces the global default, including `{}` opt-out.
   if (allowedDomains.length === 0) {
     return {};
   }
@@ -129,14 +139,13 @@ function networkConfig(sandboxNetwork = {}) {
     allowedDomains,
     deniedDomains: [
       ...DEFAULT_DENIED_DOMAINS,
-      ...(configured.deniedDomains || []),
-      ...(sandboxNetwork.deniedDomains || []),
+      ...(selectedNetwork.deniedDomains || []),
     ],
-    ...(configured.allowUnixSockets ? { allowUnixSockets: configured.allowUnixSockets } : {}),
-    ...(configured.allowAllUnixSockets ? { allowAllUnixSockets: true } : {}),
-    ...(configured.allowLocalBinding ? { allowLocalBinding: true } : {}),
-    ...(configured.allowMachLookup ? { allowMachLookup: configured.allowMachLookup } : {}),
-    ...(configured.parentProxy ? { parentProxy: configured.parentProxy } : {}),
+    ...(selectedNetwork.allowUnixSockets ? { allowUnixSockets: selectedNetwork.allowUnixSockets } : {}),
+    ...(selectedNetwork.allowAllUnixSockets ? { allowAllUnixSockets: true } : {}),
+    ...(selectedNetwork.allowLocalBinding ? { allowLocalBinding: true } : {}),
+    ...(selectedNetwork.allowMachLookup ? { allowMachLookup: selectedNetwork.allowMachLookup } : {}),
+    ...(selectedNetwork.parentProxy ? { parentProxy: selectedNetwork.parentProxy } : {}),
   };
 }
 
@@ -169,7 +178,7 @@ export function buildSandboxRuntimeConfig(cmd, opts = {}, sandbox = {}) {
   ]);
 
   return {
-    network: networkConfig(sandbox.network),
+    network: networkConfigForSandbox(sandbox),
     filesystem: {
       denyRead: [HOME, ZYLOS_DIR],
       allowRead: [
