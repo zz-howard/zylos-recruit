@@ -9,10 +9,32 @@ function firstHeaderValue(value) {
 function isSafePathPrefix(prefix) {
   if (!prefix || prefix === '/') return true;
   if (!prefix.startsWith('/')) return false;
-  if (prefix.includes('\\') || prefix.includes('://') || /[\x00-\x1f]/.test(prefix)) return false;
+  if (prefix.includes('\\') || prefix.includes('://') || /[\x00-\x20?#"'`<>&%]/.test(prefix)) return false;
   try {
     const decoded = decodeURIComponent(prefix);
+    if (/[\x00-\x20?#\\"'`<>&]/.test(decoded)) return false;
     return decoded.split('/').every(part => part !== '..' && part !== '.');
+  } catch {
+    return false;
+  }
+}
+
+export function isPathWithinBase(path, baseUrl = '') {
+  if (!path || typeof path !== 'string') return false;
+  if (path.startsWith('//') || path.includes('://') || path.includes('\\')
+      || /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(path) || /[\x00-\x1f]/.test(path)) {
+    return false;
+  }
+  try {
+    const decoded = decodeURIComponent(path);
+    const pathPart = decoded.split(/[?#]/, 1)[0];
+    if (pathPart !== './' && pathPart.split('/').some(part => part === '..' || part === '.')) return false;
+    const parsed = new URL(path, 'https://zylos.local/current/');
+    if (parsed.origin !== 'https://zylos.local' || parsed.username || parsed.password) return false;
+    if (baseUrl && baseUrl !== '.') {
+      return parsed.pathname === baseUrl || parsed.pathname.startsWith(`${baseUrl}/`);
+    }
+    return true;
   } catch {
     return false;
   }

@@ -81,6 +81,13 @@ test('x-forwarded-prefix switches browser-facing login paths to proxy prefix', a
     assert.equal(root.status, 302);
     assert.equal(root.headers.get('location'), '/recruit/login?next=%2Frecruit%2F');
 
+    const candidates = await fetch(`${origin}/candidates`, {
+      redirect: 'manual',
+      headers: { 'X-Forwarded-Prefix': '/recruit' },
+    });
+    assert.equal(candidates.status, 302);
+    assert.equal(candidates.headers.get('location'), '/recruit/login?next=%2Frecruit%2Fcandidates');
+
     const login = await fetch(`${origin}/login?next=%2Frecruit%2F`, {
       redirect: 'manual',
       headers: { 'X-Forwarded-Prefix': '/recruit' },
@@ -89,6 +96,75 @@ test('x-forwarded-prefix switches browser-facing login paths to proxy prefix', a
     const body = await login.text();
     assert.match(body, /action="\/recruit\/login"/);
     assert.match(body, /href="\/recruit\/_assets\/style\.css/);
+  } finally {
+    server.close();
+  }
+});
+
+test('login form only preserves next targets inside forwarded prefix', async () => {
+  const { server, origin } = await makeServer();
+  try {
+    const outside = await fetch(`${origin}/login?next=%2Fadmin`, {
+      redirect: 'manual',
+      headers: { 'X-Forwarded-Prefix': '/recruit' },
+    });
+    assert.equal(outside.status, 200);
+    const outsideBody = await outside.text();
+    assert.doesNotMatch(outsideBody, /name="next"/);
+    assert.doesNotMatch(outsideBody, /\/admin/);
+
+    const inside = await fetch(`${origin}/login?next=%2Frecruit%2Fcandidates`, {
+      redirect: 'manual',
+      headers: { 'X-Forwarded-Prefix': '/recruit' },
+    });
+    assert.equal(inside.status, 200);
+    const insideBody = await inside.text();
+    assert.match(insideBody, /<input type="hidden" name="next" value="\/recruit\/candidates">/);
+  } finally {
+    server.close();
+  }
+});
+
+test('unsafe x-forwarded-prefix falls back to relative local paths', async () => {
+  const { server, origin } = await makeServer();
+  try {
+    const withQuery = await fetch(`${origin}/candidates`, {
+      redirect: 'manual',
+      headers: { 'X-Forwarded-Prefix': '/recruit?next=//evil.test' },
+    });
+    assert.equal(withQuery.status, 302);
+    assert.equal(withQuery.headers.get('location'), 'login?next=candidates');
+
+    const withHtml = await fetch(`${origin}/login`, {
+      redirect: 'manual',
+      headers: { 'X-Forwarded-Prefix': '/recruit\"><base href=\"//evil.test/">' },
+    });
+    assert.equal(withHtml.status, 200);
+    const body = await withHtml.text();
+    assert.match(body, /action="\.\/login"/);
+    assert.doesNotMatch(body, /evil\.test/);
+  } finally {
+    server.close();
+  }
+});
+
+test('login next target cannot escape forwarded prefix with dot segments', async () => {
+  const { server, origin } = await makeServer();
+  try {
+    const response = await fetch(`${origin}/login`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Forwarded-Prefix': '/recruit',
+      },
+      body: new URLSearchParams({
+        password: 'secret',
+        next: '/recruit/../sensitive',
+      }),
+    });
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get('location'), '/recruit/');
   } finally {
     server.close();
   }
