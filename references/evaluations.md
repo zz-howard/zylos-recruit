@@ -1,43 +1,111 @@
 # Evaluations API
 
-Two types of evaluations: AI resume screening and human interview feedback.
+Evaluation routes are mounted under `/api/candidates/:id`.
 
-## AI Resume Evaluation
+All endpoints require `Authorization: Bearer <api_token>` unless the caller already has a valid UI session cookie.
 
-```
+Evaluation object schema:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | number | Evaluation ID |
+| `candidate_id` | number | Candidate ID |
+| `kind` | string|null | `resume_ai` or `interview` |
+| `author` | string|null | Runtime name or human evaluator |
+| `verdict` | string|null | AI: `yes`/`no`; interview: `pass`/`hold`/`reject` |
+| `content` | string|null | Markdown evaluation content |
+| `meta` | string|null | JSON string with runtime/score/analysis metadata for AI evals |
+| `created_at` | string | SQLite datetime string |
+
+## Start AI Resume Evaluation
+
+```http
 POST /api/candidates/:id/ai-evaluate
 ```
 
-Triggers an asynchronous AI evaluation. Returns `202` immediately; the evaluation runs in the background.
+Starts asynchronous resume evaluation and returns immediately.
 
-**Prerequisites:**
-- Candidate must have a resume uploaded
-- Candidate must have a role assigned
+Prerequisites:
 
-**Response:** `202` with `{ "message": "AI evaluation started", "candidate_id": N }`
+- Candidate exists.
+- Candidate has a resume uploaded.
+- Candidate has an assigned role with enough context for evaluation.
+- No evaluation is already in progress for the candidate.
 
-**Errors:**
-- `400` — no resume uploaded; no role assigned
-- `404` — candidate not found
-- `409` — evaluation already in progress for this candidate
+Response `202`:
 
-### AI Evaluation Process
+```json
+{ "message": "AI evaluation started", "candidate_id": 8 }
+```
 
-1. Builds prompt from: company profile + role JD + expected portrait + custom eval instructions + extra_info
-2. Spawns CLI process (claude/codex/gemini based on settings)
-3. Parses JSON response; if parse fails, attempts repair via lightweight model (haiku/gpt-5.3-codex-spark)
-4. Stores evaluation + auto-fills candidate contact info (name, email, phone) from resume
-5. Timeout: 10 minutes
+Errors:
 
-### AI Evaluation Result Schema
+| Status | Body |
+|--------|------|
+| `400` | `{ "error": "no resume uploaded — upload a PDF first" }` |
+| `404` | `{ "error": "not found" }` |
+| `409` | `{ "error": "该候选人正在评估中，请稍候" }` |
+
+Poll `GET /api/candidates/:id` and inspect `candidate.is_evaluating` and `candidate.evaluations`.
+
+## Stream AI Resume Evaluation
+
+```http
+POST /api/candidates/:id/ai-evaluate/stream
+Accept: text/event-stream
+```
+
+Runs evaluation and streams Server-Sent Events. Each event is sent as:
+
+```text
+data: {"type":"...","...":"..."}
+```
+
+Response status:
+
+| Status | Content-Type | Description |
+|--------|--------------|-------------|
+| `200` | `text/event-stream` | Stream started |
+| `400` | JSON error | Missing resume |
+| `404` | JSON error | Candidate not found |
+| `409` | JSON error | Evaluation already running |
+
+## Add Human Interview Evaluation
+
+```http
+POST /api/candidates/:id/evaluate
+Content-Type: application/json
+```
+
+Request body:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `kind` | string | no | Defaults to `interview` |
+| `author` | string | no | Evaluator name |
+| `verdict` | string | no | Usually `pass`, `hold`, or `reject` |
+| `content` | string | yes | Markdown notes |
+
+Response `200`: `{ "candidate": { ... } }` with updated evaluations.
+
+Errors:
+
+| Status | Body |
+|--------|------|
+| `400` | `{ "error": "content required" }` |
+| `404` | `{ "error": "not found" }` |
+
+## AI Result Schema
+
+AI evaluation content is generated from a structured result with this intended schema:
 
 ```json
 {
-  "verdict": "yes|no",
-  "score": 0-100,
+  "verdict": "yes",
+  "score": 92,
   "summary": "一句话总结",
   "brief": "候选人一句话简介",
-  "contact": { "name": "...", "email": "...", "phone": "..." },
+  "contact": { "name": "张三", "email": "z@example.com", "phone": "13800138000" },
   "analysis": {
     "tech_match": "技术匹配度分析",
     "experience": "经验水平分析",
@@ -48,50 +116,13 @@ Triggers an asynchronous AI evaluation. Returns `202` immediately; the evaluatio
 }
 ```
 
-### Verdict Definitions
+The stored `evaluations.meta` field is a JSON string and may include runtime, model, effort, score, and parsed analysis fields.
 
-| Verdict | Label | Meaning |
-|---------|-------|---------|
-| `yes` | 建议面试 | Recommended for interview, good match |
-| `no` | 不建议 | Not recommended, poor match or clear mismatch |
-
-### Polling for Result
-
-After triggering, poll the candidate detail endpoint:
-
-```bash
-curl -s -H "Authorization: Bearer $TOKEN" \
-  https://host/recruit/api/candidates/$ID | jq '.candidate.is_evaluating, .candidate.evaluations[0]'
-```
-
-- `is_evaluating: true` → still running
-- `is_evaluating: false` + new evaluation in array → complete
-
-## Human Interview Evaluation
-
-```
-POST /api/candidates/:id/evaluate
-Content-Type: application/json
-```
-
-**Body:**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `kind` | string | no | Evaluation type. Defaults to `"interview"` |
-| `author` | string | no | Evaluator name |
-| `verdict` | string | no | One of: `pass`, `hold`, `reject` |
-| `content` | string | yes | Evaluation notes (markdown) |
-
-**Response:** `{ "candidate": {...} }` with updated evaluations
-
-**Errors:**
-- `400` — content missing
-- `404` — candidate not found
+## Verdicts
 
 ## Delete Evaluation
 
-```
+```http
 DELETE /api/candidates/:id/evaluations/:evalId
 ```
 
@@ -100,7 +131,7 @@ in the database with `deleted_at` set and is excluded from candidate detail,
 candidate list summary fields, and future candidate-level soft-delete batches.
 There is no standalone restore endpoint for an individually deleted evaluation.
 
-**Response:** `200` with the deleted evaluation object:
+Response `200`:
 
 ```json
 {
@@ -119,36 +150,19 @@ There is no standalone restore endpoint for an individually deleted evaluation.
 }
 ```
 
-**Errors:**
-- `404` — candidate not found
-- `404` — evaluation not found or does not belong to this candidate
+Errors:
 
-### Interview Verdict Labels
+| Status | Body |
+|--------|------|
+| `404` | `{ "error": "candidate not found" }` |
+| `404` | `{ "error": "evaluation not found" }` |
 
-| Verdict | Label | Meaning |
-|---------|-------|---------|
-| `pass` | 通过 | Proceed to next stage |
-| `hold` | 保留 | On hold, revisit later |
-| `reject` | 淘汰 | Not proceeding |
+## Verdicts
 
-## Evaluation Kinds
-
-| Kind | Source | Description |
-|------|--------|-------------|
-| `resume_ai` | AI | Automated resume screening |
-| `interview` | Human | Interview feedback |
-
-## Database Schema
-
-```sql
-evaluations (
-  id            INTEGER PRIMARY KEY,
-  candidate_id  INTEGER REFERENCES candidates(id),
-  kind          TEXT,     -- 'resume_ai' | 'interview'
-  author        TEXT,     -- runtime name or person name
-  verdict       TEXT,     -- 'yes'/'no' for AI; 'pass'/'hold'/'reject' for interview
-  content       TEXT,     -- formatted markdown
-  meta          TEXT,     -- JSON string with runtime, score, analysis details (AI only)
-  created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
-)
-```
+| Kind | Verdict | Meaning |
+|------|---------|---------|
+| `resume_ai` | `yes` | Recommended for interview |
+| `resume_ai` | `no` | Not recommended |
+| `interview` | `pass` | Proceed |
+| `interview` | `hold` | Keep warm / revisit |
+| `interview` | `reject` | Do not proceed |

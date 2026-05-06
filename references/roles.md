@@ -2,118 +2,174 @@
 
 Base path: `/api/roles`
 
-Manage job roles within a company. Each role can have a JD profile and an expected candidate portrait used by AI evaluation.
+All endpoints require `Authorization: Bearer <api_token>` unless the caller already has a valid UI session cookie.
+
+Role object schema:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | number | Role ID |
+| `company_id` | number | Owning company |
+| `name` | string | Unique per company |
+| `description` | string|null | Job description markdown |
+| `expected_portrait` | string|null | Ideal candidate portrait |
+| `eval_prompt` | string|null | Role-specific evaluation instructions |
+| `active` | 0\|1 | Whether role is active; active filter uses `1`/`0` |
+| `created_at` | string | SQLite datetime string |
+| `updated_at` | string | SQLite datetime string |
+| `candidate_count` | number | Present on list responses |
+| `profile` | object|null | Latest role profile, present on detail responses |
 
 ## List Roles
 
-```
-GET /api/roles?company_id=N
+```http
+GET /api/roles?company_id=N[&active=1|0]
 ```
 
-**Query parameters:**
+Query parameters:
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `company_id` | number | yes | Filter by company |
+| `company_id` | number | yes | Company filter |
+| `active` | `1` or `0` | no | Filter active/inactive roles |
 
-**Response:**
+Response `200`:
 
 ```json
 {
   "roles": [
     {
-      "id": 1,
+      "id": 2,
       "company_id": 1,
-      "name": "Agent 工程师",
-      "description": "JD markdown...",
-      "expected_portrait": "理想候选人画像...",
+      "name": "Agent Engineer",
+      "description": "JD markdown",
+      "expected_portrait": "Ideal profile",
       "eval_prompt": null,
-      "created_at": "..."
+      "active": 1,
+      "candidate_count": 3
     }
   ]
 }
 ```
 
+Errors:
+
+| Status | Body |
+|--------|------|
+| `400` | `{ "error": "company_id required" }` |
+
 ## Create Role
 
-```
+```http
 POST /api/roles
 Content-Type: application/json
 ```
 
-**Body:**
+Request body:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `company_id` | number | yes | Company ID |
-| `name` | string | yes | Role name (unique per company) |
+| `company_id` | number | yes | Existing company ID |
+| `name` | string | yes | Non-empty role name |
 | `description` | string | no | Job description markdown |
-| `expected_portrait` | string | no | Ideal candidate portrait for AI eval |
+| `expected_portrait` | string | no | Ideal candidate portrait |
 
-**Response:** `201` with `{ "role": {...} }`
+Response `201`: `{ "role": { ... } }`
 
-**Errors:**
-- `400` — company_id or name missing; company not found
-- `409` — role name already exists in this company
+Errors:
+
+| Status | Body | Cause |
+|--------|------|-------|
+| `400` | `{ "error": "company_id required" }` | Missing company |
+| `400` | `{ "error": "name required" }` | Missing name |
+| `400` | `{ "error": "company not found" }` | Foreign key failure |
+| `409` | `{ "error": "role name already exists in this company" }` | Duplicate name |
 
 ## Get Role
 
-```
+```http
 GET /api/roles/:id
 ```
 
-**Response:** `{ "role": {...} }`
+Response `200`: `{ "role": { ... } }`
 
-**Errors:** `404` — not found
+Errors:
+
+| Status | Body |
+|--------|------|
+| `404` | `{ "error": "not found" }` |
 
 ## Update Role
 
-```
+```http
 PUT /api/roles/:id
 Content-Type: application/json
 ```
 
-**Body:**
+Request body:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | string | no | New role name |
-| `description` | string | no | Updated JD |
-| `expected_portrait` | string | no | Updated candidate portrait |
-| `eval_prompt` | string | no | Custom evaluation instructions for this role |
+| `name` | string | no | New non-empty role name |
+| `description` | string|null | no | Job description markdown |
+| `expected_portrait` | string|null | no | Ideal candidate portrait |
+| `eval_prompt` | string|null | no | Role-specific evaluation instructions |
+| `active` | boolean | no | Stored as `1` or `0` |
 
-**Response:** `{ "role": {...} }`
+Response `200`: `{ "role": { ... } }`
 
-**Errors:**
-- `400` — name empty
-- `404` — not found
-- `409` — name already exists
+Errors:
 
-## Update Role Profile (JD)
+| Status | Body |
+|--------|------|
+| `400` | `{ "error": "name must be a non-empty string" }` |
+| `404` | `{ "error": "not found" }` |
+| `409` | `{ "error": "role name already exists in this company" }` |
 
-```
+## Update Role Profile
+
+```http
 PUT /api/roles/:id/profile
 Content-Type: application/json
 ```
 
-**Body:**
+Request body:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `content` | string | yes | Role JD profile markdown |
+| `content` | string | yes | Non-empty expected portrait markdown |
 
-**Response:** `{ "role": {...} }`
+Response `200`: `{ "role": { ... } }`
 
-**Errors:**
-- `400` — content missing or empty
-- `404` — not found
+Errors:
+
+| Status | Body |
+|--------|------|
+| `400` | `{ "error": "content required" }` |
+| `404` | `{ "error": "not found" }` |
 
 ## Delete Role
 
-```
+```http
 DELETE /api/roles/:id
 ```
 
-**Response:** `204 No Content`
+Soft-deletes the role, soft-deletes role profiles, unlinks active candidates, and unlinks interview-question documents.
 
-**Errors:** `404` — not found
+Response `200`:
+
+```json
+{
+  "batch": "uuid",
+  "roleProfiles": 1,
+  "candidatesUnlinked": 3,
+  "interviewQuestionDocumentsUnlinked": 0,
+  "role": 1
+}
+```
+
+Errors:
+
+| Status | Body |
+|--------|------|
+| `404` | `{ "error": "not found" }` |

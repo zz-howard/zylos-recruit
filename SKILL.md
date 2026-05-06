@@ -70,6 +70,23 @@ zylos add recruit
 # Password is printed during post-install; also in ~/zylos/components/recruit/config.json
 ```
 
+## API Quick Start
+
+Programmatic access uses the API token stored in the component config. The
+token is generated on first service start if `auth.api_token` is missing.
+
+```bash
+TOKEN=$(jq -r '.auth.api_token' ~/zylos/components/recruit/config.json)
+HOST="https://<your-domain>/recruit"
+
+curl -s \
+  -H "Authorization: Bearer $TOKEN" \
+  "$HOST/api/companies"
+```
+
+Use `Authorization: Bearer <api_token>` on `/api/*` routes. The Bearer token
+does not grant access to the browser UI; UI pages use the cookie login flow.
+
 ## API Reference
 
 Detailed documentation in `references/`:
