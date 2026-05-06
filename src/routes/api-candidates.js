@@ -1,7 +1,7 @@
 import express from 'express';
 import {
   listCandidates, getCandidate, createCandidate, updateCandidate,
-  moveCandidate, addEvaluation, deleteCandidate, restoreCandidate, listRoles, STATES,
+  moveCandidate, addEvaluation, deleteEvaluation, deleteCandidate, restoreCandidate, listRoles, STATES,
 } from '../lib/db.js';
 import { evaluateResumeAsync, evaluateResumeStream, isEvaluating, autoMatchFromResume, rankRolesFromResume } from '../lib/ai.js';
 
@@ -111,6 +111,17 @@ export function candidatesRouter() {
     });
     if (!cand) return res.status(404).json({ error: 'not found' });
     res.json({ candidate: cand });
+  });
+
+  router.delete('/:id/evaluations/:evalId', (req, res) => {
+    const candidateId = Number(req.params.id);
+    const evalId = Number(req.params.evalId);
+    const cand = getCandidate(candidateId);
+    if (!cand) return res.status(404).json({ error: 'candidate not found' });
+
+    const evaluation = deleteEvaluation(candidateId, evalId);
+    if (!evaluation) return res.status(404).json({ error: 'evaluation not found' });
+    res.json({ evaluation });
   });
 
   // Auto-match candidate to best role based on resume content (no prior eval needed)
