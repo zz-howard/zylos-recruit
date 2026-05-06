@@ -635,6 +635,27 @@ export function addEvaluation(candidateId, { kind, author, verdict, content, met
   return getCandidate(candidateId);
 }
 
+export function deleteEvaluation(candidateId, evaluationId) {
+  const d = getDb();
+  const evaluation = d.prepare(`
+    SELECT * FROM evaluations
+    WHERE id = ? AND candidate_id = ? AND deleted_at IS NULL
+  `).get(evaluationId, candidateId);
+  if (!evaluation) return null;
+
+  const batch = crypto.randomUUID();
+  d.prepare(`
+    UPDATE evaluations
+    SET deleted_at=datetime('now'), delete_batch=?
+    WHERE id=? AND candidate_id=? AND deleted_at IS NULL
+  `).run(batch, evaluationId, candidateId);
+  d.prepare(`
+    UPDATE candidates SET updated_at = datetime('now') WHERE id = ? AND deleted_at IS NULL
+  `).run(candidateId);
+
+  return d.prepare('SELECT * FROM evaluations WHERE id = ?').get(evaluationId);
+}
+
 export function deleteCandidate(id) {
   const batch = crypto.randomUUID();
   const d = getDb();

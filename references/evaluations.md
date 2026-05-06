@@ -89,6 +89,40 @@ Content-Type: application/json
 - `400` — content missing
 - `404` — candidate not found
 
+## Delete Evaluation
+
+```
+DELETE /api/candidates/:id/evaluations/:evalId
+```
+
+Soft-deletes an evaluation that belongs to a candidate. The evaluation remains
+in the database with `deleted_at` set and is excluded from candidate detail,
+candidate list summary fields, and future candidate-level soft-delete batches.
+There is no standalone restore endpoint for an individually deleted evaluation.
+
+**Response:** `200` with the deleted evaluation object:
+
+```json
+{
+  "evaluation": {
+    "id": 12,
+    "candidate_id": 8,
+    "kind": "interview",
+    "author": "Howard",
+    "verdict": "pass",
+    "content": "技术扎实，建议进入下一轮。",
+    "meta": null,
+    "created_at": "2026-05-06 08:35:00",
+    "deleted_at": "2026-05-06 09:10:00",
+    "delete_batch": "1f8a4e4b-0d24-4eb6-8614-06efb66c43de"
+  }
+}
+```
+
+**Errors:**
+- `404` — candidate not found
+- `404` — evaluation not found or does not belong to this candidate
+
 ### Interview Verdict Labels
 
 | Verdict | Label | Meaning |
