@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.23] - 2026-05-07
+
+### Added
+- **Evaluation delete API** (#41): `DELETE /api/candidates/:id/evaluations/:evalId` soft-delete endpoint. Evaluations are marked with `deleted_at` timestamp and excluded from default queries. 24 tests pass.
+
+### Changed
+- **Expanded API references documentation** (#40): Comprehensive API documentation rewrite covering all endpoints, request/response examples, authentication, error handling, and AI evaluation workflows. 9 files updated (+1175/-335 lines).
+
 ## [0.2.22] - 2026-05-06
 
 ### Fixed
