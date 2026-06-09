@@ -37,6 +37,46 @@
     streaming: false, // default; loaded from settings on init
   };
 
+  // ─── Drag-and-drop: one-time board-level delegation ───────────
+  board.addEventListener('dragover', function (e) {
+    if (!e.target.closest('.col-body')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.target.closest('.col').classList.add('drag-over');
+  });
+  board.addEventListener('dragenter', function (e) {
+    var col = e.target.closest('.col');
+    if (!col) return;
+    e.preventDefault();
+    col.classList.add('drag-over');
+  });
+  board.addEventListener('dragleave', function (e) {
+    var col = e.target.closest('.col');
+    if (!col) return;
+    var body = col.querySelector('.col-body');
+    if (body && !body.contains(e.relatedTarget)) {
+      col.classList.remove('drag-over');
+    }
+  });
+  board.addEventListener('drop', function (e) {
+    var col = e.target.closest('.col');
+    if (!col) return;
+    e.preventDefault();
+    col.classList.remove('drag-over');
+    var candidateId = e.dataTransfer.getData('text/plain');
+    if (!candidateId) return;
+    candidateId = Number(candidateId);
+    var stateName = col.dataset.state;
+    var candidate = state.candidates.find(function (c) { return c.id === candidateId; });
+    if (!candidate || candidate.state === stateName) return;
+    api('POST', '/candidates/' + candidateId + '/move', { state: stateName })
+      .then(function () {
+        toast('Moved to ' + STATE_LABELS[stateName], 'success');
+        return loadRolesAndCandidates();
+      })
+      .catch(function (err) { toast(err.message, 'error'); });
+  });
+
   // ─── HTTP helpers ─────────────────────────────────────────────
 
   function api(method, path, body) {
@@ -193,40 +233,6 @@
         body.appendChild(makeCard(c));
       });
       col.querySelector('h3').textContent = STATE_LABELS[stateName] + ' · ' + items.length;
-
-      // ─── Drag-and-drop: column drop target handlers ───
-      body.addEventListener('dragover', function (e) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        col.classList.add('drag-over');
-      });
-      body.addEventListener('dragenter', function (e) {
-        e.preventDefault();
-        col.classList.add('drag-over');
-      });
-      body.addEventListener('dragleave', function (e) {
-        // Only remove highlight when leaving the column body entirely
-        if (!body.contains(e.relatedTarget)) {
-          col.classList.remove('drag-over');
-        }
-      });
-      body.addEventListener('drop', function (e) {
-        e.preventDefault();
-        col.classList.remove('drag-over');
-        var candidateId = e.dataTransfer.getData('text/plain');
-        if (!candidateId) return;
-        candidateId = Number(candidateId);
-        // Skip if dropped on the same column
-        var candidate = state.candidates.find(function (c) { return c.id === candidateId; });
-        if (!candidate || candidate.state === stateName) return;
-        // Call existing move API
-        api('POST', '/candidates/' + candidateId + '/move', { state: stateName })
-          .then(function () {
-            toast('Moved to ' + STATE_LABELS[stateName], 'success');
-            return loadRolesAndCandidates();
-          })
-          .catch(function (err) { toast(err.message, 'error'); });
-      });
     });
   }
 
