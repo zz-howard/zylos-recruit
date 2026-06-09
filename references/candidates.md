@@ -4,7 +4,7 @@ Base path: `/api/candidates`
 
 All endpoints require `Authorization: Bearer <api_token>` unless the caller already has a valid UI session cookie.
 
-Valid pipeline states: `pending`, `scheduled`, `interviewed`, `passed`, `rejected`.
+Valid pipeline states: `pending`, `scheduled`, `contacted`, `interviewed`, `passed`, `rejected`.
 
 Candidate object schema:
 
@@ -223,7 +223,7 @@ Request body:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `state` | string | yes | One of `pending`, `scheduled`, `interviewed`, `passed`, `rejected` |
+| `state` | string | yes | One of `pending`, `scheduled`, `contacted`, `interviewed`, `passed`, `rejected` |
 
 Response `200`: `{ "candidate": { ... } }`
 
@@ -231,7 +231,7 @@ Errors:
 
 | Status | Body |
 |--------|------|
-| `400` | `{ "error": "state must be one of pending, scheduled, interviewed, passed, rejected" }` |
+| `400` | `{ "error": "state must be one of pending, scheduled, contacted, interviewed, passed, rejected" }` |
 | `404` | `{ "error": "not found" }` |
 
 ## Auto-Match Candidate to Roles
@@ -283,7 +283,8 @@ Errors:
 | State | Label | Description |
 |-------|-------|-------------|
 | `pending` | 待处理 | New candidate |
-| `scheduled` | 已预约 | Interview scheduled |
-| `interviewed` | 已面试 | Interview completed |
+| `scheduled` | 拟联络 | Planned to contact |
+| `contacted` | 已联络 | Contacted |
+| `interviewed` | 已约面 | Interview scheduled |
 | `passed` | 已推进 | Moving forward |
 | `rejected` | 人才库 | Not proceeding; retained for future |

@@ -58,8 +58,9 @@ export function kanbanPageHtml(baseUrl) {
     <div class="main-area">
       <main id="board" class="board" data-base-url="${baseUrl}">
         <div class="col" data-state="pending"><h3>待处理</h3><div class="col-body"></div></div>
-        <div class="col" data-state="scheduled"><h3>已预约</h3><div class="col-body"></div></div>
-        <div class="col" data-state="interviewed"><h3>已完成</h3><div class="col-body"></div></div>
+        <div class="col" data-state="scheduled"><h3>拟联络</h3><div class="col-body"></div></div>
+        <div class="col" data-state="contacted"><h3>已联络</h3><div class="col-body"></div></div>
+        <div class="col" data-state="interviewed"><h3>已约面</h3><div class="col-body"></div></div>
         <div class="col" data-state="passed"><h3>已推进</h3><div class="col-body"></div></div>
         <div class="col" data-state="rejected"><h3>人才库</h3><div class="col-body"></div></div>
       </main>

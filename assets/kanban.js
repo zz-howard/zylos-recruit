@@ -12,8 +12,9 @@
 
   var STATE_LABELS = {
     pending: '待处理',
-    scheduled: '已预约',
-    interviewed: '已面试',
+    scheduled: '拟联络',
+    contacted: '已联络',
+    interviewed: '已约面',
     passed: '已推进',
     rejected: '人才库',
   };
@@ -333,7 +334,7 @@
       +   escapeHtml(STATE_LABELS[c.state] || c.state)
       + '</div>'
       + '<div class="state-row">'
-      +   ['pending','scheduled','interviewed','passed','rejected'].map(function (s) {
+      +   ['pending','scheduled','contacted','interviewed','passed','rejected'].map(function (s) {
             return '<button data-state="' + s + '"'
               + (s === c.state ? ' class="active"' : '')
               + '>' + STATE_LABELS[s] + '</button>';
