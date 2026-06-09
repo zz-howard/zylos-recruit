@@ -328,6 +328,11 @@
     var interviewQuestionSection = ''
       + '<div class="eval-section detail-side-section">'
       + '<h3>参考面试题</h3>'
+      + '<div class="field"><label>面试时长</label>'
+      +   '<select id="iq-duration">'
+      +     '<option value="60">60 分钟</option>'
+      +     '<option value="30">30 分钟</option>'
+      +   '</select></div>'
       + '<div class="field"><label>本次生成要求（可选）</label>'
       +   '<textarea id="iq-custom-prompt" placeholder="例如：重点看迁移能力；不要问算法细节；围绕 AI-native 工作方式多问"></textarea></div>'
       + '<button class="btn btn-primary" id="btn-generate-iq">生成参考面试题</button>'
@@ -909,11 +914,13 @@
       generateIqBtn.addEventListener('click', function () {
         var statusEl = wrap.querySelector('#iq-status');
         var customPrompt = wrap.querySelector('#iq-custom-prompt').value || '';
+        var duration = Number(wrap.querySelector('#iq-duration').value || 60);
         generateIqBtn.disabled = true;
         generateIqBtn.textContent = '生成中...';
         statusEl.textContent = '';
         api('POST', '/candidates/' + c.id + '/interview-questions', {
           custom_prompt: customPrompt,
+          duration: duration,
         }).then(function () {
           toast('参考面试题已开始生成，请稍候...', 'success');
           wrap.querySelector('#iq-custom-prompt').value = '';
@@ -1148,6 +1155,7 @@
           +     '<button class="btn btn-ghost" data-act="jd">JD</button>'
           +     '<button class="btn btn-ghost" data-act="portrait">Portrait</button>'
           +     '<button class="btn btn-ghost" data-act="eval-prompt">Eval prompt</button>'
+          +     '<button class="btn btn-ghost" data-act="interview-prompt">Interview prompt</button>'
           +     '<button class="btn btn-danger btn-ghost" data-act="delete">Delete</button>'
           +   '</div>'
           + '</div>';
@@ -1177,6 +1185,9 @@
         });
         row.querySelector('[data-act="eval-prompt"]').addEventListener('click', function () {
           openEvalPromptEditor('role', id);
+        });
+        row.querySelector('[data-act="interview-prompt"]').addEventListener('click', function () {
+          openRoleInterviewPromptEditor(id);
         });
         row.querySelector('[data-act="delete"]').addEventListener('click', function () {
           if (!confirm('Delete this role? Candidates in this role will be unassigned (role set to null). This cannot be undone.')) return;
@@ -1283,6 +1294,36 @@
         if (!content.trim()) { toast('content required', 'error'); return; }
         api('PUT', '/roles/' + roleId + '/profile', { content: content })
           .then(function () { toast('Portrait saved', 'success'); openRoleManager(); })
+          .catch(function (err) { toast(err.message, 'error'); });
+      });
+    }).catch(function (err) { toast(err.message, 'error'); });
+  }
+
+  function openRoleInterviewPromptEditor(roleId) {
+    api('GET', '/roles/' + roleId).then(function (r) {
+      var role = r.role;
+      var wrap = document.createElement('div');
+      wrap.className = 'form-dialog';
+      wrap.innerHTML = ''
+        + '<h2>Interview Prompt — ' + escapeHtml(role.name) + '</h2>'
+        + '<div class="meta">面试题生成提示词。仅用于参考面试题生成，会叠加在岗位 Eval prompt 之后、本次生成要求之前。</div>'
+        + '<div class="field"><label>面试题生成提示词</label>'
+        +   '<textarea id="f-interview-prompt" rows="12" placeholder="例如：优先追问从传统工程转 AI 产品的迁移能力；30 分钟场景只保留最关键风险"></textarea></div>'
+        + '<div class="actions">'
+        +   '<button class="btn" id="f-cancel">Cancel</button>'
+        +   '<button class="btn btn-danger btn-ghost" id="f-clear" style="margin-right:auto">Clear</button>'
+        +   '<button class="btn btn-primary" id="f-save">Save</button>'
+        + '</div>';
+      openModal(wrap);
+      wrap.querySelector('#f-interview-prompt').value = role.interview_prompt || '';
+      wrap.querySelector('#f-cancel').addEventListener('click', openRoleManager);
+      wrap.querySelector('#f-clear').addEventListener('click', function () {
+        wrap.querySelector('#f-interview-prompt').value = '';
+      });
+      wrap.querySelector('#f-save').addEventListener('click', function () {
+        var val = wrap.querySelector('#f-interview-prompt').value.trim();
+        api('PUT', '/roles/' + roleId, { interview_prompt: val || '' })
+          .then(function () { toast('Interview prompt saved', 'success'); openRoleManager(); })
           .catch(function (err) { toast(err.message, 'error'); });
       });
     }).catch(function (err) { toast(err.message, 'error'); });
