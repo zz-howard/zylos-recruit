@@ -34,11 +34,11 @@ Upgrade the interview question generator from a fixed-template system to a smart
 
 ### Part 2: Per-Role Interview Prompt Templates
 
-- [ ] **2.1 DB migration**: Add `interview_prompt TEXT` column to `roles` table via `ALTER TABLE`. This is separate from `eval_prompt` (which is for resume evaluation). Update `db.js` schema init to include the column for fresh installs.
+- [ ] **2.1 DB migration**: Add `interview_prompt TEXT` column to `roles` table via `ALTER TABLE`. Also update `migrateSoftDelete()` in `db.js` (lines 269-328): the `roles_new` CREATE TABLE and INSERT...SELECT must include `interview_prompt`, otherwise the rebuild drops the column. Update `db.js` schema init to include the column for fresh installs.
 - [ ] **2.2 Update `getRole()` / role CRUD**: Ensure `interview_prompt` is read/written in all role operations (`createRole`, `updateRole`, `getRole`).
-- [ ] **2.3 Feed into context**: In `buildContext()`, if `role.interview_prompt` exists, add it as a `## Role Interview Instructions` section (separate from the existing `Role Evaluation Instructions` which comes from `eval_prompt`).
-- [ ] **2.4 Priority chain**: Document the prompt priority: built-in system prompt < role `interview_prompt` < per-request `custom_prompt`. Later sources can override earlier ones.
-- [ ] **2.5 API endpoint**: `PATCH /api/roles/:id` already exists — ensure it accepts `interview_prompt` in the body.
+- [ ] **2.3 Feed into context**: In `buildContext()`, if `role.interview_prompt` exists, add it as a `## Role Interview Instructions` section. **Compatibility**: `role.eval_prompt` is already injected into interview question context as "Role Evaluation Instructions" (lines 96-105 of `interview-questions.js`). This behavior is preserved — `eval_prompt` continues to appear. `interview_prompt` is additive, placed after `eval_prompt` in the context. If both exist, both appear. No silent breakage of existing behavior.
+- [ ] **2.4 Priority chain**: built-in system prompt < role `eval_prompt` (existing, preserved) < role `interview_prompt` (new, interview-specific) < per-request `custom_prompt`. Later sources can override earlier ones.
+- [ ] **2.5 API endpoint**: `PUT /api/roles/:id` (not PATCH — current route is PUT, `src/routes/api-roles.js` lines 52-68) — ensure it accepts `interview_prompt` in the body.
 - [ ] **2.6 UI**: Add an "Interview Prompt" textarea to the role edit modal (alongside the existing eval_prompt field). Label: "面试题生成提示词" with placeholder explaining usage.
 
 ## Test Checklist
@@ -49,13 +49,13 @@ Upgrade the interview question generator from a fixed-template system to a smart
 - [ ] Unit test: `interview_prompt` from role feeds into context under correct section
 - [ ] Unit test: priority chain — when both `interview_prompt` and `custom_prompt` exist, both appear in context in correct order
 - [ ] Integration test: `POST /api/candidates/:id/interview-questions` with `duration` parameter
-- [ ] Integration test: `PATCH /api/roles/:id` with `interview_prompt` field persists and reads back
+- [ ] Integration test: `PUT /api/roles/:id` with `interview_prompt` field persists and reads back
 - [ ] Manual: Generate questions for an existing candidate, verify output has pre-analysis section and respects question cap
 - [ ] Manual: UI role edit modal shows interview_prompt textarea
 
 ## Assumptions
 
-- [ ] `roles.eval_prompt` is for resume evaluation only, not interview questions — confirmed by code: it's fed as "Role Evaluation Instructions" into context. Adding `interview_prompt` as a separate field avoids overloading `eval_prompt`. **Guaranteed by current schema + code.**
+- [ ] `roles.eval_prompt` is ALREADY used in both resume evaluation AND interview question generation — it's injected as "Role Evaluation Instructions" in `buildContext()` (lines 96-105). Adding `interview_prompt` does NOT replace `eval_prompt` in interview context; both coexist. `eval_prompt` = general role evaluation guidance (used everywhere), `interview_prompt` = interview-specific overrides (used only in question generation). **Corrected after R1 review.**
 - [ ] The `custom_prompt` request parameter already works and is tested — it's appended as "Interviewer Preferences For This Generation". **Guaranteed by code (lines 137-140).**
 - [ ] `ALTER TABLE roles ADD COLUMN interview_prompt TEXT` is safe on SQLite with existing data — columns default to NULL. **Guaranteed by SQLite spec.**
 - [ ] The AI gateway `aiCall()` is a black box for this change — we only modify what goes into the prompt string, not how it's dispatched. **Guaranteed by architecture.**
