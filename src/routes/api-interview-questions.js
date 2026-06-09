@@ -31,12 +31,13 @@ export function interviewQuestionsRouter() {
   router.post('/candidates/:id/interview-questions', async (req, res) => {
     const candidateId = Number(req.params.id);
     const customPrompt = typeof req.body?.custom_prompt === 'string' ? req.body.custom_prompt : '';
+    const duration = req.body?.duration;
     try {
       if (!req.query.sync) {
-        generateInterviewQuestionsAsync(candidateId, { customPrompt });
+        generateInterviewQuestionsAsync(candidateId, { customPrompt, duration });
         return res.status(202).json({ message: 'interview question generation started', candidate_id: candidateId });
       }
-      const document = await generateInterviewQuestions(candidateId, { customPrompt });
+      const document = await generateInterviewQuestions(candidateId, { customPrompt, duration });
       res.status(201).json({ document });
     } catch (err) {
       console.error(`[recruit] interview question generation failed for candidate #${candidateId}:`, err.message);

@@ -25,14 +25,37 @@ export function getInterviewQuestionGenerationError(candidateId) {
   return generationErrors.get(Number(candidateId)) || null;
 }
 
-export function generateInterviewQuestionsAsync(candidateId, { customPrompt } = {}) {
+export function normalizeInterviewDuration(duration) {
+  const minutes = Number(duration);
+  if (!Number.isFinite(minutes) || minutes <= 0) return 60;
+  return minutes <= 30 ? 30 : 60;
+}
+
+function formatGenerationDate(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  const year = d.getFullYear();
+  const month = d.getMonth();
+  const dayOfMonth = d.getDate();
+  const iso = [
+    year,
+    String(month + 1).padStart(2, '0'),
+    String(dayOfMonth).padStart(2, '0'),
+  ].join('-');
+  const day = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+  }).format(d);
+  const quarter = Math.floor(month / 3) + 1;
+  return `${iso} (${day}), Q${quarter} ${year}`;
+}
+
+export function generateInterviewQuestionsAsync(candidateId, { customPrompt, duration } = {}) {
   const id = Number(candidateId);
   if (generatingSet.has(id)) {
     throw new Error('参考面试题正在生成中，请稍候');
   }
   generatingSet.add(id);
   generationErrors.delete(id);
-  generateInterviewQuestions(id, { customPrompt }).catch((err) => {
+  generateInterviewQuestions(id, { customPrompt, duration }).catch((err) => {
     generationErrors.set(id, err.message || 'generation failed');
     console.error(`[recruit] interview question generation failed for candidate #${id}:`, err.message);
   }).finally(() => {
@@ -78,13 +101,16 @@ function parseEvalMeta(evaluation) {
   try { return JSON.parse(evaluation.meta); } catch { return null; }
 }
 
-function buildContext({ candidate, role, company, customPrompt }) {
+export function buildContext({ candidate, role, company, customPrompt, generatedAt = new Date() }) {
   const latestResumeEval = latestByKind(candidate.evaluations, 'resume_ai');
   const resumeMeta = parseEvalMeta(latestResumeEval);
   const interviewEvals = evaluationsByKind(candidate.evaluations, 'interview').slice(0, 3);
 
   const sections = [];
   sections.push(`# Interview Question Generation Context`);
+
+  sections.push(`## Generation Context
+Today: ${formatGenerationDate(generatedAt)}`);
 
   sections.push(`## Company
 Name: ${company?.name || 'Unknown'}
@@ -103,6 +129,11 @@ ${role?.description || '(role JD not provided)'}
 ${role?.expected_portrait || '(role expected portrait not provided)'}
 
 ${role?.eval_prompt ? `### Role Evaluation Instructions\n${role.eval_prompt}` : ''}`);
+
+  if (role?.interview_prompt?.trim()) {
+    sections.push(`## Role Interview Instructions
+${role.interview_prompt.trim()}`);
+  }
 
   sections.push(`## Candidate
 Name: ${candidate.name}
@@ -142,7 +173,9 @@ ${customPrompt.trim()}`);
   return sections.join('\n\n---\n\n');
 }
 
-function buildPrompt(ctx) {
+export function buildPrompt(ctx, { duration = 60 } = {}) {
+  const normalizedDuration = normalizeInterviewDuration(duration);
+  const questionCap = normalizedDuration <= 30 ? 8 : 12;
   return `${ctx}
 
 ---
@@ -151,25 +184,36 @@ You are designing a reference interview-question document for Howard Zhou to use
 
 Write in Chinese unless the candidate or role context clearly requires English.
 
+Before writing the interview guide, do a structured pre-analysis in the final Markdown:
+- What is unusual in this resume/context?
+- What important evidence is missing or weak?
+- What is the strongest signal for this role?
+- What is the weakest signal for this role?
+- What is the biggest role-specific risk to verify?
+
+Use that pre-analysis to choose the questions. Do not generate an evenly weighted questionnaire.
+
 Use these non-negotiable style rules:
 - Write like a real person talking, not like an AI-generated questionnaire.
 - Ask one question at a time. Never stack multiple sub-questions inside one numbered question.
 - Use concrete examples when they help the candidate understand the expected depth.
 - Put a short interviewer-only note after each question using this exact form: "> 考察点：..."
-- Use natural follow-up guidance, not long scripted follow-up lists.
+- Use 1-2 natural follow-up directions per main question, not separate numbered questions.
 - Do not write verbose "意图" or analysis blocks.
 - Anchor questions in specific evidence from the candidate resume/context: company names, projects, time periods, systems, model techniques, incidents, or career transitions. Avoid generic textbook questions.
 - For each core technical question, add one natural follow-up sentence after the 考察点 line. The follow-up should force concrete details, not invite a broad second answer.
 - Make the document directly usable by Howard in the interview: write question text as something he can read aloud, and keep interviewer guidance separate.
+- Related evaluation dimensions should be merged into a single main question with follow-up angles, not split into separate questions.
 
 Default structure:
-1. Pre-interview judgment: summarize the 2-3 core hypotheses to verify for this candidate and role.
-2. Opening and representative project warm-up: make the candidate choose one concrete project as the interview thread.
-3. Role-critical technical deep dive: focus on the role's hardest real requirements, not generic fundamentals.
-4. Transfer to this company/role: give one concrete company-relevant scenario and ask how the candidate would handle it.
-5. Execution plan and leadership: for senior/lead roles, ask about first week, first month, and 3-month verifiable outcomes.
-6. Risk checks: career gaps, short tenures, motivation, scope ownership, or other risks from the resume/evaluation.
-7. Closing and reverse questions.
+1. Resume gap analysis: what is unusual, missing, strongest, weakest, and riskiest for this role.
+2. Pre-interview judgment: summarize the 2-3 core hypotheses to verify for this candidate and role.
+3. Opening and representative project warm-up: make the candidate choose one concrete project as the interview thread.
+4. Role-critical technical deep dive: focus on the role's hardest real requirements, not generic fundamentals.
+5. Transfer to this company/role: give one concrete company-relevant scenario and ask how the candidate would handle it.
+6. Execution plan and leadership: for senior/lead roles, ask about first week, first month, and 3-month verifiable outcomes.
+7. Risk checks: career gaps, short tenures, motivation, scope ownership, or other risks from the resume/evaluation.
+8. Closing and reverse questions.
 
 Role-specific depth rules:
 - For LLM post-training, model training, or AI research leadership roles, include questions that probe: data construction, instruction/preference/reward signal design, SFT vs DPO/RL/GRPO tradeoffs, eval design, failure attribution, negative samples, reward hacking, online/offline metric mismatch, and deployment/cost/latency constraints.
@@ -180,11 +224,16 @@ Role-specific depth rules:
 - For security roles, focus on threat modeling, authz/authn boundaries, data leakage, cloud IAM, incident response, and embedding security into engineering workflow.
 
 Pacing and prioritization:
-- Do not generate an evenly weighted questionnaire. Identify the few questions that matter most for this candidate.
+- Interview duration: ${normalizedDuration} minutes.
+- Generate at most ${questionCap} main questions for this interview. A main question can include 1-2 natural follow-up directions.
+- For 30-minute interviews, stay within 8 main questions. For 60-minute interviews, stay within 12 main questions.
+- Identify the few questions that matter most for this candidate.
 - Include a "最关键的三道题" section and explain why those questions are most revealing.
 - Include a pacing note explaining what to skip or shorten if an early answer is weak.
+- If any single tenure exceeds 5 years, include a motivation/change question about why they are leaving now and what changed.
+- Identify which past role or experience is closest to the target role. Include one question that bridges that experience to the current opportunity.
 
-Default duration is 60 minutes. If interviewer preferences mention a different duration or round, adapt the number and depth of questions accordingly.
+Custom instructions from the generation context override these defaults only when they are more specific and compatible with the role requirements.
 
 Ground questions in the candidate evidence above. If the resume file is available to you, read it before finalizing the questions. Use prior resume evaluation as evidence, but do not blindly repeat it.
 
@@ -288,7 +337,7 @@ function inferMarkdownTitle(markdown, fallback) {
   return safeTitlePart(match?.[1] || fallback);
 }
 
-export async function generateInterviewQuestions(candidateId, { customPrompt } = {}) {
+export async function generateInterviewQuestions(candidateId, { customPrompt, duration } = {}) {
   const candidate = getCandidate(candidateId);
   if (!candidate) throw new Error('candidate not found');
   if (!candidate.role_id) throw new Error('candidate has no assigned role');
@@ -310,7 +359,7 @@ export async function generateInterviewQuestions(candidateId, { customPrompt } =
   }
 
   const context = buildContext({ candidate, role, company, customPrompt });
-  const prompt = buildPrompt(context);
+  const prompt = buildPrompt(context, { duration });
   const required = hasResume ? ['text', 'read_file'] : ['text'];
   const readOnlyBinds = [
     ...(fs.existsSync(KNOWLEDGE_DIR) ? [KNOWLEDGE_DIR] : []),

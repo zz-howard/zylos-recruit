@@ -64,6 +64,7 @@ function initSchema(db) {
       description        TEXT,
       expected_portrait  TEXT,
       eval_prompt        TEXT,
+      interview_prompt   TEXT,
       created_at         TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(company_id, name)
@@ -239,6 +240,9 @@ function migrateFromV021(db) {
   if (!columnExists('roles', 'eval_prompt')) {
     db.exec('ALTER TABLE roles ADD COLUMN eval_prompt TEXT');
   }
+  if (!columnExists('roles', 'interview_prompt')) {
+    db.exec('ALTER TABLE roles ADD COLUMN interview_prompt TEXT');
+  }
 
   // Add extra_info to candidates (v0.2.5)
   if (!columnExists('candidates', 'extra_info')) {
@@ -321,13 +325,14 @@ function migrateSoftDelete(db, columnExists) {
         description        TEXT,
         expected_portrait  TEXT,
         eval_prompt        TEXT,
+        interview_prompt   TEXT,
         active             INTEGER NOT NULL DEFAULT 1,
         created_at         TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
         deleted_at         TEXT DEFAULT NULL,
         delete_batch       TEXT DEFAULT NULL
       );
-      INSERT INTO roles_new SELECT id, company_id, name, description, expected_portrait, eval_prompt, active, created_at, updated_at, deleted_at, delete_batch FROM roles;
+      INSERT INTO roles_new SELECT id, company_id, name, description, expected_portrait, eval_prompt, interview_prompt, active, created_at, updated_at, deleted_at, delete_batch FROM roles;
       DROP TABLE roles;
       ALTER TABLE roles_new RENAME TO roles;
       CREATE INDEX idx_roles_company ON roles(company_id);
@@ -525,14 +530,14 @@ export function getRole(id) {
   return role;
 }
 
-export function createRole({ companyId, name, description, expected_portrait }) {
+export function createRole({ companyId, name, description, expected_portrait, interview_prompt }) {
   const info = getDb().prepare(`
-    INSERT INTO roles (company_id, name, description, expected_portrait) VALUES (?, ?, ?, ?)
-  `).run(companyId, name, description || null, expected_portrait || null);
+    INSERT INTO roles (company_id, name, description, expected_portrait, interview_prompt) VALUES (?, ?, ?, ?, ?)
+  `).run(companyId, name, description || null, expected_portrait || null, interview_prompt || null);
   return getRole(info.lastInsertRowid);
 }
 
-export function updateRole(id, { name, description, expected_portrait, eval_prompt, active }) {
+export function updateRole(id, { name, description, expected_portrait, eval_prompt, interview_prompt, active }) {
   const fields = [];
   const params = [];
   if (typeof name === 'string') { fields.push('name = ?'); params.push(name); }
@@ -542,6 +547,7 @@ export function updateRole(id, { name, description, expected_portrait, eval_prom
   }
   if (expected_portrait !== undefined) { fields.push('expected_portrait = ?'); params.push(expected_portrait || null); }
   if (eval_prompt !== undefined) { fields.push('eval_prompt = ?'); params.push(eval_prompt || null); }
+  if (interview_prompt !== undefined) { fields.push('interview_prompt = ?'); params.push(interview_prompt || null); }
   if (active !== undefined) { fields.push('active = ?'); params.push(active ? 1 : 0); }
   if (fields.length === 0) return getRole(id);
   fields.push(`updated_at = datetime('now')`);
