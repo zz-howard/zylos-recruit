@@ -193,6 +193,40 @@
         body.appendChild(makeCard(c));
       });
       col.querySelector('h3').textContent = STATE_LABELS[stateName] + ' · ' + items.length;
+
+      // ─── Drag-and-drop: column drop target handlers ───
+      body.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        col.classList.add('drag-over');
+      });
+      body.addEventListener('dragenter', function (e) {
+        e.preventDefault();
+        col.classList.add('drag-over');
+      });
+      body.addEventListener('dragleave', function (e) {
+        // Only remove highlight when leaving the column body entirely
+        if (!body.contains(e.relatedTarget)) {
+          col.classList.remove('drag-over');
+        }
+      });
+      body.addEventListener('drop', function (e) {
+        e.preventDefault();
+        col.classList.remove('drag-over');
+        var candidateId = e.dataTransfer.getData('text/plain');
+        if (!candidateId) return;
+        candidateId = Number(candidateId);
+        // Skip if dropped on the same column
+        var candidate = state.candidates.find(function (c) { return c.id === candidateId; });
+        if (!candidate || candidate.state === stateName) return;
+        // Call existing move API
+        api('POST', '/candidates/' + candidateId + '/move', { state: stateName })
+          .then(function () {
+            toast('Moved to ' + STATE_LABELS[stateName], 'success');
+            return loadRolesAndCandidates();
+          })
+          .catch(function (err) { toast(err.message, 'error'); });
+      });
     });
   }
 
@@ -229,6 +263,17 @@
       badges.push('<span class="card-badge badge-interview verdict-' + c.last_interview_verdict + '">面试 ' + ivLabel + '</span>');
     }
     if (badges.length) verdictsEl.innerHTML = badges.join(' ');
+
+    // ─── Drag-and-drop: make card draggable ───
+    node.setAttribute('draggable', 'true');
+    node.addEventListener('dragstart', function (e) {
+      e.dataTransfer.setData('text/plain', String(c.id));
+      e.dataTransfer.effectAllowed = 'move';
+      node.classList.add('dragging');
+    });
+    node.addEventListener('dragend', function () {
+      node.classList.remove('dragging');
+    });
 
     node.addEventListener('click', function () { openCandidate(c.id); });
     return node;
