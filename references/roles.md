@@ -14,6 +14,7 @@ Role object schema:
 | `description` | string|null | Job description markdown |
 | `expected_portrait` | string|null | Ideal candidate portrait |
 | `eval_prompt` | string|null | Role-specific evaluation instructions |
+| `interview_prompt` | string|null | Role-specific interview-question generation instructions |
 | `active` | 0\|1 | Whether role is active; active filter uses `1`/`0` |
 | `created_at` | string | SQLite datetime string |
 | `updated_at` | string | SQLite datetime string |
@@ -45,6 +46,7 @@ Response `200`:
       "description": "JD markdown",
       "expected_portrait": "Ideal profile",
       "eval_prompt": null,
+      "interview_prompt": null,
       "active": 1,
       "candidate_count": 3
     }
@@ -73,6 +75,7 @@ Request body:
 | `name` | string | yes | Non-empty role name |
 | `description` | string | no | Job description markdown |
 | `expected_portrait` | string | no | Ideal candidate portrait |
+| `interview_prompt` | string | no | Interview-question generation instructions |
 
 Response `201`: `{ "role": { ... } }`
 
@@ -114,6 +117,7 @@ Request body:
 | `description` | string|null | no | Job description markdown |
 | `expected_portrait` | string|null | no | Ideal candidate portrait |
 | `eval_prompt` | string|null | no | Role-specific evaluation instructions |
+| `interview_prompt` | string|null | no | Role-specific interview-question generation instructions |
 | `active` | boolean | no | Stored as `1` or `0` |
 
 Response `200`: `{ "role": { ... } }`
