@@ -170,6 +170,13 @@ function initSchema(db) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_iim_interview ON internal_interview_messages(interview_id);
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token_hash       TEXT PRIMARY KEY,
+      created_at       INTEGER NOT NULL,
+      last_activity_at INTEGER NOT NULL,
+      remember         INTEGER NOT NULL DEFAULT 0
+    );
   `);
 }
 

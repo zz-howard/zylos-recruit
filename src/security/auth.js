@@ -5,14 +5,16 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { CONFIG_PATH, saveConfig } from '../lib/config.js';
 import { browserBaseFromRequest, browserPath, browserRoot, isPathWithinBase } from '../lib/browser-base.js';
+import { getDb } from '../lib/db.js';
 
 const SCRYPT_KEYLEN = 64;
 const COOKIE_NAME = '__Host-zylos_recruit_session';
 const SESSION_ABSOLUTE_MS = 86_400_000;   // 24 hours
 const SESSION_IDLE_MS = 3_600_000;        // 60 minutes
+const REMEMBER_ABSOLUTE_MS = 30 * 86_400_000;  // 30 days
+const REMEMBER_IDLE_MS = 7 * 86_400_000;        // 7 days
+const REMEMBER_COOKIE_MAX_AGE = 30 * 86400;     // 30 days in seconds
 const CLEANUP_INTERVAL_MS = 300_000;      // 5 minutes
-
-const sessions = new Map();
 
 const failedAttempts = new Map();
 const MAX_FAILURES = 5;
@@ -23,11 +25,19 @@ const GLOBAL_MAX_PER_MIN = 30;
 
 setInterval(() => {
   const now = Date.now();
-  for (const [hash, session] of sessions) {
-    if (now - session.createdAt > SESSION_ABSOLUTE_MS ||
-        now - session.lastActivityAt > SESSION_IDLE_MS) {
-      sessions.delete(hash);
-    }
+  try {
+    const d = getDb();
+    d.prepare(`
+      DELETE FROM sessions WHERE
+        (remember = 0 AND (? - created_at > ? OR ? - last_activity_at > ?))
+        OR
+        (remember = 1 AND (? - created_at > ? OR ? - last_activity_at > ?))
+    `).run(
+      now, SESSION_ABSOLUTE_MS, now, SESSION_IDLE_MS,
+      now, REMEMBER_ABSOLUTE_MS, now, REMEMBER_IDLE_MS,
+    );
+  } catch {
+    // DB not ready yet — skip this cleanup cycle
   }
 }, CLEANUP_INTERVAL_MS).unref?.();
 
@@ -78,32 +88,40 @@ function sha256(data) {
   return crypto.createHash('sha256').update(data).digest('hex');
 }
 
-function createSession() {
+function createSession(remember = false) {
   const token = crypto.randomBytes(32).toString('hex');
   const hash = sha256(token);
   const now = Date.now();
-  sessions.set(hash, { createdAt: now, lastActivityAt: now });
+  getDb().prepare(
+    'INSERT INTO sessions (token_hash, created_at, last_activity_at, remember) VALUES (?, ?, ?, ?)'
+  ).run(hash, now, now, remember ? 1 : 0);
   return token;
 }
 
 function validateSession(token) {
   if (!token) return false;
   const hash = sha256(token);
-  const session = sessions.get(hash);
+  const session = getDb().prepare(
+    'SELECT created_at, last_activity_at, remember FROM sessions WHERE token_hash = ?'
+  ).get(hash);
   if (!session) return false;
   const now = Date.now();
-  if (now - session.createdAt > SESSION_ABSOLUTE_MS ||
-      now - session.lastActivityAt > SESSION_IDLE_MS) {
-    sessions.delete(hash);
+  const absoluteMs = session.remember ? REMEMBER_ABSOLUTE_MS : SESSION_ABSOLUTE_MS;
+  const idleMs = session.remember ? REMEMBER_IDLE_MS : SESSION_IDLE_MS;
+  if (now - session.created_at > absoluteMs ||
+      now - session.last_activity_at > idleMs) {
+    getDb().prepare('DELETE FROM sessions WHERE token_hash = ?').run(hash);
     return false;
   }
-  session.lastActivityAt = now;
+  getDb().prepare(
+    'UPDATE sessions SET last_activity_at = ? WHERE token_hash = ?'
+  ).run(now, hash);
   return true;
 }
 
 function destroySession(token) {
   if (!token) return;
-  sessions.delete(sha256(token));
+  getDb().prepare('DELETE FROM sessions WHERE token_hash = ?').run(sha256(token));
 }
 
 // ─── Cookie helpers ──────────────────────────────────────────────────
@@ -123,9 +141,10 @@ function getSessionCookie(req) {
   return cookies[COOKIE_NAME] || null;
 }
 
-function setSessionCookie(res, token) {
+function setSessionCookie(res, token, remember = false) {
+  const maxAge = remember ? REMEMBER_COOKIE_MAX_AGE : 86400;
   res.setHeader('Set-Cookie',
-    `${COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400`
+    `${COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`
   );
 }
 
@@ -284,8 +303,9 @@ export function setupAuth(app, authConfig, baseUrl) {
     }
 
     clearFailures(ip);
-    const token = createSession();
-    setSessionCookie(res, token);
+    const remember = req.body?.remember === 'on';
+    const token = createSession(remember);
+    setSessionCookie(res, token, remember);
 
     const next = req.body?.next;
     const redirectTo = (next && isPathWithinBase(next, browserBase)) ? next : browserRoot(browserBase);

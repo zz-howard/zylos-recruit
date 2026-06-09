@@ -29,6 +29,9 @@ export function loginPageHtml(baseUrl, error, next) {
       <form method="POST" action="${baseUrl}/login">
         <label for="password">Password</label>
         <input type="password" id="password" name="password" autofocus required>
+        <label class="remember-label">
+          <input type="checkbox" name="remember"> Remember me
+        </label>
         ${nextParam ? `<input type="hidden" name="next" value="${escapeAttr(nextParam)}">` : ''}
         <button type="submit">Sign in</button>
       </form>
