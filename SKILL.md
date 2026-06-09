@@ -53,7 +53,7 @@ interview stages. Kanban board UI + REST API + SQLite storage.
 ## Features
 
 - **Role library** — create roles, attach versioned job profiles
-- **Candidate Kanban** — 5 columns: pending / scheduled / interviewed / passed / talent pool
+- **Candidate Kanban** — 6 columns: pending / scheduled / contacted / interviewed / passed / talent pool
 - **Resume storage** — upload PDF, preview in-browser via pdf.js
 - **AI resume evaluation** — multi-runtime (Claude/Codex/Gemini), configurable model & effort
 - **Interview evaluations** — notes with author and verdict (yes/no for AI, pass/hold/reject for interview)

@@ -13,7 +13,7 @@
  *   internal_interview_messages — chat messages within an internal interview session
  *
  * Candidate state machine:
- *   pending → scheduled → interviewed → passed | rejected
+ *   pending → scheduled → contacted → interviewed → passed | rejected
  */
 
 import Database from 'better-sqlite3';
@@ -22,7 +22,7 @@ import fs from 'node:fs';
 import { DB_PATH, DATA_DIR } from './config.js';
 import { withFkOff, assertFkOff } from './migration-safety.js';
 
-export const STATES = ['pending', 'scheduled', 'interviewed', 'passed', 'rejected'];
+export const STATES = ['pending', 'scheduled', 'contacted', 'interviewed', 'passed', 'rejected'];
 
 let db = null;
 
@@ -34,6 +34,7 @@ export function getDb() {
   db.pragma('foreign_keys = ON');
   initSchema(db);
   migrateFromV021(db);
+  migrateAddContactedState(db);
   return db;
 }
 
@@ -90,7 +91,7 @@ function initSchema(db) {
       brief          TEXT,
       resume_path    TEXT,
       state          TEXT NOT NULL DEFAULT 'pending'
-                     CHECK (state IN ('pending','scheduled','interviewed','passed','rejected')),
+                     CHECK (state IN ('pending','scheduled','contacted','interviewed','passed','rejected')),
       created_at     TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -331,6 +332,59 @@ function migrateSoftDelete(db, columnExists) {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_companies_deleted ON companies(deleted_at)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_deleted ON candidates(deleted_at)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_ii_deleted ON internal_interviews(deleted_at)`);
+}
+
+/** Add 'contacted' state to candidates CHECK constraint (pipeline stage adjustments). */
+function migrateAddContactedState(db) {
+  // Check if the constraint already allows 'contacted' by trying a dummy insert.
+  // If the table was freshly created by initSchema(), it already has the new CHECK.
+  // We only need to rebuild for existing DBs created before this migration.
+  const tableInfo = db.prepare(`PRAGMA table_info(candidates)`).all();
+  if (!tableInfo.length) return; // no table yet
+
+  // Read the CREATE TABLE SQL to check if 'contacted' is already in the CHECK constraint
+  const sqlRow = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='candidates'"
+  ).get();
+  if (!sqlRow || !sqlRow.sql) return;
+  if (sqlRow.sql.includes("'contacted'")) return; // already migrated
+
+  // Rebuild candidates table with the expanded CHECK constraint
+  withFkOff(db, () => {
+    assertFkOff(db);
+
+    // Discover current columns dynamically
+    const cols = db.prepare('PRAGMA table_info(candidates)').all().map(c => c.name);
+    const colList = cols.join(', ');
+
+    db.exec(`
+      CREATE TABLE candidates_new (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id     INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        name           TEXT NOT NULL,
+        role_id        INTEGER REFERENCES roles(id) ON DELETE SET NULL,
+        email          TEXT,
+        phone          TEXT,
+        source         TEXT,
+        brief          TEXT,
+        resume_path    TEXT,
+        state          TEXT NOT NULL DEFAULT 'pending'
+                       CHECK (state IN ('pending','scheduled','contacted','interviewed','passed','rejected')),
+        created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        extra_info     TEXT,
+        deleted_at     TEXT DEFAULT NULL,
+        delete_batch   TEXT DEFAULT NULL
+      );
+      INSERT INTO candidates_new (${colList}) SELECT ${colList} FROM candidates;
+      DROP TABLE candidates;
+      ALTER TABLE candidates_new RENAME TO candidates;
+      CREATE INDEX IF NOT EXISTS idx_candidates_company ON candidates(company_id);
+      CREATE INDEX IF NOT EXISTS idx_candidates_role    ON candidates(role_id);
+      CREATE INDEX IF NOT EXISTS idx_candidates_state   ON candidates(state);
+      CREATE INDEX IF NOT EXISTS idx_candidates_deleted ON candidates(deleted_at);
+    `);
+  });
 }
 
 // ─── Companies ────────────────────────────────────────────────────────

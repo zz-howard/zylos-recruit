@@ -51,7 +51,7 @@ Candidate responses are wrapped as `{ "candidate": { ... } }`.
 }
 ```
 
-Candidate states are `pending`, `scheduled`, `interviewed`, `passed`, and
+Candidate states are `pending`, `scheduled`, `contacted`, `interviewed`, `passed`, and
 `rejected`.
 
 ### Evaluation
@@ -256,7 +256,7 @@ Errors:
 
 | Status | Response | Cause |
 |--------|----------|-------|
-| `400` | `{ "error": "state must be one of pending, scheduled, interviewed, passed, rejected" }` | Invalid state |
+| `400` | `{ "error": "state must be one of pending, scheduled, contacted, interviewed, passed, rejected" }` | Invalid state |
 | `404` | `{ "error": "not found" }` | Candidate does not exist or was deleted |
 
 ### Add Interview Feedback

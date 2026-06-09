@@ -54,7 +54,7 @@
 
 .board {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 14px;
   padding: 18px 20px;
   min-height: 0;
@@ -188,6 +188,7 @@
 /* Column state indicators */
 .col[data-state="pending"] h3::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
 .col[data-state="scheduled"] h3::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--link); }
+.col[data-state="contacted"] h3::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #5b9bd5; }
 .col[data-state="interviewed"] h3::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--primary); }
 .col[data-state="passed"] h3::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 .col[data-state="rejected"] h3::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); }

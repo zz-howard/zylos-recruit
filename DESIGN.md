@@ -76,8 +76,8 @@ evaluations
 ### 2.3 State Machine
 
 ```
-pending (待处理) ──▶ scheduled (已预约) ──▶ interviewed (已完成) ──▶ passed (已推进)
-                                                          └───▶ rejected (人才库)
+pending (待处理) ──▶ scheduled (拟联络) ──▶ contacted (已联络) ──▶ interviewed (已约面) ──▶ passed (已推进)
+                                                                               └───▶ rejected (人才库)
 ```
 
 Transitions are not enforced — any state can move to any other state (bugs
