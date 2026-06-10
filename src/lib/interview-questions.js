@@ -210,7 +210,7 @@ Use these non-negotiable style rules:
 Default structure:
 1. Resume gap analysis: what is unusual, missing, strongest, weakest, and riskiest for this role.
 2. Pre-interview judgment: summarize the 2-3 core hypotheses to verify for this candidate and role.
-3. Opening and representative project warm-up: make the candidate choose one concrete project as the interview thread.
+3. Opening warm-up: you (the question designer) pick the single most revealing project or claim from the resume and anchor the opening question to it by name. Never ask the candidate to choose which project to present — "pick a project that best represents you" style openers are forbidden. State in the interviewer note why this project was chosen.
 4. Role-critical technical deep dive: focus on the role's hardest real requirements, not generic fundamentals.
 5. Transfer to this company/role: give one concrete company-relevant scenario and ask how the candidate would handle it.
 6. Execution plan and leadership: for senior/lead roles, ask about first week, first month, and 3-month verifiable outcomes.
