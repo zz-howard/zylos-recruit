@@ -37,6 +37,10 @@
     streaming: false, // default; loaded from settings on init
   };
 
+  var ROLE_REFRESH_TTL_MS = 2000;
+  var rolesLoadedAt = 0;
+  var rolesRefreshPromise = null;
+
   // ─── Drag-and-drop: one-time board-level delegation ───────────
   board.addEventListener('dragover', function (e) {
     if (!e.target.closest('.col-body')) return;
@@ -179,6 +183,7 @@
   function loadRolesAndCandidates() {
     if (!state.activeCompanyId) {
       state.roles = [];
+      rolesLoadedAt = 0;
       state.candidates = [];
       renderRoleFilter();
       renderBoard();
@@ -189,7 +194,8 @@
       api('GET', '/roles' + cid),
       api('GET', '/candidates' + cid),
     ]).then(function (results) {
-      state.roles = results[0].roles;
+      state.roles = results[0].roles || [];
+      rolesLoadedAt = Date.now();
       state.candidates = results[1].candidates;
       renderRoleFilter();
       renderBoard();
@@ -216,6 +222,65 @@
       cur = '';
     }
     sel.value = cur;
+  }
+
+  function refreshRoles(options) {
+    options = options || {};
+    if (!state.activeCompanyId) {
+      state.roles = [];
+      rolesLoadedAt = 0;
+      return Promise.resolve(state.roles);
+    }
+    if (!options.force && Date.now() - rolesLoadedAt < ROLE_REFRESH_TTL_MS) {
+      return Promise.resolve(state.roles);
+    }
+    if (rolesRefreshPromise) return rolesRefreshPromise;
+    var cid = '?company_id=' + encodeURIComponent(state.activeCompanyId);
+    rolesRefreshPromise = api('GET', '/roles' + cid).then(function (r) {
+      state.roles = r.roles || [];
+      rolesLoadedAt = Date.now();
+      return state.roles;
+    });
+    return rolesRefreshPromise.then(function (roles) {
+      rolesRefreshPromise = null;
+      return roles;
+    }, function (err) {
+      rolesRefreshPromise = null;
+      toast(err.message, 'error');
+      throw err;
+    });
+  }
+
+  function renderRoleSelectOptions(sel, options) {
+    options = options || {};
+    var cur = options.value !== undefined ? String(options.value || '') : sel.value;
+    var html = options.includeAuto ? '<option value="auto">Auto (自动匹配)</option>' : '';
+    state.roles.forEach(function (r) {
+      var inactiveTag = r.active === 0 ? ' [停用]' : '';
+      html += '<option value="' + r.id + '">' + escapeHtml(r.name) + inactiveTag + '</option>';
+    });
+    sel.innerHTML = html;
+    if (cur === 'auto' && options.includeAuto) {
+      sel.value = 'auto';
+    } else if (cur && state.roles.some(function (r) { return String(r.id) === cur; })) {
+      sel.value = cur;
+    } else if (options.includeAuto) {
+      sel.value = 'auto';
+    } else {
+      sel.value = '';
+    }
+  }
+
+  function bindFreshRoleSelect(sel, renderOptions, afterRefresh) {
+    function updateRoles() {
+      var before = sel.value;
+      refreshRoles().then(function () {
+        renderOptions(before);
+        if (afterRefresh) afterRefresh();
+      }).catch(function () {});
+    }
+    sel.addEventListener('pointerdown', updateRoles);
+    sel.addEventListener('focus', updateRoles);
   }
 
   function renderBoard() {
@@ -397,12 +462,7 @@
           }).join('')
       + '</div>'
       + '<div class="field"><label>目标岗位</label>'
-      +   '<select data-k="role_id">'
-      +     state.roles.map(function (r) {
-              var inactiveTag = r.active === 0 ? ' [停用]' : '';
-              return '<option value="' + r.id + '"' + (r.id === c.role_id ? ' selected' : '') + '>' + escapeHtml(r.name) + inactiveTag + '</option>';
-            }).join('')
-      +   '</select>'
+      +   '<select data-k="role_id"></select>'
       +   '<button class="btn btn-ghost" id="btn-auto-match" style="margin-top:6px;font-size:12px">智能匹配岗位</button>'
       +   '<div id="auto-match-results"></div>'
       + '</div>'
@@ -570,6 +630,10 @@
     // Auto-save role dropdown on change
     var roleSelect = wrap.querySelector('[data-k="role_id"]');
     if (roleSelect) {
+      renderRoleSelectOptions(roleSelect, { value: c.role_id });
+      bindFreshRoleSelect(roleSelect, function (value) {
+        renderRoleSelectOptions(roleSelect, { value: value || c.role_id });
+      });
       roleSelect.addEventListener('change', function () {
         inlineSave('role_id', roleSelect.value);
       });
@@ -1017,12 +1081,9 @@
     }
     var wrap = document.createElement('div');
     wrap.className = 'form-dialog';
-    var roleOptions = '<option value="auto">Auto (自动匹配)</option>' + state.roles.map(function (r) {
-      return '<option value="' + r.id + '">' + escapeHtml(r.name) + '</option>';
-    }).join('');
     wrap.innerHTML = ''
       + '<h2>New Candidate</h2>'
-      + '<div class="field"><label>Role</label><select id="f-role">' + roleOptions + '</select></div>'
+      + '<div class="field"><label>Role</label><select id="f-role"></select></div>'
       + '<div class="field"><label>Resume *</label>'
       +   '<div class="drop-zone" id="f-drop-zone">'
       +     '<input type="file" id="f-resume" accept="application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">'
@@ -1036,6 +1097,11 @@
       +   '<button class="btn btn-primary" id="f-save">Submit</button>'
       + '</div>';
     openModal(wrap);
+    var newCandidateRoleSelect = wrap.querySelector('#f-role');
+    renderRoleSelectOptions(newCandidateRoleSelect, { includeAuto: true, value: 'auto' });
+    bindFreshRoleSelect(newCandidateRoleSelect, function (value) {
+      renderRoleSelectOptions(newCandidateRoleSelect, { includeAuto: true, value: value || 'auto' });
+    });
     // Drag-and-drop for resume upload
     var dropZone = wrap.querySelector('#f-drop-zone');
     var fileInput = wrap.querySelector('#f-resume');
@@ -1688,7 +1754,13 @@
   document.getElementById('btn-new-role').addEventListener('click', openNewRoleForm);
   document.getElementById('btn-new-candidate').addEventListener('click', openNewCandidateForm);
   document.getElementById('btn-settings').addEventListener('click', openSettings);
-  document.getElementById('role-filter').addEventListener('change', function (e) {
+  var roleFilterSelect = document.getElementById('role-filter');
+  bindFreshRoleSelect(roleFilterSelect, function () {
+    renderRoleFilter();
+  }, function () {
+    renderBoard();
+  });
+  roleFilterSelect.addEventListener('change', function (e) {
     state.filterRoleId = e.target.value;
     renderBoard();
   });
