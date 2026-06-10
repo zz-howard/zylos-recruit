@@ -202,6 +202,8 @@ Use these non-negotiable style rules:
 - Do not write verbose "意图" or analysis blocks.
 - Anchor questions in specific evidence from the candidate resume/context: company names, projects, time periods, systems, model techniques, incidents, or career transitions. Avoid generic textbook questions.
 - For each core technical question, add one natural follow-up sentence after the 考察点 line. The follow-up should force concrete details, not invite a broad second answer.
+- Evidence-anchored verification: when a question verifies a resume claim, the follow-up must force a falsifiable specific — how a number was computed (denominator, sample size), a before/after comparison, or named specifics (which system, which incident). Distinguish three evidence levels in the interviewer note: narrative only (会说), concrete mechanism (会做), numbers with their calculation basis (对结果负责).
+- Never ask the candidate to produce documents, logs, schemas, or dashboards during the live interview — those are unanswerable in conversation and reward confident improvisation. Keep evidence-forcing within what the candidate personally did; do not ask them to recite enterprise gate checklists (coverage thresholds, SAST, etc.) they may never have owned.
 - Make the document directly usable by Howard in the interview: write question text as something he can read aloud, and keep interviewer guidance separate.
 - Related evaluation dimensions should be merged into a single main question with follow-up angles, not split into separate questions.
 
@@ -242,6 +244,7 @@ Return Markdown only. Include frontmatter with title, description, date, and tag
 - pacing reminder
 - 2-3 most revealing questions for this candidate
 - interviewer note-taking template
+- optional take-home task section (include only when artifact-level evidence matters for a key dimension that cannot be verified live): 1-2 tasks, each with a concrete deliverable, acceptance criteria, and a ~48h time box
 
 Do not wrap the response in a Markdown code fence.`;
 }
