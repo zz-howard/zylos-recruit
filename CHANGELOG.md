@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.24] - 2026-06-10
+
+### Added
+- **Smarter interview question generation** (#42): Adds current-date context, duration-aware question caps, resume gap analysis, tenure probes, cross-role bridging, and role-specific interview prompt instructions.
+
+### Fixed
+- **Fresh role dropdown options** (#50): Role selects now refresh role data on open/focus with a short TTL, so roles created externally appear without a full page reload.
+
 ## [0.2.23] - 2026-05-07
 
 ### Added
