@@ -1,7 +1,7 @@
 {
   "name": "zylos-recruit",
-  "version": "0.2.24",
-  "description": "Recruitment management (ATS) component for zylos — Kanban board, role library, resume storage, interview evaluations.",
+  "version": "0.2.25",
+  "description": "Recruitment management (ATS) component for zylos \u2014 Kanban board, role library, resume storage, interview evaluations.",
   "type": "module",
   "main": "src/index.js",
   "scripts": {

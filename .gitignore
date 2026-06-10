@@ -24,3 +24,4 @@ build/
 # Temporary files
 *.tmp
 *.bak
+*.db

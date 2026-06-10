@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.25] - 2026-06-10
+
+### Changed
+- **Interview question generation: opener anchoring** (#53): The opening warm-up question now anchors to a specific project or claim the question designer picks from the resume. "Pick a project that best represents you" style openers are forbidden.
+- **Interview question generation: evidence-anchored verification** (#54): Claim-verifying follow-ups must force a falsifiable specific (how a number was computed, before/after comparison, named specifics), with three evidence levels (narrative / mechanism / numbers with calculation basis) noted for the interviewer. Asking for documents/logs/schemas live is forbidden; an optional take-home task section covers artifact-level evidence.
+
 ## [0.2.24] - 2026-06-10
 
 ### Added
