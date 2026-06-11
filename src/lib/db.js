@@ -597,12 +597,31 @@ export function deleteRole(id) {
 
 // ─── Candidates ───────────────────────────────────────────────────────
 
-export function listCandidates({ companyId, roleId, state } = {}) {
+function escapeLikePattern(value) {
+  return String(value).replace(/[\\%_]/g, '\\$&');
+}
+
+export function listCandidates({ companyId, roleId, state, search } = {}) {
   const where = ['c.deleted_at IS NULL'];
   const params = [];
   if (companyId) { where.push('c.company_id = ?'); params.push(companyId); }
   if (roleId)    { where.push('c.role_id = ?');    params.push(roleId); }
   if (state)     { where.push('c.state = ?');      params.push(state); }
+  const searchTerm = typeof search === 'string' ? search.trim() : '';
+  if (searchTerm) {
+    const pattern = `%${escapeLikePattern(searchTerm).toLowerCase()}%`;
+    where.push(`(
+      lower(c.name) LIKE ? ESCAPE '\\' OR
+      lower(COALESCE(c.email, '')) LIKE ? ESCAPE '\\' OR
+      lower(COALESCE(c.phone, '')) LIKE ? ESCAPE '\\' OR
+      lower(COALESCE(c.source, '')) LIKE ? ESCAPE '\\' OR
+      lower(COALESCE(c.brief, '')) LIKE ? ESCAPE '\\' OR
+      lower(COALESCE(c.extra_info, '')) LIKE ? ESCAPE '\\' OR
+      lower(c.state) LIKE ? ESCAPE '\\' OR
+      lower(COALESCE(r.name, '')) LIKE ? ESCAPE '\\'
+    )`);
+    params.push(pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern);
+  }
   const whereClause = 'WHERE ' + where.join(' AND ');
   const rows = getDb().prepare(`
     SELECT c.*, r.name AS role_name
