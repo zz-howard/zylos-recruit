@@ -1750,6 +1750,13 @@
   document.getElementById('company-switcher').addEventListener('change', function (e) {
     state.activeCompanyId = e.target.value;
     state.filterRoleId = '';
+    state.searchTerm = '';
+    searchInput.value = '';
+    searchClear.classList.remove('visible');
+    if (searchTimer) {
+      clearTimeout(searchTimer);
+      searchTimer = null;
+    }
     saveActiveCompanyToStorage(state.activeCompanyId);
     loadRolesAndCandidates();
   });

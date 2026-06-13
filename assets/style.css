@@ -236,6 +236,7 @@ a:hover { color: var(--primary); }
 }
 .candidate-search-clear:hover {
   transform: translateY(-50%);
+  color: var(--text);
 }
 .candidate-search-clear.visible {
   display: flex;
