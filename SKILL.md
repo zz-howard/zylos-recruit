@@ -1,6 +1,6 @@
 ---
 name: recruit
-version: 0.2.25
+version: 0.2.26
 description: >
   Recruitment management (ATS) component for zylos. Provides a web Kanban
   board for managing candidates through interview stages, with SQLite-backed
