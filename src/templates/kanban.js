@@ -23,6 +23,10 @@ export function kanbanPageHtml(baseUrl) {
       <button id="btn-manage-companies" class="btn btn-ghost" title="Manage companies">⚙</button>
     </div>
     <div class="topbar-right" id="topbar-right-kanban">
+      <div class="candidate-search">
+        <input id="candidate-search" type="text" autocomplete="off" placeholder="Search candidates" aria-label="Search candidates">
+        <button id="candidate-search-clear" class="btn btn-ghost candidate-search-clear" title="Clear search" aria-label="Clear search" type="button">×</button>
+      </div>
       <select id="role-filter">
         <option value="">All roles</option>
       </select>

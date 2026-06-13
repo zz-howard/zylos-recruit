@@ -16,7 +16,8 @@ export function candidatesRouter() {
     }
     const roleId = req.query.role_id ? Number(req.query.role_id) : undefined;
     const state = req.query.state || undefined;
-    const candidates = listCandidates({ companyId, roleId, state }).map(c => {
+    const search = typeof req.query.q === 'string' ? req.query.q : undefined;
+    const candidates = listCandidates({ companyId, roleId, state, search }).map(c => {
       c.is_evaluating = isEvaluating(c.id);
       return c;
     });

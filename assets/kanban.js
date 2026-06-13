@@ -33,6 +33,7 @@
     roles: [],
     candidates: [],
     filterRoleId: '',
+    searchTerm: '',
     selectedCandidate: null,
     streaming: false, // default; loaded from settings on init
   };
@@ -190,9 +191,13 @@
       return Promise.resolve();
     }
     var cid = '?company_id=' + encodeURIComponent(state.activeCompanyId);
+    var candidateQuery = cid;
+    if (state.searchTerm.trim()) {
+      candidateQuery += '&q=' + encodeURIComponent(state.searchTerm.trim());
+    }
     return Promise.all([
       api('GET', '/roles' + cid),
-      api('GET', '/candidates' + cid),
+      api('GET', '/candidates' + candidateQuery),
     ]).then(function (results) {
       state.roles = results[0].roles || [];
       rolesLoadedAt = Date.now();
@@ -1745,6 +1750,13 @@
   document.getElementById('company-switcher').addEventListener('change', function (e) {
     state.activeCompanyId = e.target.value;
     state.filterRoleId = '';
+    state.searchTerm = '';
+    searchInput.value = '';
+    searchClear.classList.remove('visible');
+    if (searchTimer) {
+      clearTimeout(searchTimer);
+      searchTimer = null;
+    }
     saveActiveCompanyToStorage(state.activeCompanyId);
     loadRolesAndCandidates();
   });
@@ -1763,6 +1775,45 @@
   roleFilterSelect.addEventListener('change', function (e) {
     state.filterRoleId = e.target.value;
     renderBoard();
+  });
+  var searchInput = document.getElementById('candidate-search');
+  var searchClear = document.getElementById('candidate-search-clear');
+  var searchTimer = null;
+  function scheduleCandidateSearch() {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () {
+      searchTimer = null;
+      loadRolesAndCandidates();
+    }, 250);
+  }
+  searchInput.addEventListener('input', function (e) {
+    state.searchTerm = e.target.value;
+    searchClear.classList.toggle('visible', Boolean(state.searchTerm.trim()));
+    scheduleCandidateSearch();
+  });
+  searchInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && state.searchTerm) {
+      e.preventDefault();
+      searchInput.value = '';
+      state.searchTerm = '';
+      searchClear.classList.remove('visible');
+      if (searchTimer) {
+        clearTimeout(searchTimer);
+        searchTimer = null;
+      }
+      loadRolesAndCandidates();
+    }
+  });
+  searchClear.addEventListener('click', function () {
+    searchInput.value = '';
+    state.searchTerm = '';
+    searchClear.classList.remove('visible');
+    if (searchTimer) {
+      clearTimeout(searchTimer);
+      searchTimer = null;
+    }
+    loadRolesAndCandidates();
+    searchInput.focus();
   });
 
   // ─── Board auto-refresh when evaluations in progress ────────
