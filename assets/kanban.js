@@ -428,10 +428,13 @@
               var verdictLabel = VERDICT_LABELS[e.verdict] || e.verdict || '';
               return '<div class="eval">'
                 + '<div class="eval-head">'
-                +   (e.verdict ? '<span class="verdict-badge verdict-' + escapeHtml(e.verdict) + '">'
-                    + escapeHtml(verdictLabel) + '</span> ' : '')
-                +   '<span>' + escapeHtml(e.author || 'anon') + '</span>'
-                +   '<span class="meta">' + escapeHtml(e.created_at) + '</span>'
+                +   '<span class="eval-meta">'
+                +     (e.verdict ? '<span class="verdict-badge verdict-' + escapeHtml(e.verdict) + '">'
+                      + escapeHtml(verdictLabel) + '</span> ' : '')
+                +     '<span>' + escapeHtml(e.author || 'anon') + '</span>'
+                +     '<span class="meta">' + escapeHtml(e.created_at) + '</span>'
+                +   '</span>'
+                +   '<button class="btn-delete-eval" data-eval-id="' + escapeHtml(e.id) + '" title="删除面试记录">删除</button>'
                 + '</div>'
                 + '<div class="eval-body">' + escapeHtml(e.content || '') + '</div>'
                 + '</div>';
@@ -835,6 +838,27 @@
         } else {
           fallbackCopy(raw);
         }
+      });
+    });
+
+    // Delete interview evaluation
+    wrap.querySelectorAll('.btn-delete-eval').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var evalId = btn.dataset.evalId;
+        if (!evalId) return;
+        if (!confirm('确认删除这条面试记录？')) return;
+        btn.disabled = true;
+        btn.textContent = '删除中...';
+        api('DELETE', '/candidates/' + c.id + '/evaluations/' + evalId)
+          .then(function () {
+            toast('面试记录已删除', 'success');
+            return loadRolesAndCandidates().then(function () { openCandidate(c.id); });
+          })
+          .catch(function (err) {
+            btn.disabled = false;
+            btn.textContent = '删除';
+            toast(err.message, 'error');
+          });
       });
     });
 
