@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.27] - 2026-06-17
+
+### Added
+- **Interview evaluation deletion UI** (#58): Existing interview evaluation cards now expose a delete action with confirmation, disabled/deleting state, DELETE API integration, and post-delete candidate reload so the Kanban view stays consistent with backend data.
+
 ## [0.2.26] - 2026-06-13
 
 ### Added
