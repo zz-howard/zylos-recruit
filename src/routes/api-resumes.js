@@ -115,7 +115,8 @@ export function resumesRouter(uploadConfig) {
     }
     res.setHeader('Content-Type', 'application/pdf');
     if (req.query.dl === '1') {
-      res.setHeader('Content-Disposition', `attachment; filename="${cand.name}-resume.pdf"`);
+      const safeName = encodeURIComponent(`${cand.name}-resume.pdf`);
+      res.setHeader('Content-Disposition', `attachment; filename="resume.pdf"; filename*=UTF-8''${safeName}`);
     }
     fs.createReadStream(resolvedFile).pipe(res);
   });
