@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.28] - 2026-06-22
+
+### Fixed
+- **Non-ASCII resume download** (#60): Downloading resumes for candidates with non-ASCII names (e.g. Chinese characters) no longer causes `ERR_INVALID_CHAR`. Uses RFC 5987 `filename*=UTF-8''` encoding with ASCII fallback.
+
 ## [0.2.27] - 2026-06-17
 
 ### Added
