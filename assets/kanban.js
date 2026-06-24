@@ -1966,6 +1966,15 @@
         generateBtn.disabled = !!r.generating;
         generateBtn.textContent = r.generating ? '生成中...' : '生成参考面试题';
       }
+      var existingBanner = wrap.querySelector('.sandbox-warning-banner');
+      if (existingBanner) existingBanner.remove();
+      if (r.sandbox_warning) {
+        var banner = document.createElement('div');
+        banner.className = 'sandbox-warning-banner';
+        banner.innerHTML = '⚠ Sandbox unavailable — AI execution is running without filesystem isolation. '
+          + '<span class="meta">' + escapeHtml(r.sandbox_warning.reason || '') + '</span>';
+        listEl.parentNode.insertBefore(banner, listEl);
+      }
       var cards = [];
       if (r.generating) {
         cards.push('<div class="eval iq-doc iq-generating">'

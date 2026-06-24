@@ -423,3 +423,14 @@ textarea { resize: vertical; min-height: 80px; width: 100%; }
   margin-left: 8px;
   vertical-align: middle;
 }
+
+.sandbox-warning-banner {
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: rgba(180, 83, 9, 0.15);
+  border: 1px solid rgba(180, 83, 9, 0.4);
+  color: #fbbf24;
+  font-size: 13px;
+  line-height: 1.4;
+}
