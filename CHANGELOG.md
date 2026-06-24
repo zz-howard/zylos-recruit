@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.29] - 2026-06-24
+
+### Added
+- **Sandbox security warning** (#61): When AI execution runs without sandbox (allowUnsandboxed=true), API responses include `sandboxed: false` flag and UI displays a warning badge on interview question cards. Sandbox status flows through sandbox-runner stderr → runtime adapter → ai-gateway → DB → API → UI.
+
+### Fixed
+- **Smart matching semantic understanding** (#63): Rewrote role matching prompt from 3 lines to 28 lines. AI now evaluates candidates based on role essence rather than keyword overlap. Supports structured portrait layers (required/bonus/red-lines) with score caps. Fixes issue where unrelated roles (e.g. LLM post-training) scored higher than actual matches.
+
 ## [0.2.28] - 2026-06-22
 
 ### Fixed
