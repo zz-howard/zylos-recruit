@@ -234,6 +234,27 @@ function writePayload(cmd, args, opts, sandbox) {
   return payloadPath;
 }
 
+export function parseSandboxStatusFromStderr(stderr) {
+  const match = (stderr || '').match(/\[recruit:sandbox-status\] (.+)/);
+  if (match) {
+    try { return JSON.parse(match[1]); } catch { /* ignore parse errors */ }
+  }
+  return null;
+}
+
+export function isContainerEnvironment() {
+  try {
+    if (fs.existsSync('/.dockerenv')) return true;
+    const cgroup = fs.readFileSync('/proc/1/cgroup', 'utf8');
+    if (/docker|containerd|kubepods|lxc/i.test(cgroup)) return true;
+  } catch { /* not linux or no access */ }
+  return false;
+}
+
+export function isUnsandboxedAllowed() {
+  return allowUnsandboxed({}) || false;
+}
+
 /**
  * Spawn a command inside SRT. Fails closed unless sandbox.allowUnsandboxed or
  * ai.sandbox.allowUnsandboxed is explicitly true.

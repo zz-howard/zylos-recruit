@@ -20,7 +20,7 @@
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import os from 'node:os';
-import { spawnSandboxed } from './sandbox.js';
+import { spawnSandboxed, parseSandboxStatusFromStderr } from './sandbox.js';
 
 const ALWAYS_DISABLED = ['image_generation', 'multi_agent', 'computer_use'];
 const NEEDS_SHELL = new Set(['resume_eval', 'auto_match', 'interview_questions']);
@@ -147,7 +147,7 @@ export default {
     }
     const env = { ...process.env, NO_COLOR: '1', TMPDIR: '/tmp' };
 
-    const stdout = await new Promise((resolve, reject) => {
+    const { stdout, stderr } = await new Promise((resolve, reject) => {
       const child = spawnCodex(args, {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -166,10 +166,11 @@ export default {
       child.on('close', (code) => {
         clearTimeout(timer);
         if (code !== 0) reject(new Error(`codex exited with code ${code}: ${err.slice(0, 500)}`));
-        else resolve(out);
+        else resolve({ stdout: out, stderr: err });
       });
     });
-    return parseCodexJsonl(stdout);
+    const sandboxStatus = parseSandboxStatusFromStderr(stderr);
+    return { ...parseCodexJsonl(stdout), sandboxed: sandboxStatus?.sandboxed ?? true };
   },
 
   async *stream(prompt, { model, effort, sessionId, readOnlyBinds, scenario }) {

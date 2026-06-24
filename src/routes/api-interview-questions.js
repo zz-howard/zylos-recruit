@@ -14,6 +14,7 @@ import {
   retryPagesRegistration,
   unregisterDocumentFromPages,
 } from '../lib/interview-questions.js';
+import { isUnsandboxedAllowed, isContainerEnvironment } from '../lib/runtimes/sandbox.js';
 
 export function interviewQuestionsRouter() {
   const router = express.Router();
@@ -21,10 +22,17 @@ export function interviewQuestionsRouter() {
 
   router.get('/candidates/:id/interview-questions', (req, res) => {
     const candidateId = Number(req.params.id);
+    const unsandboxedEnabled = isUnsandboxedAllowed();
     res.json({
       documents: listInterviewQuestionDocuments({ candidateId }),
       generating: isGeneratingInterviewQuestions(candidateId),
       generation_error: getInterviewQuestionGenerationError(candidateId),
+      sandbox_warning: unsandboxedEnabled ? {
+        sandboxed: false,
+        reason: isContainerEnvironment()
+          ? 'Running in container without sandbox support'
+          : 'allowUnsandboxed is enabled in config',
+      } : null,
     });
   });
 

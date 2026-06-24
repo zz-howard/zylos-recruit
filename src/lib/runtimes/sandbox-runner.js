@@ -19,6 +19,11 @@ function readPayload() {
   return JSON.parse(raw);
 }
 
+function emitSandboxStatus(sandboxed, reason) {
+  const status = JSON.stringify({ sandboxed, reason: reason || null });
+  process.stderr.write(`[recruit:sandbox-status] ${status}\n`);
+}
+
 function logUnsandboxed(metadata, reason) {
   const scenario = metadata?.scenario || 'unknown';
   const runtime = metadata?.runtime || 'unknown';
@@ -54,12 +59,14 @@ async function main() {
   try {
     await SandboxManager.initialize(runtimeConfig);
     wrappedCommand = await SandboxManager.wrapWithSandbox(command, shell);
+    emitSandboxStatus(true, null);
   } catch (err) {
     if (!allowUnsandboxed) {
       console.error(`[recruit] sandbox initialization failed closed: ${err.message}`);
       process.exit(126);
     }
     logUnsandboxed(metadata, err.message);
+    emitSandboxStatus(false, err.message);
     wrappedCommand = command;
   }
 

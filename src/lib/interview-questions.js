@@ -369,9 +369,12 @@ export async function generateInterviewQuestions(candidateId, { customPrompt, du
     ...(hasResume ? [resumeAbsPath] : []),
   ];
   const startTime = Date.now();
-  const { text, runtime, model, effort } = await aiCall('interview_questions', prompt, { required, readOnlyBinds });
+  const { text, runtime, model, effort, sandboxed } = await aiCall('interview_questions', prompt, { required, readOnlyBinds });
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log(`[recruit] Interview questions generated for candidate #${candidate.id} "${candidate.name || ''}" (${elapsed}s, ${runtime}/${model})`);
+  console.log(`[recruit] Interview questions generated for candidate #${candidate.id} "${candidate.name || ''}" (${elapsed}s, ${runtime}/${model}, sandboxed=${sandboxed ?? 'unknown'})`);
+  if (sandboxed === false) {
+    console.warn(`[recruit] WARNING: interview questions for candidate #${candidate.id} generated WITHOUT sandbox isolation`);
+  }
 
   const body = cleanGeneratedMarkdown(text);
   const title = inferMarkdownTitle(body, `Reference Interview Questions - ${safeTitlePart(candidate.name || 'Candidate')}`);
@@ -394,6 +397,7 @@ export async function generateInterviewQuestions(candidateId, { customPrompt, du
     generatorRuntime: runtime,
     generatorModel: model,
     generatorEffort: effort,
+    sandboxed: sandboxed ?? true,
   });
 
   const slug = `recruit/interview-questions/cand-${candidate.id}-doc-${doc.id}`;
