@@ -1966,6 +1966,15 @@
         generateBtn.disabled = !!r.generating;
         generateBtn.textContent = r.generating ? '生成中...' : '生成参考面试题';
       }
+      var existingBanner = wrap.querySelector('.sandbox-warning-banner');
+      if (existingBanner) existingBanner.remove();
+      if (r.sandbox_warning) {
+        var banner = document.createElement('div');
+        banner.className = 'sandbox-warning-banner';
+        banner.innerHTML = '⚠ Sandbox unavailable — AI execution is running without filesystem isolation. '
+          + '<span class="meta">' + escapeHtml(r.sandbox_warning.reason || '') + '</span>';
+        listEl.parentNode.insertBefore(banner, listEl);
+      }
       var cards = [];
       if (r.generating) {
         cards.push('<div class="eval iq-doc iq-generating">'
@@ -1993,9 +2002,13 @@
           actions += '<button class="btn btn-ghost iq-retry" data-id="' + d.id + '">Retry Pages</button> ';
         }
         actions += '<a class="btn btn-ghost" target="_blank" href="' + API + '/interview-questions/' + d.id + '/raw">Raw</a>';
+        var sandboxWarning = d.sandboxed === 0
+          ? '<span class="badge badge-warning" title="Generated without sandbox isolation — AI process could access local files">⚠ Unsandboxed</span>'
+          : '';
         return '<div class="eval iq-doc">'
           + '<div class="eval-head">'
           + '<span>' + escapeHtml(d.title || 'Reference interview questions') + '</span>'
+          + sandboxWarning
           + '<span class="meta">' + escapeHtml(d.created_at || '') + '</span>'
           + '</div>'
           + (d.error_message && !d.pages_url ? '<div class="meta error">' + escapeHtml(d.error_message) + '</div>' : '')

@@ -16,7 +16,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { spawnSandboxed } from './sandbox.js';
+import { spawnSandboxed, parseSandboxStatusFromStderr } from './sandbox.js';
 
 const ALWAYS_DENIED = ['write_file', 'replace', 'save_memory', 'activate_skill'];
 
@@ -76,7 +76,7 @@ export default {
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1', GEMINI_CLI_TRUST_WORKSPACE: 'true' };
 
-    const stdout = await new Promise((resolve, reject) => {
+    const { stdout, stderr } = await new Promise((resolve, reject) => {
       const child = spawnSandboxed('gemini', args, {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -93,15 +93,16 @@ export default {
       child.on('close', (code) => {
         clearTimeout(timer);
         if (code !== 0) reject(new Error(`gemini exited with code ${code}: ${err.slice(0, 500)}`));
-        else resolve(out);
+        else resolve({ stdout: out, stderr: err });
       });
     });
 
+    const sandboxStatus = parseSandboxStatusFromStderr(stderr);
     try {
       const json = JSON.parse(stdout);
-      return { text: (json.response || '').trim(), sessionId: json.session_id || undefined };
+      return { text: (json.response || '').trim(), sessionId: json.session_id || undefined, sandboxed: sandboxStatus?.sandboxed ?? true };
     } catch {
-      return { text: stdout.trim() };
+      return { text: stdout.trim(), sandboxed: sandboxStatus?.sandboxed ?? true };
     }
   },
 

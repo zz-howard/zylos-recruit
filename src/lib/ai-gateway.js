@@ -102,7 +102,7 @@ export async function call(scenario, prompt, { required = ['text'], overrides, s
 
   console.log(`[recruit] AI call: scenario=${scenario}, runtime=${runtimeName}, model=${model}, effort=${effort}${sessionId ? `, resume=${sessionId.slice(0, 8)}…` : ''}${conversation ? `, multi-turn=${conversation.messages.length}msgs` : ''}`);
   const result = await adapter.call(prompt, { model, effort, capabilities: required, sessionId, readOnlyBinds, conversation, scenario });
-  return { text: result.text || result, runtime: runtimeName, model, effort, sessionId: result.sessionId };
+  return { text: result.text || result, runtime: runtimeName, model, effort, sessionId: result.sessionId, sandboxed: result.sandboxed };
 }
 
 /**

@@ -14,7 +14,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
-import { spawnSandboxed } from './sandbox.js';
+import { spawnSandboxed, parseSandboxStatusFromStderr } from './sandbox.js';
 
 const SCENARIO_TOOLS = {
   chat:                 'WebFetch',
@@ -57,7 +57,7 @@ export default {
     const env = { ...process.env, NO_COLOR: '1' };
     delete env.ANTHROPIC_API_KEY;
 
-    const stdout = await new Promise((resolve, reject) => {
+    const { stdout, stderr } = await new Promise((resolve, reject) => {
       const child = spawnSandboxed('claude', args, {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -74,15 +74,16 @@ export default {
       child.on('close', (code) => {
         clearTimeout(timer);
         if (code !== 0) reject(new Error(`claude exited with code ${code}: ${err.slice(0, 500)}`));
-        else resolve(out);
+        else resolve({ stdout: out, stderr: err });
       });
     });
 
+    const sandboxStatus = parseSandboxStatusFromStderr(stderr);
     try {
       const json = JSON.parse(stdout);
-      return { text: (json.result || '').trim(), sessionId: json.session_id || undefined };
+      return { text: (json.result || '').trim(), sessionId: json.session_id || undefined, sandboxed: sandboxStatus?.sandboxed ?? true };
     } catch {
-      return { text: stdout.trim() };
+      return { text: stdout.trim(), sandboxed: sandboxStatus?.sandboxed ?? true };
     }
   },
 

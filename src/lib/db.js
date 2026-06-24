@@ -35,6 +35,7 @@ export function getDb() {
   initSchema(db);
   migrateFromV021(db);
   migrateAddContactedState(db);
+  migrateAddSandboxedColumn(db);
   return db;
 }
 
@@ -130,6 +131,7 @@ function initSchema(db) {
       generator_model   TEXT,
       generator_effort  TEXT,
       error_message     TEXT,
+      sandboxed         INTEGER DEFAULT 1,
       created_at        TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
       deleted_at        TEXT,
@@ -397,6 +399,12 @@ function migrateAddContactedState(db) {
       CREATE INDEX IF NOT EXISTS idx_candidates_deleted ON candidates(deleted_at);
     `);
   });
+}
+
+function migrateAddSandboxedColumn(db) {
+  const cols = db.prepare('PRAGMA table_info(interview_question_documents)').all();
+  if (cols.some(c => c.name === 'sandboxed')) return;
+  db.exec('ALTER TABLE interview_question_documents ADD COLUMN sandboxed INTEGER DEFAULT 1');
 }
 
 // ─── Companies ────────────────────────────────────────────────────────
@@ -796,8 +804,8 @@ export function createInterviewQuestionDocument(data) {
       candidate_id, role_id, company_id, title, file_path,
       pages_slug, pages_url, pages_registered_at,
       generation_status, generator_runtime, generator_model, generator_effort,
-      error_message
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      error_message, sandboxed
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     data.candidateId,
     data.roleId || null,
@@ -812,6 +820,7 @@ export function createInterviewQuestionDocument(data) {
     data.generatorModel || null,
     data.generatorEffort || null,
     data.errorMessage || null,
+    data.sandboxed !== undefined ? (data.sandboxed ? 1 : 0) : 1,
   );
   return getInterviewQuestionDocument(info.lastInsertRowid);
 }
