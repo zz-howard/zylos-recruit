@@ -406,6 +406,19 @@ Copy the CSS verbatim from the template. Fill in the content sections with the i
 - You may add any additional sections (evaluation dimension table, key questions summary, record template, dynamic adjustment strategies, etc.) as needed`;
 }
 
+export function sanitizeGeneratedHtml(html) {
+  let sanitized = html;
+  // Remove all <script>...</script> blocks (including multi-line, case-insensitive)
+  sanitized = sanitized.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '');
+  // Remove self-closing or unclosed <script> tags
+  sanitized = sanitized.replace(/<script\b[^>]*\/?>/gi, '');
+  // Remove on* event handler attributes from all tags
+  sanitized = sanitized.replace(/(<[^>]*?)\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1');
+  // Remove javascript: URLs in href/src/action attributes
+  sanitized = sanitized.replace(/(<[^>]*?\s(?:href|src|action)\s*=\s*["'])javascript:[^"']*(['"])/gi, '$1about:blank$2');
+  return sanitized;
+}
+
 export function cleanGeneratedHtml(text) {
   let cleaned = String(text || '').trim();
 
@@ -432,6 +445,8 @@ export function cleanGeneratedHtml(text) {
   if (!cleaned.includes('<html') || !cleaned.includes('</html>')) {
     throw new Error('Generated output is not valid HTML — missing <html> tags');
   }
+
+  cleaned = sanitizeGeneratedHtml(cleaned);
 
   return cleaned;
 }

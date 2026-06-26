@@ -5,6 +5,8 @@ const {
   buildContext,
   buildPrompt,
   normalizeInterviewDuration,
+  sanitizeGeneratedHtml,
+  cleanGeneratedHtml,
 } = await import('../src/lib/interview-questions.js');
 
 const candidate = {
@@ -68,4 +70,43 @@ test('normalizeInterviewDuration maps unsupported values to supported prompt bud
   assert.equal(normalizeInterviewDuration('15'), 30);
   assert.equal(normalizeInterviewDuration(45), 60);
   assert.equal(normalizeInterviewDuration(undefined), 60);
+});
+
+test('sanitizeGeneratedHtml removes script tags', () => {
+  const input = '<html><head></head><body><p>Hello</p><script>alert("xss")</script></body></html>';
+  const result = sanitizeGeneratedHtml(input);
+  assert.ok(!result.includes('<script'), 'should not contain <script');
+  assert.ok(!result.includes('alert'), 'should not contain alert');
+  assert.ok(result.includes('<p>Hello</p>'), 'should preserve content');
+});
+
+test('sanitizeGeneratedHtml removes multi-line script blocks', () => {
+  const input = '<html><body><script type="text/javascript">\nvar x = 1;\nalert(x);\n</script><p>OK</p></body></html>';
+  const result = sanitizeGeneratedHtml(input);
+  assert.ok(!result.includes('<script'), 'should not contain <script');
+  assert.ok(result.includes('<p>OK</p>'), 'should preserve content');
+});
+
+test('sanitizeGeneratedHtml removes on* event handlers', () => {
+  const input = '<html><body><img src="x.png" onerror="alert(1)"><div onclick="steal()" class="card">Text</div></body></html>';
+  const result = sanitizeGeneratedHtml(input);
+  assert.ok(!result.includes('onerror'), 'should not contain onerror');
+  assert.ok(!result.includes('onclick'), 'should not contain onclick');
+  assert.ok(result.includes('class="card"'), 'should preserve other attributes');
+  assert.ok(result.includes('src="x.png"'), 'should preserve src');
+});
+
+test('sanitizeGeneratedHtml removes javascript: URLs', () => {
+  const input = '<html><body><a href="javascript:alert(1)">Click</a></body></html>';
+  const result = sanitizeGeneratedHtml(input);
+  assert.ok(!result.includes('javascript:'), 'should not contain javascript: URL');
+  assert.ok(result.includes('about:blank'), 'should replace with about:blank');
+  assert.ok(result.includes('>Click</a>'), 'should preserve link text');
+});
+
+test('cleanGeneratedHtml applies sanitization', () => {
+  const input = '<html><head></head><body><p>Content</p><script>document.cookie</script></body></html>';
+  const result = cleanGeneratedHtml(input);
+  assert.ok(!result.includes('<script'), 'cleanGeneratedHtml should sanitize scripts');
+  assert.ok(result.includes('<p>Content</p>'), 'should preserve content');
 });
