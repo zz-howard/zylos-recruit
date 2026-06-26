@@ -1922,7 +1922,7 @@
       if (!wrap || wrap.dataset.iqPolling === 'true') return;
       wrap.dataset.iqPolling = 'true';
       var pollCount = 0;
-      var maxPolls = 72;
+      var maxPolls = 144;
       var before = Number(initialCount || 0);
       var statusEl = wrap.querySelector('#iq-status');
       var timer = setInterval(function () {
