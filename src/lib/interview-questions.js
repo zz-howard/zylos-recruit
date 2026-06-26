@@ -13,7 +13,7 @@ import {
   getRole,
 } from './db.js';
 import { DATA_DIR, KNOWLEDGE_DIR, RESUMES_DIR } from './config.js';
-import { call as aiCall } from './ai-gateway.js';
+import { call as aiCall, resolve as resolveRuntime } from './ai-gateway.js';
 import { registerWithPages, unregisterFromPages } from './pages-integration.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_PATH = path.join(__dirname, 'interview-questions-template.html');
@@ -369,13 +369,24 @@ export async function generateInterviewQuestions(candidateId, { customPrompt, du
   }
 
   const context = buildContext({ candidate, role, company, customPrompt });
-  const templatePath = prepareSandboxTemplate(candidate.id);
-  const prompt = buildPrompt(context, { duration, templatePath });
-  const required = hasResume ? ['text', 'read_file', 'edit_file'] : ['text', 'edit_file'];
   const readOnlyBinds = [
     ...(fs.existsSync(KNOWLEDGE_DIR) ? [KNOWLEDGE_DIR] : []),
     ...(hasResume ? [resumeAbsPath] : []),
   ];
+
+  const { adapter } = resolveRuntime('interview_questions');
+  const useTemplateEdit = adapter.capabilities.includes('edit_file');
+
+  let templatePath;
+  if (useTemplateEdit) {
+    templatePath = prepareSandboxTemplate(candidate.id);
+  }
+
+  const prompt = buildPrompt(context, { duration, templatePath });
+  const required = hasResume
+    ? ['text', 'read_file', ...(useTemplateEdit ? ['edit_file'] : [])]
+    : ['text', ...(useTemplateEdit ? ['edit_file'] : [])];
+
   const startTime = Date.now();
   const result = await aiCall('interview_questions', prompt, { required, readOnlyBinds });
   const { runtime, model, effort, sandboxed } = result;
@@ -386,14 +397,21 @@ export async function generateInterviewQuestions(candidateId, { customPrompt, du
   }
 
   let html;
-  const editedHtml = fs.readFileSync(templatePath, 'utf8');
-  if (editedHtml.includes('<!-- CONTENT_PLACEHOLDER -->')) {
-    console.warn(`[recruit] Template edit failed for candidate #${candidate.id}, falling back to text output`);
-    html = cleanGeneratedHtml(result.text);
+  if (useTemplateEdit) {
+    const editedHtml = fs.readFileSync(templatePath, 'utf8');
+    try { fs.unlinkSync(templatePath); } catch { /* best-effort cleanup */ }
+    if (editedHtml.includes('<!-- CONTENT_PLACEHOLDER -->')) {
+      console.warn(`[recruit] Template edit failed for candidate #${candidate.id}, retrying with direct HTML output`);
+      const directPrompt = buildPrompt(context, { duration });
+      const directRequired = hasResume ? ['text', 'read_file'] : ['text'];
+      const fallback = await aiCall('interview_questions', directPrompt, { required: directRequired, readOnlyBinds });
+      html = cleanGeneratedHtml(fallback.text);
+    } else {
+      html = sanitizeGeneratedHtml(editedHtml);
+    }
   } else {
-    html = sanitizeGeneratedHtml(editedHtml);
+    html = cleanGeneratedHtml(result.text);
   }
-  try { fs.unlinkSync(templatePath); } catch { /* best-effort cleanup */ }
   const titleMatch = html.match(/<title>([^<]*)<\/title>/);
   const title = safeTitlePart(titleMatch?.[1] || `${candidate.name || 'Candidate'} 面试参考题`);
 
