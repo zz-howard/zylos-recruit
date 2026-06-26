@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.31] - 2026-06-26
+
+### Added
+- **Template-edit flow for interview questions**: LLM edits a pre-styled HTML template (replacing a content placeholder) instead of generating full HTML from scratch, reducing output tokens and generation time by ~22%. Falls back to a second direct-output AI call if template edit fails.
+- **Runtime capability gating**: Template-edit path is only used when the runtime supports `edit_file` (Claude). Other runtimes (Codex, Gemini) automatically use direct HTML output.
+- **HTML sanitization** (security): All LLM-generated HTML is sanitized via `sanitize-html` allowlist before saving. Blocks script injection, inline event handlers, javascript: URLs (including entity-encoded/obfuscated variants), iframe/srcdoc, object/embed/form, and meta http-equiv refresh redirects.
+
+### Changed
+- **Claude runtime timeout**: Increased from 900s to 1200s for template-edit flow.
+
 ## [0.2.30] - 2026-06-25
 
 ### Changed
