@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import sanitize from 'sanitize-html';
 import {
   createInterviewQuestionDocument,
   updateInterviewQuestionDocument,
@@ -406,17 +407,35 @@ Copy the CSS verbatim from the template. Fill in the content sections with the i
 - You may add any additional sections (evaluation dimension table, key questions summary, record template, dynamic adjustment strategies, etc.) as needed`;
 }
 
+const SANITIZE_OPTIONS = {
+  allowedTags: sanitize.defaults.allowedTags.concat([
+    'html', 'head', 'body', 'meta', 'title', 'style', 'link',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'img', 'figure', 'figcaption', 'details', 'summary',
+    'section', 'article', 'header', 'footer', 'nav', 'main', 'aside',
+    'colgroup', 'col', 'thead', 'tbody', 'tfoot', 'caption',
+    'sup', 'sub', 'mark', 'small', 'abbr', 'cite', 'time',
+  ]),
+  allowedAttributes: {
+    '*': ['class', 'id', 'style', 'lang', 'dir', 'title', 'role', 'aria-*', 'data-*'],
+    meta: ['charset', 'name', 'content', 'http-equiv'],
+    link: ['rel', 'href', 'type', 'media'],
+    img: ['src', 'alt', 'width', 'height', 'loading'],
+    a: ['href', 'target', 'rel'],
+    td: ['colspan', 'rowspan'],
+    th: ['colspan', 'rowspan', 'scope'],
+    col: ['span'],
+    colgroup: ['span'],
+    ol: ['start', 'type', 'reversed'],
+    time: ['datetime'],
+  },
+  allowedSchemes: ['http', 'https', 'mailto'],
+  allowVulnerableTags: true,
+  disallowedTagsMode: 'discard',
+};
+
 export function sanitizeGeneratedHtml(html) {
-  let sanitized = html;
-  // Remove all <script>...</script> blocks (including multi-line, case-insensitive)
-  sanitized = sanitized.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '');
-  // Remove self-closing or unclosed <script> tags
-  sanitized = sanitized.replace(/<script\b[^>]*\/?>/gi, '');
-  // Remove on* event handler attributes from all tags
-  sanitized = sanitized.replace(/(<[^>]*?)\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1');
-  // Remove javascript: URLs in href/src/action attributes
-  sanitized = sanitized.replace(/(<[^>]*?\s(?:href|src|action)\s*=\s*["'])javascript:[^"']*(['"])/gi, '$1about:blank$2');
-  return sanitized;
+  return sanitize(html, SANITIZE_OPTIONS);
 }
 
 export function cleanGeneratedHtml(text) {
