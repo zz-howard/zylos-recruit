@@ -140,6 +140,13 @@ test('sanitizeGeneratedHtml preserves safe HTML structure', () => {
   assert.ok(result.includes('<ul>'), 'should preserve lists');
 });
 
+test('sanitizeGeneratedHtml strips meta http-equiv refresh', () => {
+  const input = '<meta http-equiv="refresh" content="0;url=https://attacker.example/phish"><p>Safe</p>';
+  const result = sanitizeGeneratedHtml(input);
+  assert.ok(!result.includes('http-equiv'), 'should strip http-equiv (content alone is inert)');
+  assert.ok(result.includes('<p>Safe</p>'), 'should preserve content');
+});
+
 test('cleanGeneratedHtml applies sanitization', () => {
   const input = '<html><head></head><body><p>Content</p><script>document.cookie</script></body></html>';
   const result = cleanGeneratedHtml(input);

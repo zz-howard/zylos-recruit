@@ -418,7 +418,7 @@ const SANITIZE_OPTIONS = {
   ]),
   allowedAttributes: {
     '*': ['class', 'id', 'style', 'lang', 'dir', 'title', 'role', 'aria-*', 'data-*'],
-    meta: ['charset', 'name', 'content', 'http-equiv'],
+    meta: ['charset', 'name', 'content'],
     link: ['rel', 'href', 'type', 'media'],
     img: ['src', 'alt', 'width', 'height', 'loading'],
     a: ['href', 'target', 'rel'],
