@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import fs from 'node:fs';
+
 const {
   buildContext,
   buildPrompt,
   normalizeInterviewDuration,
   sanitizeGeneratedHtml,
   cleanGeneratedHtml,
+  prepareSandboxTemplate,
 } = await import('../src/lib/interview-questions.js');
 
 const candidate = {
@@ -152,4 +155,28 @@ test('cleanGeneratedHtml applies sanitization', () => {
   const result = cleanGeneratedHtml(input);
   assert.ok(!result.includes('<script'), 'cleanGeneratedHtml should sanitize scripts');
   assert.ok(result.includes('<p>Content</p>'), 'should preserve content');
+});
+
+test('prepareSandboxTemplate creates a template file with placeholder', () => {
+  const templatePath = prepareSandboxTemplate(999);
+  assert.ok(fs.existsSync(templatePath), 'template file should exist');
+  const content = fs.readFileSync(templatePath, 'utf8');
+  assert.ok(content.includes('<!-- CONTENT_PLACEHOLDER -->'), 'should contain placeholder');
+  assert.ok(content.includes('<!DOCTYPE html>'), 'should be a full HTML page');
+  assert.ok(content.includes('{{TITLE}}'), 'should have title placeholder');
+  fs.unlinkSync(templatePath);
+});
+
+test('buildPrompt uses template-edit instructions when templatePath is given', () => {
+  const prompt = buildPrompt('context', { duration: 60, templatePath: '/tmp/test.html' });
+  assert.match(prompt, /template file at: \/tmp\/test\.html/);
+  assert.match(prompt, /CONTENT_PLACEHOLDER/);
+  assert.match(prompt, /SINGLE Edit call/);
+  assert.ok(!prompt.includes('Return a COMPLETE, self-contained HTML page'), 'should not include direct output instructions');
+});
+
+test('buildPrompt uses direct HTML output when no templatePath', () => {
+  const prompt = buildPrompt('context', { duration: 60 });
+  assert.match(prompt, /Return a COMPLETE, self-contained HTML page/);
+  assert.ok(!prompt.includes('template file at:'), 'should not include template-edit instructions');
 });
