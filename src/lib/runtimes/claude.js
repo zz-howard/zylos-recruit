@@ -22,7 +22,7 @@ const SCENARIO_TOOLS = {
   portrait:             '',
   resume_eval:          'Read,WebFetch',
   auto_match:           'Read',
-  interview_questions:  'Read,WebFetch',
+  interview_questions:  'Read,Edit',
 };
 
 function buildSandbox(readOnlyBinds = [], scenario = 'unknown') {
@@ -36,7 +36,7 @@ function buildSandbox(readOnlyBinds = [], scenario = 'unknown') {
 
 export default {
   name: 'claude',
-  capabilities: ['text', 'read_file'],
+  capabilities: ['text', 'read_file', 'edit_file'],
   models: ['opus', 'sonnet', 'haiku'],
   defaultModel: 'sonnet',
   efforts: ['low', 'medium', 'high', 'max'],
@@ -66,8 +66,8 @@ export default {
       let err = '';
       const timer = setTimeout(() => {
         child.kill('SIGTERM');
-        reject(new Error('claude call timed out after 900s'));
-      }, 900_000);
+        reject(new Error('claude call timed out after 1200s'));
+      }, 1_200_000);
       child.stdout.on('data', (d) => { out += d.toString('utf8'); });
       child.stderr.on('data', (d) => { err += d.toString('utf8'); });
       child.on('error', (e) => { clearTimeout(timer); reject(e); });
