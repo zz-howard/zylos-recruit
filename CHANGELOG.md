@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.30] - 2026-06-25
+
+### Changed
+- **Interview questions output format**: Switched from JSON intermediate format to direct HTML output. The LLM prompt now includes a full HTML/CSS template as reference and outputs a complete, self-contained HTML page with side-by-side question/answer layout. Eliminates the fragile JSON parsing step that caused generation failures.
+- **Claude runtime timeout**: Increased from 600s to 900s to accommodate larger HTML output generation.
+
+### Removed
+- `interview-questions-html.js` renderer (replaced by direct HTML output from prompt)
+- `parseInterviewJson()`, `cleanGeneratedMarkdown()`, `ensureFrontmatter()`, `inferMarkdownTitle()`, and related markdown helper functions (no longer needed)
+
 ## [0.2.29] - 2026-06-24
 
 ### Added

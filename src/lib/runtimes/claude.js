@@ -66,8 +66,8 @@ export default {
       let err = '';
       const timer = setTimeout(() => {
         child.kill('SIGTERM');
-        reject(new Error('claude call timed out after 600s'));
-      }, 600_000);
+        reject(new Error('claude call timed out after 900s'));
+      }, 900_000);
       child.stdout.on('data', (d) => { out += d.toString('utf8'); });
       child.stderr.on('data', (d) => { err += d.toString('utf8'); });
       child.on('error', (e) => { clearTimeout(timer); reject(e); });
