@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.33] - 2026-06-28
+
+### Added
+- **Smart match result persistence** (`role_matches` table): `rankRolesFromResume()` now persists scored role matches to a cache table, so the 智能匹配岗位 panel loads instantly from cache instead of waiting on a live AI call. `GET /api/candidates/:id/auto-match` serves the cache (`{matches, cached_at}`, `200` + empty when none, `404` if candidate missing); `POST` re-runs the AI and refreshes the cache. Single persistence point covers both the candidates POST endpoint and the intake pipeline, fail-fast on write failure. (#74, PR #76)
+- **Kanban cache-first display**: clicking 智能匹配岗位 reads the cache first (instant render); a 🔄 button re-runs the AI on demand; no cache falls back to auto-POST. (#74, PR #76)
+
+### Fixed
+- **Candidate delete clears match cache**: candidates are soft-deleted (so FK cascade never fires), so `deleteCandidate()` now explicitly hard-deletes the candidate's `role_matches` rows (regenerable cache). (#74, PR #76)
+
 ## [0.2.32] - 2026-06-27
 
 ### Added
