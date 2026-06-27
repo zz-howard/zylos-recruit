@@ -10,7 +10,7 @@ import {
   createCandidate, updateCandidate, getCandidate, getRole,
   createIntakeJob, updateIntakeJob, getIntakeJob,
 } from '../lib/db.js';
-import { evaluateResume } from '../lib/ai.js';
+import { evaluateResume, rankRolesFromResume } from '../lib/ai.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -108,6 +108,15 @@ export function intakeRouter(uploadConfig) {
       // Async pipeline — fire and forget
       (async () => {
         try {
+          // Step 1: Rank all roles (more accurate than autoMatch) and assign the top one
+          const rankings = await rankRolesFromResume(candidate.id);
+          if (rankings.length > 0) {
+            const best = rankings[0];
+            updateCandidate(candidate.id, { role_id: best.role_id });
+            console.log(`[recruit] intake: ranked match → "${best.role_name}" (score: ${best.score})`);
+          }
+
+          // Step 2: Evaluate (role already assigned, so evaluateResume skips autoMatch)
           await evaluateResume(candidate.id);
           const cand = getCandidate(candidate.id);
           const role = cand.role_id ? getRole(cand.role_id) : null;
