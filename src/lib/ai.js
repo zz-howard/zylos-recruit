@@ -182,95 +182,98 @@ export async function evaluateResume(candidateId) {
   const t0 = Date.now();
   console.log(`[recruit] AI evaluation started: candidate #${candidateId}`);
 
-  let candidate = getCandidate(candidateId);
-  if (!candidate) throw new Error('candidate not found');
-  if (!candidate.resume_path) throw new Error('no resume uploaded — upload a PDF first');
-
-  // Auto-match role from resume if none assigned
-  if (!candidate.role_id) {
-    console.log(`[recruit] AI evaluation: no role assigned, auto-matching first...`);
-    await autoMatchFromResume(candidateId);
-    candidate = getCandidate(candidateId);
-    if (!candidate.role_id) throw new Error('auto-match failed to assign a role');
-  }
-
-  const resumeAbsPath = path.resolve(RESUMES_DIR, candidate.resume_path);
-  if (!fs.existsSync(resumeAbsPath)) {
-    throw new Error('resume file missing on disk');
-  }
-
-  const role = getRole(candidate.role_id);
-  if (!role) throw new Error('role not found');
-
-  console.log(`[recruit] AI evaluation: "${candidate.name}" → role "${role.name}", resume: ${candidate.resume_path}`);
-
-  const company = getCompany(candidate.company_id);
-  const companyProfile = company?.profile?.content || null;
-  const roleJd = role?.description || null;
-  const expectedPortrait = role?.expected_portrait || null;
-
-  const prompt = buildPrompt(resumeAbsPath, role, companyProfile, roleJd, expectedPortrait, company?.eval_prompt, role?.eval_prompt, candidate.extra_info);
-  const { text, runtime, model, effort } = await runCli(prompt, 'resume_eval', [resumeAbsPath]);
-  console.log(`[recruit] AI evaluation: CLI returned (${((Date.now() - t0) / 1000).toFixed(1)}s), parsing response...`);
-
-  let parsed;
   try {
-    parsed = parseAiResponse(text);
-  } catch (parseErr) {
-    console.warn(`[recruit] AI evaluation: JSON parse failed (${parseErr.message}), attempting repair...`);
-    console.warn(`[recruit] AI evaluation: raw output (first 500 chars): ${text.slice(0, 500)}`);
-    if (!text || text.trim().length < 20) {
-      throw new Error(`AI returned empty/unusable output (${text.length} chars)`);
+    let candidate = getCandidate(candidateId);
+    if (!candidate) throw new Error('candidate not found');
+    if (!candidate.resume_path) throw new Error('no resume uploaded — upload a PDF first');
+
+    // Auto-match role from resume if none assigned
+    if (!candidate.role_id) {
+      console.log(`[recruit] AI evaluation: no role assigned, auto-matching first...`);
+      await autoMatchFromResume(candidateId);
+      candidate = getCandidate(candidateId);
+      if (!candidate.role_id) throw new Error('auto-match failed to assign a role');
     }
-    parsed = await repairAiResponse(text);
-    console.log(`[recruit] AI evaluation: repair successful`);
+
+    const resumeAbsPath = path.resolve(RESUMES_DIR, candidate.resume_path);
+    if (!fs.existsSync(resumeAbsPath)) {
+      throw new Error('resume file missing on disk');
+    }
+
+    const role = getRole(candidate.role_id);
+    if (!role) throw new Error('role not found');
+
+    console.log(`[recruit] AI evaluation: "${candidate.name}" → role "${role.name}", resume: ${candidate.resume_path}`);
+
+    const company = getCompany(candidate.company_id);
+    const companyProfile = company?.profile?.content || null;
+    const roleJd = role?.description || null;
+    const expectedPortrait = role?.expected_portrait || null;
+
+    const prompt = buildPrompt(resumeAbsPath, role, companyProfile, roleJd, expectedPortrait, company?.eval_prompt, role?.eval_prompt, candidate.extra_info);
+    const { text, runtime, model, effort } = await runCli(prompt, 'resume_eval', [resumeAbsPath]);
+    console.log(`[recruit] AI evaluation: CLI returned (${((Date.now() - t0) / 1000).toFixed(1)}s), parsing response...`);
+
+    let parsed;
+    try {
+      parsed = parseAiResponse(text);
+    } catch (parseErr) {
+      console.warn(`[recruit] AI evaluation: JSON parse failed (${parseErr.message}), attempting repair...`);
+      console.warn(`[recruit] AI evaluation: raw output (first 500 chars): ${text.slice(0, 500)}`);
+      if (!text || text.trim().length < 20) {
+        throw new Error(`AI returned empty/unusable output (${text.length} chars)`);
+      }
+      parsed = await repairAiResponse(text);
+      console.log(`[recruit] AI evaluation: repair successful`);
+    }
+    console.log(`[recruit] AI evaluation result: verdict=${parsed.verdict}, score=${parsed.score}`);
+
+    const meta = JSON.stringify({
+      runtime,
+      role_profile_version: role?.profile?.version || null,
+      company_profile_version: company?.profile?.version || null,
+      score: parsed.score,
+      analysis: parsed.analysis,
+      recommendation: parsed.recommendation,
+    });
+
+    // Write back extracted contact info (only fill empty fields, or replace placeholder name)
+    const contact = parsed.contact || {};
+    const contactUpdate = {};
+    if (contact.name && (!candidate.name || candidate.name === '待识别')) contactUpdate.name = contact.name;
+    if (parsed.brief && !candidate.brief) contactUpdate.brief = parsed.brief;
+    if (contact.email && !candidate.email) contactUpdate.email = contact.email;
+    if (contact.phone && !candidate.phone) contactUpdate.phone = contact.phone;
+    if (Object.keys(contactUpdate).length > 0) {
+      updateCandidate(candidateId, contactUpdate);
+      console.log(`[recruit] AI evaluation: auto-filled fields: ${Object.keys(contactUpdate).join(', ')}`);
+    }
+
+    const verdict = parsed.verdict === 'yes' ? 'yes' : 'no';
+    const content = [
+      parsed.summary || '',
+      '',
+      '**技术匹配：** ' + (parsed.analysis?.tech_match || ''),
+      '**经验水平：** ' + (parsed.analysis?.experience || ''),
+      '**成长潜力：** ' + (parsed.analysis?.potential || ''),
+      '**风险点：** ' + (parsed.analysis?.risks || ''),
+      '',
+      '**建议：** ' + (parsed.recommendation || ''),
+    ].join('\n');
+
+    const result = addEvaluation(candidateId, {
+      kind: 'resume_ai',
+      author: runtime,
+      verdict,
+      content,
+      meta,
+    });
+
+    console.log(`[recruit] AI evaluation complete: candidate #${candidateId} "${candidate.name}" → ${verdict} (${((Date.now() - t0) / 1000).toFixed(1)}s total)`);
+    return result;
+  } finally {
+    evaluatingSet.delete(candidateId);
   }
-  console.log(`[recruit] AI evaluation result: verdict=${parsed.verdict}, score=${parsed.score}`);
-
-  const meta = JSON.stringify({
-    runtime,
-    role_profile_version: role?.profile?.version || null,
-    company_profile_version: company?.profile?.version || null,
-    score: parsed.score,
-    analysis: parsed.analysis,
-    recommendation: parsed.recommendation,
-  });
-
-  // Write back extracted contact info (only fill empty fields, or replace placeholder name)
-  const contact = parsed.contact || {};
-  const contactUpdate = {};
-  if (contact.name && (!candidate.name || candidate.name === '待识别')) contactUpdate.name = contact.name;
-  if (parsed.brief && !candidate.brief) contactUpdate.brief = parsed.brief;
-  if (contact.email && !candidate.email) contactUpdate.email = contact.email;
-  if (contact.phone && !candidate.phone) contactUpdate.phone = contact.phone;
-  if (Object.keys(contactUpdate).length > 0) {
-    updateCandidate(candidateId, contactUpdate);
-    console.log(`[recruit] AI evaluation: auto-filled fields: ${Object.keys(contactUpdate).join(', ')}`);
-  }
-
-  const verdict = parsed.verdict === 'yes' ? 'yes' : 'no';
-  const content = [
-    parsed.summary || '',
-    '',
-    '**技术匹配：** ' + (parsed.analysis?.tech_match || ''),
-    '**经验水平：** ' + (parsed.analysis?.experience || ''),
-    '**成长潜力：** ' + (parsed.analysis?.potential || ''),
-    '**风险点：** ' + (parsed.analysis?.risks || ''),
-    '',
-    '**建议：** ' + (parsed.recommendation || ''),
-  ].join('\n');
-
-  const result = addEvaluation(candidateId, {
-    kind: 'resume_ai',
-    author: runtime,
-    verdict,
-    content,
-    meta,
-  });
-
-  console.log(`[recruit] AI evaluation complete: candidate #${candidateId} "${candidate.name}" → ${verdict} (${((Date.now() - t0) / 1000).toFixed(1)}s total)`);
-  evaluatingSet.delete(candidateId);
-  return result;
 }
 
 /**

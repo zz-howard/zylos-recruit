@@ -180,6 +180,16 @@ function initSchema(db) {
       last_activity_at INTEGER NOT NULL,
       remember         INTEGER NOT NULL DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS intake_jobs (
+      candidate_id INTEGER PRIMARY KEY REFERENCES candidates(id) ON DELETE CASCADE,
+      status       TEXT NOT NULL DEFAULT 'processing'
+                   CHECK (status IN ('processing','completed','failed')),
+      result       TEXT,
+      error        TEXT,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 
@@ -1027,4 +1037,34 @@ export function restoreInternalInterview(id) {
   });
   tx.immediate();
   return result;
+}
+
+// ── Intake Jobs ──
+
+export function createIntakeJob(candidateId) {
+  getDb().prepare(`
+    INSERT OR REPLACE INTO intake_jobs (candidate_id, status, result, error, created_at, updated_at)
+    VALUES (?, 'processing', NULL, NULL, datetime('now'), datetime('now'))
+  `).run(candidateId);
+}
+
+export function updateIntakeJob(candidateId, { status, result, error }) {
+  const sets = ["updated_at = datetime('now')"];
+  const vals = [];
+  if (status !== undefined) { sets.push('status = ?'); vals.push(status); }
+  if (result !== undefined) { sets.push('result = ?'); vals.push(result); }
+  if (error !== undefined) { sets.push('error = ?'); vals.push(error); }
+  vals.push(candidateId);
+  getDb().prepare(`UPDATE intake_jobs SET ${sets.join(', ')} WHERE candidate_id = ?`).run(...vals);
+}
+
+export function getIntakeJob(candidateId) {
+  return getDb().prepare('SELECT * FROM intake_jobs WHERE candidate_id = ?').get(candidateId);
+}
+
+export function cleanupOldIntakeJobs() {
+  const r = getDb().prepare(
+    "DELETE FROM intake_jobs WHERE status IN ('completed','failed') AND updated_at < datetime('now', '-24 hours')"
+  ).run();
+  if (r.changes > 0) console.log(`[recruit] cleaned up ${r.changes} old intake jobs`);
 }

@@ -25,7 +25,9 @@ import { internalInterviewsRouter } from './routes/api-internal-interviews.js';
 import { interviewQuestionsRouter } from './routes/api-interview-questions.js';
 import { chatRouter } from './routes/api-chat.js';
 import { chatPageRoute } from './routes/ui-chat.js';
+import { intakeRouter } from './routes/api-intake.js';
 import { detectRuntimes } from './lib/ai.js';
+import { cleanupOldIntakeJobs } from './lib/db.js';
 
 console.log('[recruit] Starting...');
 console.log('[recruit] Data directory:', DATA_DIR);
@@ -47,6 +49,7 @@ fs.mkdirSync(RESUMES_DIR, { recursive: true });
 
 // Initialize DB (runs migrations)
 getDb();
+cleanupOldIntakeJobs();
 console.log('[recruit] Database initialized');
 
 // Detect available AI runtimes
@@ -117,6 +120,8 @@ async function main() {
   app.use('/api/roles', roles);
   app.use('/api/candidates', candidates);
   app.use('/api/candidates', resumes);
+  const intake = intakeRouter(config.upload);
+  app.use('/api/candidates', intake);
   app.use('/api/settings', settings);
   app.use('/api', interviewQuestions);
   const interviews = internalInterviewsRouter();
