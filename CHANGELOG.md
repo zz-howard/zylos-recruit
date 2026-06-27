@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.32] - 2026-06-27
+
+### Added
+- **Async resume intake API** (`POST /api/candidates/intake`): upload resume, create candidate, and run smart matching + AI evaluation asynchronously. Returns candidate ID and poll URL immediately. (#69, PR #70)
+- **Intake result polling** (`GET /api/candidates/:id/intake-result`): poll for async pipeline result — processing (202), completed (200), or failed (200). (#69, PR #70)
+- **`intake_jobs` SQLite table**: tracks async pipeline status with 24h auto-cleanup of completed/failed jobs. (PR #70)
+- **Ranked matching for intake**: intake pipeline uses `rankRolesFromResume()` with scored evaluation and red-line mechanism for more accurate role matching, with deterministic sort by score. (PR #71)
+
+### Fixed
+- **`evaluateResume()` lock leak**: moved `evaluatingSet.delete()` into a `finally` block so the lock is always released even when evaluation fails early. Previously, failures left candidates permanently stuck in `isEvaluating=true` until process restart. (PR #70)
+- **Kanban column scroll**: columns now scroll internally when there are many candidates, instead of stretching the entire page height. (PR #72)
+
 ## [0.2.31] - 2026-06-26
 
 ### Added
