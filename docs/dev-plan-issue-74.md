@@ -15,7 +15,10 @@ panel can load instantly from cache, with a 🔄 button to re-run the AI on dema
 5. Cascade-clean `role_matches` when a candidate is deleted.
 
 **Explicitly out of scope:**
-- Cleaning stale matches when a role is deactivated/deleted — issue accepts they remain; overwritten on next run.
+- Cleaning stale matches when a role is deactivated/deleted — issue accepts they remain. Note: the next run
+  only re-ranks **active** roles, so a stale inactive/deleted role's row may NOT be overwritten. Acceptance
+  wording: stale rows **may remain until candidate cleanup / future refresh semantics** — overwrite-on-next-run
+  is not a guarantee.
 - Soft-delete / restore semantics for `role_matches` — it is regenerable cache (hard delete, see Assumptions).
 - Any change to `autoMatchFromResume()` (single-best auto-assign) — different feature, untouched.
 
@@ -45,9 +48,12 @@ The function already holds `candidate` (→ `candidate.id`) and the `validated` 
 - [ ] **DB read fn** (`src/lib/db.js`): `getRoleMatches(candidateId)` → `{ matches: [...ordered by score DESC],
       cached_at }` where `cached_at` = MAX(created_at) over the candidate's rows (null if none).
 - [ ] **Persist in source** (`src/lib/ai.js`): call `upsertRoleMatches(candidateId, validated)` just before
-      `return validated` in `rankRolesFromResume()`. Guard so a DB failure doesn't lose the AI result the
-      caller asked for (log + still return; or let it throw — decide in review, lean toward: persist failure
-      is a real error worth surfacing since the whole point is persistence).
+      `return validated` in `rankRolesFromResume()`. **Fail fast** — if `upsertRoleMatches()` throws, let it
+      propagate (do NOT swallow + return). Rationale: the new POST semantics are "run AI + persist cache";
+      silently eating a DB-write failure makes the user believe the cache is updated when a refresh would lose
+      the result. The intake pipeline (`api-intake.js`) must also surface this failure, otherwise the
+      cache-prewarm requirement fails silently. (Both callers already propagate errors from
+      `rankRolesFromResume()`, so no route changes are needed to honor fail-fast.)
 - [ ] **GET endpoint** (`src/routes/api-candidates.js`): add `router.get('/:id/auto-match', ...)` →
       404 if candidate missing; else `res.json(getRoleMatches(id))` → `{ matches, cached_at }`
       (200 + empty array + `cached_at:null` when no cache — see Assumptions for why not 404).
@@ -70,6 +76,13 @@ The function already holds `candidate` (→ `candidate.id`) and the `validated` 
       - `getRoleMatches` returns rows score-DESC and correct `cached_at`; empty → `{matches:[], cached_at:null}`.
       - `deleteCandidate` removes the candidate's `role_matches` rows.
       - (use a temp DB file via existing test DB setup pattern — check how `test/*.test.js` bootstrap the DB).
+- [ ] **Route / API contract** (the key Issue contract is the endpoint behavior, not just DB upsert): prove the
+      endpoints, not only the helpers.
+      - `GET /candidates/:id/auto-match` with no cache → 200 `{matches:[], cached_at:null}`.
+      - `GET /candidates/:id/auto-match` with a missing/unknown candidate → 404.
+      - `POST /candidates/:id/auto-match` → after the AI run, a subsequent `GET` returns the persisted matches
+        (cache readable end-to-end). Drive the AI through a controllable seam/mock (or expose the persistence
+        boundary so it can be invoked directly) so the test asserts the endpoint contract without a live AI call.
 - [ ] **Manual / browser (acceptance)**: see Acceptance Checklist.
 - [ ] **Regression**: existing POST `/auto-match` still returns `{ matches }` and assign flow works.
 - [ ] `npm test` green; full suite (not just new file).
