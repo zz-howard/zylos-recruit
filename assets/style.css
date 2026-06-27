@@ -362,6 +362,54 @@ textarea { resize: vertical; min-height: 80px; width: 100%; }
   border-color: var(--border-hover);
 }
 
+.match-results {
+  margin-top: 10px;
+}
+.match-results-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.match-refresh {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+.match-item {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.match-score {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 13px;
+}
+.match-score.high { background: rgba(34, 197, 94, 0.18); color: #22c55e; }
+.match-score.medium { background: rgba(245, 158, 11, 0.18); color: #f59e0b; }
+.match-score.low { background: rgba(239, 68, 68, 0.18); color: #ef4444; }
+.match-name {
+  font-weight: 600;
+}
+.match-reason {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.match-assign {
+  white-space: nowrap;
+}
+
 /* ─── Animations ─── */
 @keyframes fadeIn {
   from { opacity: 0; }

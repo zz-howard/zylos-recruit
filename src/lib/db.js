@@ -7,6 +7,7 @@
  *   roles                       — job roles, scoped to a company (description=JD, expected_portrait=internal hiring criteria)
  *   role_profiles               — versioned expected_portrait history per role
  *   candidates                  — individuals (scoped to a company via role.company_id)
+ *   role_matches                — cached smart role matching results per candidate
  *   evaluations                 — AI resume screening + human interview feedback
  *   interview_question_documents — generated reference interview-question docs
  *   internal_interviews         — internal stakeholder interviews for building role portraits
@@ -101,6 +102,20 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_candidates_company ON candidates(company_id);
     CREATE INDEX IF NOT EXISTS idx_candidates_role    ON candidates(role_id);
     CREATE INDEX IF NOT EXISTS idx_candidates_state   ON candidates(state);
+
+    CREATE TABLE IF NOT EXISTS role_matches (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+      role_id      INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+      role_name    TEXT NOT NULL,
+      score        INTEGER NOT NULL,
+      reason       TEXT,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(candidate_id, role_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_role_matches_candidate
+      ON role_matches(candidate_id);
 
     CREATE TABLE IF NOT EXISTS evaluations (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -727,6 +742,45 @@ export function moveCandidate(id, state) {
   return getCandidate(id);
 }
 
+export function upsertRoleMatches(candidateId, matches) {
+  const d = getDb();
+  const tx = d.transaction((rows) => {
+    const stmt = d.prepare(`
+      INSERT INTO role_matches (candidate_id, role_id, role_name, score, reason)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(candidate_id, role_id) DO UPDATE SET
+        role_name = excluded.role_name,
+        score = excluded.score,
+        reason = excluded.reason,
+        created_at = datetime('now')
+    `);
+    for (const match of rows || []) {
+      stmt.run(
+        candidateId,
+        Number(match.role_id),
+        String(match.role_name || ''),
+        Number(match.score) || 0,
+        match.reason == null ? null : String(match.reason)
+      );
+    }
+  });
+  tx.immediate(matches);
+}
+
+export function getRoleMatches(candidateId) {
+  const d = getDb();
+  const rows = d.prepare(`
+    SELECT role_id, role_name, score, reason, created_at
+    FROM role_matches
+    WHERE candidate_id = ?
+    ORDER BY score DESC, role_id ASC
+  `).all(candidateId);
+  return {
+    matches: rows.map(({ role_id, role_name, score, reason }) => ({ role_id, role_name, score, reason })),
+    cached_at: rows.reduce((max, row) => (!max || row.created_at > max ? row.created_at : max), null),
+  };
+}
+
 export function addEvaluation(candidateId, { kind, author, verdict, content, meta }) {
   const d = getDb();
   const cand = d.prepare('SELECT id FROM candidates WHERE id = ? AND deleted_at IS NULL').get(candidateId);
@@ -765,6 +819,9 @@ export function deleteCandidate(id) {
   const d = getDb();
   const result = {};
   const tx = d.transaction(() => {
+    result.roleMatches = d.prepare(
+      `DELETE FROM role_matches WHERE candidate_id=?`
+    ).run(id).changes;
     result.evaluations = d.prepare(
       `UPDATE evaluations SET deleted_at=datetime('now'), delete_batch=?
        WHERE candidate_id=? AND deleted_at IS NULL`
