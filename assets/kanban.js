@@ -650,50 +650,95 @@
     // Auto-match button
     var autoMatchBtn = wrap.querySelector('#btn-auto-match');
     if (autoMatchBtn) {
-      autoMatchBtn.addEventListener('click', function () {
-        var resultsEl = wrap.querySelector('#auto-match-results');
+      var resultsEl = wrap.querySelector('#auto-match-results');
+
+      function bindMatchAssignButtons() {
+        resultsEl.querySelectorAll('.match-assign').forEach(function (btn) {
+          btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var rid = btn.dataset.roleId;
+            api('PUT', '/candidates/' + c.id, { role_id: Number(rid) })
+              .then(function () {
+                toast('已分配岗位', 'success');
+                return loadRolesAndCandidates().then(function () { openCandidate(c.id); });
+              })
+              .catch(function (err) { toast(err.message, 'error'); });
+          });
+        });
+      }
+
+      function renderMatches(matches, cachedAt) {
+        if (!matches || matches.length === 0) {
+          resultsEl.innerHTML = '<div class="meta">未找到匹配的岗位</div>';
+          return;
+        }
+        var cachedLabel = cachedAt ? '上次匹配: ' + cachedAt : '本次匹配';
+        var html = '<div class="match-results">'
+          + '<div class="match-results-head">'
+          + '<span class="meta">' + escapeHtml(cachedLabel) + '</span>'
+          + '<button class="btn btn-ghost match-refresh" title="重新匹配">🔄</button>'
+          + '</div>';
+        matches.forEach(function (m) {
+          var scoreClass = m.score >= 70 ? 'high' : (m.score >= 40 ? 'medium' : 'low');
+          html += '<div class="match-item" data-role-id="' + m.role_id + '">'
+            + '<div class="match-score ' + scoreClass + '">' + m.score + '</div>'
+            + '<div class="match-info">'
+            + '<div class="match-name">' + escapeHtml(m.role_name) + '</div>'
+            + '<div class="match-reason">' + escapeHtml(m.reason) + '</div>'
+            + '</div>'
+            + '<button class="match-assign" data-role-id="' + m.role_id + '">分配</button>'
+            + '</div>';
+        });
+        html += '</div>';
+        resultsEl.innerHTML = html;
+        bindMatchAssignButtons();
+        var refreshBtn = resultsEl.querySelector('.match-refresh');
+        if (refreshBtn) {
+          refreshBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            runAutoMatch(true);
+          });
+        }
+      }
+
+      function runAutoMatch(force) {
         autoMatchBtn.disabled = true;
-        autoMatchBtn.textContent = '匹配中...';
-        resultsEl.innerHTML = '';
-        api('POST', '/candidates/' + c.id + '/auto-match')
+        autoMatchBtn.textContent = force ? '重新匹配中...' : '匹配中...';
+        var refreshBtn = resultsEl.querySelector('.match-refresh');
+        if (refreshBtn) refreshBtn.disabled = true;
+        if (!force) resultsEl.innerHTML = '';
+        return api('POST', '/candidates/' + c.id + '/auto-match')
           .then(function (r) {
             autoMatchBtn.disabled = false;
             autoMatchBtn.textContent = '智能匹配岗位';
-            if (!r.matches || r.matches.length === 0) {
-              resultsEl.innerHTML = '<div class="meta">未找到匹配的岗位</div>';
-              return;
-            }
-            var html = '<div class="match-results">';
-            r.matches.forEach(function (m) {
-              var scoreClass = m.score >= 70 ? 'high' : (m.score >= 40 ? 'medium' : 'low');
-              html += '<div class="match-item" data-role-id="' + m.role_id + '">'
-                + '<div class="match-score ' + scoreClass + '">' + m.score + '</div>'
-                + '<div class="match-info">'
-                + '<div class="match-name">' + escapeHtml(m.role_name) + '</div>'
-                + '<div class="match-reason">' + escapeHtml(m.reason) + '</div>'
-                + '</div>'
-                + '<button class="match-assign" data-role-id="' + m.role_id + '">分配</button>'
-                + '</div>';
-            });
-            html += '</div>';
-            resultsEl.innerHTML = html;
-            resultsEl.querySelectorAll('.match-assign').forEach(function (btn) {
-              btn.addEventListener('click', function (e) {
-                e.stopPropagation();
-                var rid = btn.dataset.roleId;
-                api('PUT', '/candidates/' + c.id, { role_id: Number(rid) })
-                  .then(function () {
-                    toast('已分配岗位', 'success');
-                    return loadRolesAndCandidates().then(function () { openCandidate(c.id); });
-                  })
-                  .catch(function (err) { toast(err.message, 'error'); });
-              });
-            });
+            renderMatches(r.matches || [], null);
           })
           .catch(function (err) {
             autoMatchBtn.disabled = false;
             autoMatchBtn.textContent = '智能匹配岗位';
+            if (refreshBtn) refreshBtn.disabled = false;
             toast('匹配失败: ' + err.message, 'error');
+          });
+      }
+
+      autoMatchBtn.addEventListener('click', function () {
+        autoMatchBtn.disabled = true;
+        autoMatchBtn.textContent = '读取缓存...';
+        resultsEl.innerHTML = '';
+        api('GET', '/candidates/' + c.id + '/auto-match')
+          .then(function (r) {
+            if (r.matches && r.matches.length > 0) {
+              autoMatchBtn.disabled = false;
+              autoMatchBtn.textContent = '智能匹配岗位';
+              renderMatches(r.matches, r.cached_at);
+              return;
+            }
+            return runAutoMatch(false);
+          })
+          .catch(function (err) {
+            autoMatchBtn.disabled = false;
+            autoMatchBtn.textContent = '智能匹配岗位';
+            toast('读取匹配缓存失败: ' + err.message, 'error');
           });
       });
     }

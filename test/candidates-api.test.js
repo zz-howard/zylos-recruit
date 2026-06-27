@@ -11,12 +11,14 @@ const {
   createCandidate,
   createCompany,
   createRole,
+  updateCandidate,
+  upsertRoleMatches,
 } = await import('../src/lib/db.js');
 const { candidatesRouter } = await import('../src/routes/api-candidates.js');
 
-async function makeServer() {
+async function makeServer(routerOptions) {
   const app = express();
-  app.use('/api/candidates', candidatesRouter());
+  app.use('/api/candidates', candidatesRouter(routerOptions));
   const server = http.createServer(app);
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
@@ -110,6 +112,54 @@ test('candidate search treats LIKE wildcards as literal characters', async () =>
   try {
     assert.deepEqual((await fetchCandidates(origin, company.id, '%')).map((c) => c.name), ['Percent Marker']);
     assert.deepEqual((await fetchCandidates(origin, company.id, 'a_b')).map((c) => c.name), ['Percent Marker']);
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /api/candidates/:id/auto-match returns empty cache shape and 404 for missing candidate', async () => {
+  const company = createCompany({ name: `Auto Match Cache Company ${Date.now()}` });
+  const candidate = createCandidate({ companyId: company.id, name: 'Cache Miss Candidate' });
+  const { server, origin } = await makeServer();
+  try {
+    const empty = await fetch(`${origin}/api/candidates/${candidate.id}/auto-match`);
+    assert.equal(empty.status, 200);
+    assert.deepEqual(await empty.json(), { matches: [], cached_at: null });
+
+    const missing = await fetch(`${origin}/api/candidates/999999/auto-match`);
+    assert.equal(missing.status, 404);
+    assert.deepEqual(await missing.json(), { error: 'not found' });
+  } finally {
+    server.close();
+  }
+});
+
+test('POST /api/candidates/:id/auto-match persists matches readable by GET', async () => {
+  const company = createCompany({ name: `Auto Match Persist Company ${Date.now()}` });
+  const role = createRole({ companyId: company.id, name: 'Persisted Role' });
+  const candidate = createCandidate({ companyId: company.id, name: 'Persisted Match Candidate' });
+  updateCandidate(candidate.id, { resume_path: 'resume.pdf' });
+  const matches = [
+    { role_id: role.id, role_name: role.name, score: 88, reason: 'Endpoint contract match' },
+  ];
+  const { server, origin } = await makeServer({
+    rankRoles: async (candidateId) => {
+      upsertRoleMatches(candidateId, matches);
+      return matches;
+    },
+  });
+  try {
+    const response = await fetch(`${origin}/api/candidates/${candidate.id}/auto-match`, {
+      method: 'POST',
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { matches });
+
+    const cached = await fetch(`${origin}/api/candidates/${candidate.id}/auto-match`);
+    assert.equal(cached.status, 200);
+    const body = await cached.json();
+    assert.deepEqual(body.matches, matches);
+    assert.ok(body.cached_at);
   } finally {
     server.close();
   }

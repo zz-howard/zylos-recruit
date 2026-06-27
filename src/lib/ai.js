@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { jsonrepair } from 'jsonrepair';
-import { getCandidate, getRole, getCompany, addEvaluation, updateCandidate, listRoles } from './db.js';
+import { getCandidate, getRole, getCompany, addEvaluation, updateCandidate, listRoles, upsertRoleMatches } from './db.js';
 import { RESUMES_DIR, getConfig, resolveAiConfig } from './config.js';
 import {
   detectRuntimes as gwDetectRuntimes,
@@ -442,6 +442,7 @@ ${rolesText}
     }));
 
   console.log(`[recruit] Rank roles: candidate #${candidateId} — ${validated.length} valid results`);
+  upsertRoleMatches(candidateId, validated);
   return validated;
 }
 

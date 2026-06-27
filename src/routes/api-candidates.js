@@ -1,11 +1,11 @@
 import express from 'express';
 import {
   listCandidates, getCandidate, createCandidate, updateCandidate,
-  moveCandidate, addEvaluation, deleteEvaluation, deleteCandidate, restoreCandidate, listRoles, STATES,
+  moveCandidate, addEvaluation, deleteEvaluation, deleteCandidate, restoreCandidate, listRoles, getRoleMatches, STATES,
 } from '../lib/db.js';
 import { evaluateResumeAsync, evaluateResumeStream, isEvaluating, autoMatchFromResume, rankRolesFromResume } from '../lib/ai.js';
 
-export function candidatesRouter() {
+export function candidatesRouter({ rankRoles = rankRolesFromResume } = {}) {
   const router = express.Router();
   router.use(express.json({ limit: '1mb' }));
 
@@ -141,6 +141,13 @@ export function candidatesRouter() {
     }
   });
 
+  router.get('/:id/auto-match', (req, res) => {
+    const candidateId = Number(req.params.id);
+    const cand = getCandidate(candidateId);
+    if (!cand) return res.status(404).json({ error: 'not found' });
+    res.json(getRoleMatches(candidateId));
+  });
+
   // Rank all active roles for a candidate based on their resume (same source of
   // truth as the new-candidate flow — reads the PDF, not prior AI eval text).
   router.post('/:id/auto-match', async (req, res) => {
@@ -150,7 +157,7 @@ export function candidatesRouter() {
     if (!cand.resume_path) return res.status(400).json({ error: 'no resume uploaded' });
 
     try {
-      const matches = await rankRolesFromResume(candidateId);
+      const matches = await rankRoles(candidateId);
       res.json({ matches });
     } catch (err) {
       console.error(`[recruit] Auto-match error (candidate #${candidateId}):`, err.message);
