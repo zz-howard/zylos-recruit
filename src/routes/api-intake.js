@@ -111,6 +111,7 @@ export function intakeRouter(uploadConfig) {
           // Step 1: Rank all roles (more accurate than autoMatch) and assign the top one
           const rankings = await rankRolesFromResume(candidate.id);
           if (rankings.length > 0) {
+            rankings.sort((a, b) => b.score - a.score);
             const best = rankings[0];
             updateCandidate(candidate.id, { role_id: best.role_id });
             console.log(`[recruit] intake: ranked match → "${best.role_name}" (score: ${best.score})`);
