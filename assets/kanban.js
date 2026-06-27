@@ -128,6 +128,15 @@
     });
   }
 
+  // DB stores timestamps as UTC ('YYYY-MM-DD HH:MM:SS', via SQLite datetime('now')).
+  // Render them in the viewer's local timezone. Returns '' for empty input and the
+  // raw string unchanged if it can't be parsed.
+  function fmtLocalTime(utc) {
+    if (!utc) return '';
+    var d = new Date(String(utc).replace(' ', 'T') + 'Z');
+    return isNaN(d.getTime()) ? String(utc) : d.toLocaleString('zh-CN');
+  }
+
   // ─── localStorage ─────────────────────────────────────────────
 
   function loadActiveCompanyFromStorage() {
@@ -432,7 +441,7 @@
                 +     (e.verdict ? '<span class="verdict-badge verdict-' + escapeHtml(e.verdict) + '">'
                       + escapeHtml(verdictLabel) + '</span> ' : '')
                 +     '<span>' + escapeHtml(e.author || 'anon') + '</span>'
-                +     '<span class="meta">' + escapeHtml(e.created_at) + '</span>'
+                +     '<span class="meta">' + escapeHtml(fmtLocalTime(e.created_at)) + '</span>'
                 +   '</span>'
                 +   '<button class="btn-delete-eval" data-eval-id="' + escapeHtml(e.id) + '" title="删除面试记录">删除</button>'
                 + '</div>'
@@ -524,7 +533,7 @@
                   +   '<span class="verdict-badge verdict-' + escapeHtml(e.verdict) + '">'
                   +     escapeHtml(verdictLabel) + '</span>'
                   +   (meta && meta.score != null ? ' <span class="meta">Score: ' + meta.score + '/100</span>' : '')
-                  +   '<span class="meta">' + escapeHtml(e.author || '') + ' · ' + escapeHtml(e.created_at) + '</span>'
+                  +   '<span class="meta">' + escapeHtml(e.author || '') + ' · ' + escapeHtml(fmtLocalTime(e.created_at)) + '</span>'
                   +   '<button class="btn-copy-eval" title="复制评估内容">📋</button>'
                   + '</div>'
                   + '<div class="eval-body">' + formatEvalContent(e.content || '') + '</div>'
@@ -672,7 +681,7 @@
           resultsEl.innerHTML = '<div class="meta">未找到匹配的岗位</div>';
           return;
         }
-        var cachedLabel = cachedAt ? '上次匹配: ' + cachedAt : '本次匹配';
+        var cachedLabel = cachedAt ? '上次匹配: ' + fmtLocalTime(cachedAt) : '本次匹配';
         var html = '<div class="match-results">'
           + '<div class="match-results-head">'
           + '<span class="meta">' + escapeHtml(cachedLabel) + '</span>'
@@ -2054,7 +2063,7 @@
           + '<div class="eval-head">'
           + '<span>' + escapeHtml(d.title || 'Reference interview questions') + '</span>'
           + sandboxWarning
-          + '<span class="meta">' + escapeHtml(d.created_at || '') + '</span>'
+          + '<span class="meta">' + escapeHtml(fmtLocalTime(d.created_at)) + '</span>'
           + '</div>'
           + (d.error_message && !d.pages_url ? '<div class="meta error">' + escapeHtml(d.error_message) + '</div>' : '')
           + '<div class="actions">' + actions + '</div>'
@@ -2119,7 +2128,7 @@
     interviews.forEach(function (iv) {
       var statusClass = iv.status === 'active' ? 'active' : 'completed';
       var statusLabel = iv.status === 'active' ? '进行中' : '已完成';
-      var date = iv.created_at ? new Date(iv.created_at + 'Z').toLocaleString('zh-CN') : '';
+      var date = fmtLocalTime(iv.created_at);
       var msgCount = iv.message_count || 0;
       var chatUrl = BASE + '/chat/' + iv.token;
       var checked = selectedInterviewIds.has(iv.id) ? ' checked' : '';
