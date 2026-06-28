@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.34] - 2026-06-28
+
+### Fixed
+- **Kanban timestamps now display in local time**: extracted a `fmtLocalTime()` helper in `assets/kanban.js` that parses SQLite UTC timestamps into local time, and applied it to all 5 timestamp sites (interview evaluation, AI evaluation, last match `cached_at`, reference interview questions, internal interview list). Unparseable values fall back to the raw string (no `Invalid Date`). Display-only change, no logic impact. (#75, PR #78)
+
 ## [0.2.33] - 2026-06-28
 
 ### Added
