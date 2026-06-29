@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.35] - 2026-06-29
+
+### Changed
+- **Hardened interview-question generation prompt** (`src/lib/interview-questions.js` → `buildPrompt`) against recurring generation-quality defects observed in live use: (1) lowered the main-question cap (12→10 for 60min, 8→6 for 30min), added an explicit target range, and required a mandatory must-ask set plus a required pacing note (cut order + floor fallback) so guides are built for realistic interview depth instead of exhaustive checklists; (2) added a no-overlap rule forbidding two main questions that test the same underlying signal; (3) added an anti-leading-question rule (probe attitude via concrete past behavior, not forward-looking promises); (4) required a visible anti-anchoring reminder that the AI match score is a prior, not a verdict; (5) anchored at least one question to the hiring team's current work when the company/role context states it. Updated tests for the new wording and added coverage for the new rules. (PR #82)
+
 ## [0.2.34] - 2026-06-28
 
 ### Fixed
