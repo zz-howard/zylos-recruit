@@ -59,13 +59,21 @@ test('buildContext includes local generation date and role interview prompt orde
 test('buildPrompt includes pre-analysis, capping, tenure, and bridging instructions', () => {
   const prompt30 = buildPrompt('context', { duration: 30 });
   assert.match(prompt30, /structured pre-analysis/i);
-  assert.match(prompt30, /at most 8 main questions/);
+  assert.match(prompt30, /Target 4-5 main questions; never exceed 6/);
   assert.match(prompt30, /single tenure exceeds 5 years/);
   assert.match(prompt30, /bridges that experience to the current opportunity/);
   assert.match(prompt30, /Related evaluation dimensions should be merged/);
 
   const prompt60 = buildPrompt('context', { duration: 60 });
-  assert.match(prompt60, /at most 12 main questions/);
+  assert.match(prompt60, /Target 6-8 main questions; never exceed 10/);
+});
+
+test('buildPrompt enforces must-ask set, no-overlap, no-leading, and anti-anchoring rules', () => {
+  const prompt = buildPrompt('context', { duration: 60 });
+  assert.match(prompt, /mandatory must-ask set/);
+  assert.match(prompt, /No-overlap rule/);
+  assert.match(prompt, /No leading questions/);
+  assert.match(prompt, /Anti-anchoring/);
 });
 
 test('normalizeInterviewDuration maps unsupported values to supported prompt budgets', () => {

@@ -184,7 +184,9 @@ ${customPrompt.trim()}`);
 
 export function buildPrompt(ctx, { duration = 60, templatePath } = {}) {
   const normalizedDuration = normalizeInterviewDuration(duration);
-  const questionCap = normalizedDuration <= 30 ? 8 : 12;
+  const questionCap = normalizedDuration <= 30 ? 6 : 10;
+  const questionTarget = normalizedDuration <= 30 ? '4-5' : '6-8';
+  const mustAskCount = normalizedDuration <= 30 ? '2-3' : '3-4';
   return `${ctx}
 
 ---
@@ -215,11 +217,13 @@ Use these non-negotiable style rules:
 - Never ask the candidate to produce documents, logs, schemas, or dashboards during the live interview — those are unanswerable in conversation and reward confident improvisation. Keep evidence-forcing within what the candidate personally did; do not ask them to recite enterprise gate checklists (coverage thresholds, SAST, etc.) they may never have owned.
 - Make the document directly usable by Howard in the interview: write question text as something he can read aloud, and keep interviewer guidance separate.
 - Related evaluation dimensions should be merged into a single main question with follow-up angles, not split into separate questions.
+- No-overlap rule: before finalizing, scan every question for shared underlying signal. If two main questions verify the same core competency (e.g. two separate questions both probing "quality / validation / eval"), merge them or cut the weaker one. No two main questions may test the same thing.
+- No leading questions: never write a question that telegraphs the answer you want or invites the candidate to agree with a framing (e.g. "we don't want someone who rebuilds everything from scratch — how would you fit in?"). Attitude, culture-fit, and alignment topics must be probed through concrete past behavior ("describe a time you had to work inside an existing framework you disagreed with — what specifically did you do?"), never through forward-looking promises. In the interviewer note for such a question, state explicitly that a stated attitude or promise is weak signal, and the falsifiable past example is the real signal.
 
 Default structure for question sections:
 1. Opening warm-up: you (the question designer) pick the single most revealing project or claim from the resume and anchor the opening question to it by name. Never ask the candidate to choose which project to present — "pick a project that best represents you" style openers are forbidden. State in the interviewer note why this project was chosen.
 2. Role-critical technical deep dive: focus on the role's hardest real requirements, not generic fundamentals.
-3. Transfer to this company/role: give one concrete company-relevant scenario and ask how the candidate would handle it.
+3. Transfer to this company/role: give one concrete company-relevant scenario and ask how the candidate would handle it. If the company profile or role instructions state current engineering focus areas, active projects, or tech stack, anchor at least one question to a real, current problem the hiring team is actually working on — matched to a relevant strength in the candidate's background — instead of a generic hypothetical.
 4. Execution plan and leadership: for senior/lead roles, ask about first week, first month, and 3-month verifiable outcomes.
 5. Risk checks: career gaps, short tenures, motivation, scope ownership, or other risks from the resume/evaluation.
 6. Closing and reverse questions.
@@ -234,10 +238,11 @@ Role-specific depth rules:
 
 Pacing and prioritization:
 - Interview duration: ${normalizedDuration} minutes.
-- Generate at most ${questionCap} main questions for this interview. A main question can include 1-2 natural follow-up directions.
-- For 30-minute interviews, stay within 8 main questions. For 60-minute interviews, stay within 12 main questions.
-- Identify the few questions that matter most for this candidate.
-- Include a pacing note explaining what to skip or shorten if an early answer is weak, and which are the 2-3 most revealing questions for this candidate.
+- Target ${questionTarget} main questions; never exceed ${questionCap}. A real ${normalizedDuration}-minute interview with proper follow-ups can only cover a handful of questions in depth — design for that reality, do not produce an exhaustive checklist.
+- A main question can include 1-2 natural follow-up directions.
+- Mark a mandatory must-ask set ("必问集") of ${mustAskCount} questions with the must-ask badge. These are the questions that, on their own, would let Howard make a decision. Every other question is 机动 (optional), to be asked only if time remains.
+- The pacing note is required and must explicitly: (a) list the 必问集; (b) say which questions to cut or shorten first when time runs short; (c) name a "floor" fallback question to fall back on if an early core answer is weak.
+- Anti-anchoring: the document must include a visible reminder (in the pacing note or the judgment framework) that the AI resume match score is a prior, not a verdict — Howard should judge on live interview evidence and be ready to override the AI score in either direction.
 - If any single tenure exceeds 5 years, include a motivation/change question about why they are leaving now and what changed.
 - Identify which past role or experience is closest to the target role. Include one question that bridges that experience to the current opportunity.
 
