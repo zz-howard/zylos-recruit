@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.36] - 2026-07-14
+
+### Fixed
+- **Enforce recency rule in interview question system prompt** — added a hard constraint to the system prompt in `buildPrompt()` requiring all interview questions to reference projects/experience from the most recent 3 years. Previously the rule only existed in per-role `interview_prompt` fields and could be diluted by the system prompt. (PR #84)
+
 ## [0.2.35] - 2026-06-29
 
 ### Changed
