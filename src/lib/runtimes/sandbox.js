@@ -229,9 +229,28 @@ function writePayload(cmd, args, opts, sandbox) {
     metadata: sandboxMetadata(sandbox),
     allowUnsandboxed: allowUnsandboxed(sandbox),
     shell: sandbox.shell || 'bash',
+    stdinFile: opts.stdinFile || null,
   };
   fs.writeFileSync(payloadPath, JSON.stringify(payload), { mode: 0o600 });
   return payloadPath;
+}
+
+/**
+ * Write content to a private temp file to be fed to a sandboxed child via
+ * stdin (payload.stdinFile). Large prompts must travel this way: the runner
+ * shell-quotes argv into a single `sh -c` string, and a prompt embedded in
+ * argv can exceed the kernel's per-argument limit (MAX_ARG_STRLEN, E2BIG).
+ * The runner deletes the file after the child exits; callers should also
+ * clean up on spawn failure.
+ */
+export function writeStdinFile(content) {
+  fs.mkdirSync(PAYLOAD_DIR, { recursive: true, mode: 0o700 });
+  const filePath = path.join(
+    PAYLOAD_DIR,
+    `stdin-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`,
+  );
+  fs.writeFileSync(filePath, content, { mode: 0o600 });
+  return filePath;
 }
 
 export function parseSandboxStatusFromStderr(stderr) {

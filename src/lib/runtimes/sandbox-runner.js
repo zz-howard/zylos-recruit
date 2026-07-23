@@ -34,12 +34,29 @@ function logUnsandboxed(metadata, reason) {
   );
 }
 
-function spawnShellCommand(command, env) {
-  return spawn(command, {
+function spawnShellCommand(command, env, stdinFile) {
+  // stdinFile carries oversized prompts: argv is shell-quoted into a single
+  // `sh -c` string, so a prompt in argv can exceed MAX_ARG_STRLEN (E2BIG).
+  // The fd is opened before sandbox wrapping; the child inherits it as fd 0.
+  let stdin = 'inherit';
+  if (stdinFile) {
+    stdin = fs.openSync(stdinFile, 'r');
+  }
+  const child = spawn(command, {
     shell: true,
-    stdio: 'inherit',
+    stdio: [stdin, 'inherit', 'inherit'],
     env,
   });
+  if (typeof stdin === 'number') {
+    child.once('spawn', () => { try { fs.closeSync(stdin); } catch { /* already closed */ } });
+    child.once('error', () => { try { fs.closeSync(stdin); } catch { /* already closed */ } });
+  }
+  return child;
+}
+
+function cleanupStdinFile(stdinFile) {
+  if (!stdinFile) return;
+  try { fs.rmSync(stdinFile, { force: true }); } catch { /* best-effort */ }
 }
 
 function exitLikeChild(code, signal) {
@@ -52,7 +69,7 @@ function exitLikeChild(code, signal) {
 
 async function main() {
   const payload = readPayload();
-  const { cmd, args, runtimeConfig, metadata, allowUnsandboxed, shell } = payload;
+  const { cmd, args, runtimeConfig, metadata, allowUnsandboxed, shell, stdinFile } = payload;
   const command = quoteSandboxCommand(cmd, args || []);
 
   let wrappedCommand;
@@ -70,11 +87,18 @@ async function main() {
     wrappedCommand = command;
   }
 
-  const child = spawnShellCommand(wrappedCommand, process.env);
+  let child;
+  try {
+    child = spawnShellCommand(wrappedCommand, process.env, stdinFile);
+  } catch (err) {
+    cleanupStdinFile(stdinFile);
+    throw err;
+  }
   let cleaned = false;
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
+    cleanupStdinFile(stdinFile);
     try {
       SandboxManager.cleanupAfterCommand();
     } catch {

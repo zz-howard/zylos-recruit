@@ -20,7 +20,7 @@
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import os from 'node:os';
-import { spawnSandboxed, parseSandboxStatusFromStderr } from './sandbox.js';
+import { spawnSandboxed, parseSandboxStatusFromStderr, writeStdinFile } from './sandbox.js';
 
 const ALWAYS_DISABLED = ['image_generation', 'multi_agent', 'computer_use'];
 const NEEDS_SHELL = new Set(['resume_eval', 'auto_match', 'interview_questions']);
@@ -125,7 +125,7 @@ export default {
       : [];
     if (sessionId) {
       args = [
-        'exec', 'resume', sessionId, prompt,
+        'exec', 'resume', sessionId, '-',
         ...resumeSandboxFlags,
         '--json',
         '--skip-git-repo-check',
@@ -142,7 +142,7 @@ export default {
         ...disableFlags,
         '-c', `model="${model}"`,
         '-c', `model_reasoning_effort=${effort}`,
-        prompt,
+        '-',
       ];
     }
     const env = { ...process.env, NO_COLOR: '1', TMPDIR: '/tmp' };
@@ -151,6 +151,7 @@ export default {
       const child = spawnCodex(args, {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
+        stdinFile: writeStdinFile(prompt),
         _readOnlyBinds: readOnlyBinds,
         _scenario: scenario,
       });
@@ -185,7 +186,7 @@ export default {
       : [];
     if (sessionId) {
       args = [
-        'exec', 'resume', sessionId, prompt,
+        'exec', 'resume', sessionId, '-',
         ...resumeSandboxFlags,
         '--json',
         '--skip-git-repo-check',
@@ -202,12 +203,12 @@ export default {
         ...disableFlags,
         '-c', `model="${model}"`,
         '-c', `model_reasoning_effort=${effort}`,
-        prompt,
+        '-',
       ];
     }
     const env = { ...process.env, NO_COLOR: '1', TMPDIR: '/tmp' };
 
-    const child = spawnCodex(args, { env, stdio: ['ignore', 'pipe', 'pipe'], _readOnlyBinds: readOnlyBinds, _scenario: scenario });
+    const child = spawnCodex(args, { env, stdio: ['ignore', 'pipe', 'pipe'], stdinFile: writeStdinFile(prompt), _readOnlyBinds: readOnlyBinds, _scenario: scenario });
     let buf = '';
     for await (const chunk of child.stdout) {
       buf += chunk.toString('utf8');

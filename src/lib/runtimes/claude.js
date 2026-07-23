@@ -14,7 +14,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
-import { spawnSandboxed, parseSandboxStatusFromStderr } from './sandbox.js';
+import { spawnSandboxed, parseSandboxStatusFromStderr, writeStdinFile } from './sandbox.js';
 
 const SCENARIO_TOOLS = {
   chat:                 'WebFetch',
@@ -49,7 +49,8 @@ export default {
   },
 
   async call(prompt, { model, effort, capabilities = [], sessionId, readOnlyBinds, scenario }) {
-    const args = ['-p', prompt, '--output-format', 'json', '--model', model, '--effort', effort];
+    // Prompt travels via stdin file, never argv (see writeStdinFile: E2BIG).
+    const args = ['-p', '--output-format', 'json', '--model', model, '--effort', effort];
     const tools = SCENARIO_TOOLS[scenario] ?? '';
     args.push('--tools', tools);
     if (tools) args.push('--allowedTools', tools);
@@ -61,6 +62,7 @@ export default {
       const child = spawnSandboxed('claude', args, {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
+        stdinFile: writeStdinFile(prompt),
       }, buildSandbox(readOnlyBinds, scenario));
       let out = '';
       let err = '';
@@ -88,7 +90,7 @@ export default {
   },
 
   async *stream(prompt, { model, effort, capabilities = [], sessionId, readOnlyBinds, scenario }) {
-    const args = ['-p', prompt, '--output-format', 'stream-json', '--model', model, '--effort', effort];
+    const args = ['-p', '--output-format', 'stream-json', '--model', model, '--effort', effort];
     const tools = SCENARIO_TOOLS[scenario] ?? '';
     args.push('--tools', tools);
     if (tools) args.push('--allowedTools', tools);
@@ -96,7 +98,7 @@ export default {
     const env = { ...process.env, NO_COLOR: '1' };
     delete env.ANTHROPIC_API_KEY;
 
-    const child = spawnSandboxed('claude', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, buildSandbox(readOnlyBinds, scenario));
+    const child = spawnSandboxed('claude', args, { env, stdio: ['ignore', 'pipe', 'pipe'], stdinFile: writeStdinFile(prompt) }, buildSandbox(readOnlyBinds, scenario));
     let buf = '';
     for await (const chunk of child.stdout) {
       buf += chunk.toString('utf8');
