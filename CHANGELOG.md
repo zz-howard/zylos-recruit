@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.37] - 2026-07-23
+
+### Fixed
+- **spawn E2BIG on large prompts (auto-match)** — prompts are no longer passed to sandboxed runtime CLIs via argv. The sandbox runner shell-quotes the whole command into a single `sh -c` argument, so the auto-match prompt (which embeds all active role portraits, ~64KB) could exceed the kernel per-argument limit (MAX_ARG_STRLEN) and fail with spawn E2BIG. Prompts now travel via a private temp file wired to the child's stdin (claude/codex/gemini, call + stream paths); the runner deletes the file on all exit paths. (PR #86)
+
 ## [0.2.36] - 2026-07-14
 
 ### Fixed

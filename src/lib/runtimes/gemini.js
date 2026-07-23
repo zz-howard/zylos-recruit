@@ -16,7 +16,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { spawnSandboxed, parseSandboxStatusFromStderr } from './sandbox.js';
+import { spawnSandboxed, parseSandboxStatusFromStderr, writeStdinFile } from './sandbox.js';
 
 const ALWAYS_DENIED = ['write_file', 'replace', 'save_memory', 'activate_skill'];
 
@@ -72,7 +72,7 @@ export default {
 
   async call(prompt, { model, sessionId, readOnlyBinds, scenario }) {
     const policyPath = buildPolicyFile(scenario);
-    const args = ['-p', prompt, '--model', model, '-y', '--skip-trust', '--admin-policy', policyPath, ...includeDirectoryArgs(readOnlyBinds), '-o', 'json'];
+    const args = ['--model', model, '-y', '--skip-trust', '--admin-policy', policyPath, ...includeDirectoryArgs(readOnlyBinds), '-o', 'json'];
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1', GEMINI_CLI_TRUST_WORKSPACE: 'true' };
 
@@ -80,6 +80,7 @@ export default {
       const child = spawnSandboxed('gemini', args, {
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
+        stdinFile: writeStdinFile(prompt),
       }, buildSandbox(readOnlyBinds, scenario));
       let out = '';
       let err = '';
@@ -108,11 +109,11 @@ export default {
 
   async *stream(prompt, { model, sessionId, readOnlyBinds, scenario }) {
     const policyPath = buildPolicyFile(scenario);
-    const args = ['-p', prompt, '--model', model, '-y', '--skip-trust', '--admin-policy', policyPath, ...includeDirectoryArgs(readOnlyBinds), '-o', 'text'];
+    const args = ['--model', model, '-y', '--skip-trust', '--admin-policy', policyPath, ...includeDirectoryArgs(readOnlyBinds), '-o', 'text'];
     if (sessionId) args.push('--resume', sessionId);
     const env = { ...process.env, NO_COLOR: '1', GEMINI_CLI_TRUST_WORKSPACE: 'true' };
 
-    const child = spawnSandboxed('gemini', args, { env, stdio: ['ignore', 'pipe', 'pipe'] }, buildSandbox(readOnlyBinds, scenario));
+    const child = spawnSandboxed('gemini', args, { env, stdio: ['ignore', 'pipe', 'pipe'], stdinFile: writeStdinFile(prompt) }, buildSandbox(readOnlyBinds, scenario));
     let buf = '';
     for await (const chunk of child.stdout) {
       buf += chunk.toString('utf8');
