@@ -79,6 +79,7 @@ async function main() {
     emitSandboxStatus(true, null);
   } catch (err) {
     if (!allowUnsandboxed) {
+      cleanupStdinFile(stdinFile);
       console.error(`[recruit] sandbox initialization failed closed: ${err.message}`);
       process.exit(126);
     }

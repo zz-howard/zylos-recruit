@@ -247,3 +247,31 @@ test('quoted command preserves argv boundaries for shell-sensitive input', () =>
   const output = execFileSync('/bin/sh', ['-c', quoted], { encoding: 'utf8' });
   assert.deepEqual(JSON.parse(output), expected);
 });
+
+test('fail-closed sandbox init cleans up the stdin prompt file before exiting', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'recruit-runner-failclosed-'));
+  const stdinFile = path.join(dir, 'stdin-prompt.txt');
+  fs.writeFileSync(stdinFile, 'PROMPT');
+  const payloadPath = path.join(dir, 'payload.json');
+  fs.writeFileSync(payloadPath, JSON.stringify({
+    cmd: 'echo',
+    args: ['hi'],
+    runtimeConfig: 'not-a-valid-runtime-config',
+    metadata: { scenario: 'test', runtime: 'claude' },
+    allowUnsandboxed: false,
+    shell: 'bash',
+    stdinFile,
+  }));
+
+  try {
+    execFileSync(process.execPath, [
+      path.join('src', 'lib', 'runtimes', 'sandbox-runner.js'),
+      payloadPath,
+    ], { encoding: 'utf8' });
+    assert.fail('runner should fail closed with a non-zero exit');
+  } catch (err) {
+    assert.equal(err.status, 126);
+  }
+  assert.equal(fs.existsSync(stdinFile), false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
